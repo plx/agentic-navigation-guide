@@ -157,4 +157,8 @@ pub struct Config {
     pub root_path: Option<PathBuf>,
     /// The path to the navigation guide file
     pub guide_path: Option<PathBuf>,
+    /// The original guide path as provided by the user (for error messages)
+    pub original_guide_path: Option<String>,
+    /// The original root path as provided by the user (for error messages)
+    pub original_root_path: Option<String>,
 }
