@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Navigation Guide
+
+@AGENTIC_NAVIGATION_GUIDE.md
+
 ## Commands
 
 ### Build and Check
@@ -78,6 +82,8 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 - All errors include line numbers for easy debugging
 
 ### Environment Variables
+
+These environment variables are used to configure the `agentic-navigation-guide` tool's behavior:
 
 - `AGENTIC_NAVIGATION_GUIDE_LOG_MODE`: Set to "quiet", "verbose", or "default"
 - `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", or "default"
