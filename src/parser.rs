@@ -84,7 +84,11 @@ impl Parser {
     }
 
     /// Parse the guide content into navigation guide lines
-    fn parse_guide_content(&self, content: &str, line_offset: usize) -> Result<Vec<NavigationGuideLine>> {
+    fn parse_guide_content(
+        &self,
+        content: &str,
+        line_offset: usize,
+    ) -> Result<Vec<NavigationGuideLine>> {
         if content.trim().is_empty() {
             return Err(SyntaxError::EmptyGuideBlock.into());
         }
@@ -349,7 +353,7 @@ mod tests {
         assert_eq!(guide.items[0].path(), "foo.rs");
         assert_eq!(guide.items[1].path(), "bar.rs");
         assert_eq!(guide.items[2].path(), "baz");
-        
+
         if let Some(children) = guide.items[2].children() {
             assert_eq!(children.len(), 1);
             assert_eq!(children[0].path(), "qux.rs");
