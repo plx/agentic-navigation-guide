@@ -1,2 +1,100 @@
-# agentic-navigation-guide
-Tooling to help maintain hand-written "navigation guides" for use by coding assistants.
+# `agentic-navigation-guide`
+
+[![Crates.io](https://img.shields.io/crates/v/agentic-navigation-guide.svg)](https://crates.io/crates/agentic-navigation-guide)
+
+It's often helpful to include hand-written "navigation guides" within coding-assistant memory files (like CLAUDE.md, GEMINI.md, etc.). It's also hard to maintain these navigation guides over time, due to files and directories getting added, moved, renamed, and removed (etc.).
+
+This crate provides a CLI tool to assist with both (a) authoring these guides and then (b) validating them against the current state of the filesystem; this validation tool can be run as a stand-alone tool, and also has explicit support for being used as a "post-tool-use hook" within Claude Code.
+
+## Navigation Guide Format
+
+A "navigation guide" looks like this:
+
+```
+<agentic-navigation-guide>
+- src/
+  - main.rs # Main entry point
+  - lib.rs # Core logic goes here
+  - types.rs # Core data types
+  - errors.rs # errors and error messages
+  - parser.rs # Parse guides from markdown
+  - cli/
+    - init.rs # init subcommand
+    - dump.rs # dump subcommand
+    - verify.rs # verify subcommand
+- Cargo.toml
+- README.md
+</agentic-navigation-guide>
+```
+
+The main rules are:
+
+- directories must end with a `/`
+- nesting is indicated by indentation
+- comments are optional, and must be separated from the path by a `#` character
+- blank lines are not allowed within the guide block
+- no special paths (`.`, `..`, `./`, `../`)
+- no ordering requirement is imposed
+
+Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries—the guide *must* be accurate*.
+
+## Suggested Usage
+
+To use this tool, I would suggest you do this:
+
+- put your navigation guide in a file named `AGENTIC_NAVIGATION_GUIDE.md` in the root of your project
+- use the `@` syntax to include it in your `CLAUDE.md` file (etc.)
+
+For a fuller example, you can review the [`CLAUDE.md`](./CLAUDE.md) file within this repository. 
+
+The advantage of this workflow is it keeps your navigation guide content physically-isolated from your CLAUDE.md (etc.)—helpful for editing and reviewing!—while still bringing the guide into context for each session.
+
+## Tool Overview
+
+The tool provides the following commands:
+
+- `init`: initialize a new navigation guide file with the current directory structure
+- `check`: check that the contents of a hand-written navigation guide are *syntactically* correct (i.e. adhere to the format specified above)
+- `verify`: verify that the contents of a hand-written navigation guide accurately reflect the current state of the file system
+- `dump`: dump the current directory contents in the intended markdown format
+
+If you're adding a navigation guide to your repository, I'd suggest:
+
+- run `agentic-navigation-guide init` to generate a starting point
+- hand-edit the file to add comments and omit extraneous details
+- run `agentic-navigation-guide verify` to check for errors
+- commit the file to your repository
+- update your CLAUDE.md (etc.) to include the guide using the `@` syntax
+
+## Post-Tool-Use Hook
+
+To set it up as a post-tool-use-hook, you can update your `~/.claude/settings.json` file to include the following:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agentic-navigation-guide verify --post-tool-use-hook"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Future Roadmap
+
+This is an early preview of the tool, so there are a few rough edges. Potential future steps:
+
+- [ ] support for auto-installing the hook (e.g. auto-editing your settings to include it)
+- [ ] support for auto-generating the hook (e.g. suggested prompts/commands to have your agent write the guide comments)
+- [ ] support for nested guides 
+- [ ] inspecting the post-tool-use-hook json and skipping unnecessary work
+
+Note that the tool is already configurable-enough it can be used with nested guides if invoked with the right arguments—the part that's missing is good ergonomics to make it work automagically.
