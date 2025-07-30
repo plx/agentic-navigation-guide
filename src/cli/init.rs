@@ -44,13 +44,14 @@ impl InitArgs {
         // Determine root path
         let root_path = self
             .root
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT").ok().map(PathBuf::from))
+            .or_else(|| {
+                std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT")
+                    .ok()
+                    .map(PathBuf::from)
+            })
             .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
-        log::info!(
-            "Initializing navigation guide for: {}",
-            root_path.display()
-        );
+        log::info!("Initializing navigation guide for: {}", root_path.display());
 
         // Create dumper
         let dumper = Dumper::new(&root_path)
@@ -68,21 +69,17 @@ impl InitArgs {
 This navigation guide helps AI coding assistants understand the structure of this project.
 The listing below may be incomplete and highlights key files and directories.
 
-{}
+{output}
 
 Note: This guide was automatically generated and may need manual adjustments.
-"#,
-            output
+"#
         );
 
         // Write output
         log::info!("Writing navigation guide to: {}", self.output.display());
         std::fs::write(&self.output, full_output)?;
 
-        println!(
-            "Navigation guide created at: {}",
-            self.output.display()
-        );
+        println!("Navigation guide created at: {}", self.output.display());
 
         Ok(())
     }

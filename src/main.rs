@@ -8,13 +8,13 @@ use cli::{Cli, Command};
 fn main() {
     // Parse CLI arguments
     let cli = Cli::parse();
-    
+
     // Build config
     let mut config = cli.build_config();
-    
+
     // Initialize logging
     cli::init_logging(&config);
-    
+
     // Execute the command
     let result = match cli.command {
         Command::Dump(args) => args.execute(&config),
@@ -22,7 +22,7 @@ fn main() {
         Command::Check(args) => args.execute(&mut config),
         Command::Verify(args) => args.execute(&mut config),
     };
-    
+
     // Handle the result and exit with appropriate code
     match result {
         Ok(()) => std::process::exit(0),

@@ -57,16 +57,16 @@ impl Dumper {
     /// Dump the directory structure as a navigation guide
     pub fn dump(&self) -> Result<String> {
         let mut output = String::new();
-        
+
         // Get directory entries
         let entries = self.collect_entries()?;
-        
+
         // Build the tree structure
         let tree = self.build_tree(entries);
-        
+
         // Format as markdown
         self.format_tree(&tree, &mut output, 0);
-        
+
         Ok(output)
     }
 
@@ -74,8 +74,7 @@ impl Dumper {
     pub fn dump_with_wrapper(&self) -> Result<String> {
         let content = self.dump()?;
         Ok(format!(
-            "<agentic-navigation-guide>\n{}</agentic-navigation-guide>",
-            content
+            "<agentic-navigation-guide>\n{content}</agentic-navigation-guide>"
         ))
     }
 
@@ -93,7 +92,7 @@ impl Dumper {
 
         for entry in walker {
             let entry = entry?;
-            
+
             // Check exclusion patterns
             if let Some(globs) = &self.exclude_globs {
                 let path = entry.path();
@@ -123,7 +122,7 @@ impl Dumper {
                 .strip_prefix(&self.root_path)
                 .unwrap_or(path)
                 .to_path_buf();
-            
+
             self.insert_into_tree(&mut root, &relative_path, entry.file_type().is_dir());
         }
 
@@ -133,7 +132,7 @@ impl Dumper {
     /// Insert a path into the tree structure
     fn insert_into_tree(&self, node: &mut TreeNode, path: &Path, is_dir: bool) {
         let components: Vec<_> = path.components().collect();
-        
+
         if components.is_empty() {
             return;
         }
@@ -150,7 +149,7 @@ impl Dumper {
             // Find or create intermediate directory
             let first = components[0].as_os_str().to_string_lossy().to_string();
             let rest = components[1..].iter().collect::<PathBuf>();
-            
+
             let child = if let Some(existing) = node
                 .children
                 .iter_mut()
@@ -165,7 +164,7 @@ impl Dumper {
                 });
                 node.children.last_mut().unwrap()
             };
-            
+
             self.insert_into_tree(child, &rest, is_dir);
         }
     }
@@ -179,9 +178,9 @@ impl Dumper {
             } else {
                 child.name.clone()
             };
-            
-            output.push_str(&format!("{}- {}\n", indent, name));
-            
+
+            output.push_str(&format!("{indent}- {name}\n"));
+
             if !child.children.is_empty() {
                 self.format_tree(child, output, depth + 1);
             }
@@ -206,15 +205,15 @@ mod tests {
     fn test_dump_simple_directory() {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
-        
+
         // Create test structure
         fs::create_dir(root.join("src")).unwrap();
         fs::write(root.join("src/main.rs"), "").unwrap();
         fs::write(root.join("Cargo.toml"), "").unwrap();
-        
+
         let dumper = Dumper::new(root);
         let output = dumper.dump().unwrap();
-        
+
         assert!(output.contains("- src/"));
         assert!(output.contains("  - main.rs"));
         assert!(output.contains("- Cargo.toml"));
@@ -224,14 +223,14 @@ mod tests {
     fn test_dump_with_max_depth() {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
-        
+
         // Create nested structure
         fs::create_dir_all(root.join("a/b/c")).unwrap();
         fs::write(root.join("a/b/c/deep.txt"), "").unwrap();
-        
+
         let dumper = Dumper::new(root).with_max_depth(Some(2));
         let output = dumper.dump().unwrap();
-        
+
         assert!(output.contains("- a/"));
         assert!(output.contains("  - b/"));
         assert!(!output.contains("deep.txt"));

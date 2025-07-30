@@ -1,3 +1,4 @@
 # Clippy configuration
 msrv = "1.70.0"
 avoid-breaking-exported-api = true
+too-many-lines-threshold = 100

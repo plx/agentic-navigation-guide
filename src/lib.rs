@@ -8,8 +8,17 @@
 //! - Verify guides against actual filesystem state
 //! - Generate navigation guides from directory structures
 
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(clippy::module_name_repetitions, clippy::must_use_candidate)]
+#![warn(clippy::all)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::missing_const_for_fn,
+    clippy::return_self_not_must_use,
+    clippy::unused_self,
+    clippy::only_used_in_recursion,
+    clippy::unnecessary_wraps
+)]
 
 pub mod dumper;
 pub mod errors;

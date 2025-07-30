@@ -148,6 +148,7 @@ impl Default for LogLevel {
 
 /// Configuration for the CLI tool
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct Config {
     /// The execution mode
     pub execution_mode: ExecutionMode,
@@ -159,13 +160,3 @@ pub struct Config {
     pub guide_path: Option<PathBuf>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            execution_mode: ExecutionMode::default(),
-            log_level: LogLevel::default(),
-            root_path: None,
-            guide_path: None,
-        }
-    }
-}

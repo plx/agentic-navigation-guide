@@ -41,7 +41,11 @@ impl VerifyArgs {
         // Determine guide path
         let guide_path = self
             .guide
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH").ok().map(PathBuf::from))
+            .or_else(|| {
+                std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH")
+                    .ok()
+                    .map(PathBuf::from)
+            })
             .or_else(|| {
                 std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
                     .ok()
@@ -56,7 +60,11 @@ impl VerifyArgs {
         // Determine root path
         let root_path = self
             .root
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT").ok().map(PathBuf::from))
+            .or_else(|| {
+                std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT")
+                    .ok()
+                    .map(PathBuf::from)
+            })
             .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
         log::debug!(
@@ -80,7 +88,7 @@ impl VerifyArgs {
             Ok(guide) => guide,
             Err(e) => {
                 let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{}", formatted);
+                eprintln!("{formatted}");
                 return Err(e);
             }
         };
@@ -89,7 +97,7 @@ impl VerifyArgs {
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
             let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-            eprintln!("{}", formatted);
+            eprintln!("{formatted}");
             return Err(e);
         }
 
@@ -104,7 +112,7 @@ impl VerifyArgs {
             }
             Err(e) => {
                 let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{}", formatted);
+                eprintln!("{formatted}");
                 Err(e)
             }
         }

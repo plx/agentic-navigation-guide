@@ -36,7 +36,11 @@ impl CheckArgs {
         // Determine guide path
         let guide_path = self
             .guide
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH").ok().map(PathBuf::from))
+            .or_else(|| {
+                std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH")
+                    .ok()
+                    .map(PathBuf::from)
+            })
             .or_else(|| {
                 std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
                     .ok()
@@ -65,7 +69,7 @@ impl CheckArgs {
             Ok(guide) => guide,
             Err(e) => {
                 let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{}", formatted);
+                eprintln!("{formatted}");
                 return Err(e);
             }
         };
@@ -81,7 +85,7 @@ impl CheckArgs {
             }
             Err(e) => {
                 let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{}", formatted);
+                eprintln!("{formatted}");
                 Err(e)
             }
         }

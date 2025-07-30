@@ -41,7 +41,11 @@ impl DumpArgs {
         // Determine root path
         let root_path = self
             .root
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT").ok().map(PathBuf::from))
+            .or_else(|| {
+                std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT")
+                    .ok()
+                    .map(PathBuf::from)
+            })
             .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
         log::debug!("Dumping directory: {}", root_path.display());
@@ -64,7 +68,7 @@ impl DumpArgs {
             log::info!("Writing output to: {}", output_path.display());
             std::fs::write(&output_path, output)?;
         } else {
-            print!("{}", output);
+            print!("{output}");
             std::io::stdout().flush()?;
         }
 

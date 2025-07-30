@@ -89,7 +89,9 @@ mod tests {
         let result = validator.validate_syntax(&guide);
         assert!(matches!(
             result,
-            Err(crate::errors::AppError::Syntax(SyntaxError::EmptyGuideBlock))
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::EmptyGuideBlock
+            ))
         ));
     }
 }

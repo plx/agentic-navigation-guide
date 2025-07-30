@@ -166,7 +166,9 @@ mod tests {
         let result = verifier.verify(&guide);
         assert!(matches!(
             result,
-            Err(crate::errors::AppError::Semantic(SemanticError::ItemNotFound { .. }))
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::ItemNotFound { .. }
+            ))
         ));
     }
 }

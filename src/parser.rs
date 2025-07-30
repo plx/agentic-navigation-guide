@@ -59,12 +59,8 @@ impl Parser {
         }
 
         // Validate markers
-        let start = start_idx
-            .ok_or(SyntaxError::MissingOpeningMarker { line: 1 })?;
-        let end = end_idx
-            .ok_or(SyntaxError::MissingClosingMarker {
-                line: lines.len(),
-            })?;
+        let start = start_idx.ok_or(SyntaxError::MissingOpeningMarker { line: 1 })?;
+        let end = end_idx.ok_or(SyntaxError::MissingClosingMarker { line: lines.len() })?;
 
         // Extract prologue, guide content, and epilogue
         let prologue = if start > 0 {
@@ -74,7 +70,7 @@ impl Parser {
         };
 
         let guide_content = lines[start + 1..end].join("\n");
-        
+
         let epilogue = if end + 1 < lines.len() {
             Some(lines[end + 1..].join("\n"))
         } else {
@@ -117,7 +113,9 @@ impl Parser {
                     0
                 } else if let Some(size) = indent_size {
                     if indent % size != 0 {
-                        return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
+                        return Err(
+                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
+                        );
                     }
                     indent / size
                 } else {
@@ -157,7 +155,11 @@ impl Parser {
     }
 
     /// Parse path and optional comment from item content
-    fn parse_path_comment(&self, content: &str, line_number: usize) -> Result<(String, Option<String>)> {
+    fn parse_path_comment(
+        &self,
+        content: &str,
+        line_number: usize,
+    ) -> Result<(String, Option<String>)> {
         if let Some(captures) = self.path_comment_regex.captures(content) {
             let path = captures.get(1).unwrap().as_str().trim().to_string();
             let comment = captures.get(2).map(|m| m.as_str().trim().to_string());
@@ -167,7 +169,8 @@ impl Parser {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: line_number,
                     path: String::new(),
-                }.into());
+                }
+                .into());
             }
 
             // Check for special directories
@@ -175,7 +178,8 @@ impl Parser {
                 return Err(SyntaxError::InvalidSpecialDirectory {
                     line: line_number,
                     path,
-                }.into());
+                }
+                .into());
             }
 
             Ok((path, comment))
@@ -183,7 +187,8 @@ impl Parser {
             Err(SyntaxError::InvalidPathFormat {
                 line: line_number,
                 path: content.to_string(),
-            }.into())
+            }
+            .into())
         }
     }
 
@@ -227,7 +232,9 @@ mod tests {
         let result = parser.parse(content);
         assert!(matches!(
             result,
-            Err(crate::errors::AppError::Syntax(SyntaxError::MissingOpeningMarker { .. }))
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MissingOpeningMarker { .. }
+            ))
         ));
     }
 
