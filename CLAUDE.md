@@ -1,0 +1,85 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+### Build and Check
+```bash
+cargo build          # Build the project
+cargo check          # Check for compilation errors without building
+cargo build --release # Build optimized release version
+```
+
+### Code Quality
+```bash
+cargo fmt            # Format code using rustfmt
+cargo clippy         # Run Clippy linter for code quality checks
+cargo clippy -- -D warnings  # Treat warnings as errors
+```
+
+### Testing
+```bash
+cargo test           # Run all tests
+cargo test -- --nocapture  # Run tests showing println! output
+cargo test <test_name>     # Run specific test by name
+```
+
+### Running the CLI Tool
+```bash
+# Dump directory structure
+cargo run -- dump --depth 2 --exclude target --exclude .git
+
+# Check navigation guide syntax
+cargo run -- check
+cargo run -- check --guide path/to/guide.md
+
+# Verify guide against filesystem
+cargo run -- verify
+cargo run -- verify --guide path/to/guide.md --root /path/to/root
+
+# Initialize new guide file
+cargo run -- init --output AGENTIC_NAVIGATION_GUIDE.md
+```
+
+## Architecture
+
+This is a CLI tool for verifying hand-written navigation guides against filesystem structure. The architecture follows these principles:
+
+### Core Components
+
+1. **Parser** (`src/parser.rs`): Extracts navigation guide blocks from markdown files and parses the hierarchical structure. Uses regex to parse individual lines and builds a tree structure based on indentation levels.
+
+2. **Validator** (`src/validator.rs`): Performs syntax validation on parsed guides, checking for proper formatting, consistent indentation, and valid path formats.
+
+3. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist and are of the correct type (file/directory).
+
+4. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
+
+### Data Flow
+
+1. **Input**: Markdown files containing `<agentic-navigation-guide>` blocks
+2. **Parsing**: Extract guide content and parse into `NavigationGuide` structure
+3. **Validation**: Check syntax rules (paths ending with `/` for directories, proper indentation)
+4. **Verification**: Compare against filesystem (if using `verify` command)
+5. **Output**: Error messages to stderr, exit codes based on execution mode
+
+### Key Types
+
+- `FilesystemItem`: Enum representing File, Directory, or Symlink
+- `NavigationGuideLine`: Parsed line with indent level and filesystem item
+- `NavigationGuide`: Complete guide with items and optional prologue/epilogue
+- `ExecutionMode`: Default, PostToolUse (exit code 2), or PreCommitHook
+
+### Error Handling
+
+- `SyntaxError`: Format violations in the guide
+- `SemanticError`: Filesystem mismatches
+- All errors include line numbers for easy debugging
+
+### Environment Variables
+
+- `AGENTIC_NAVIGATION_GUIDE_LOG_MODE`: Set to "quiet", "verbose", or "default"
+- `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", or "default"
+- `AGENTIC_NAVIGATION_GUIDE_PATH`: Default path to guide file
+- `AGENTIC_NAVIGATION_GUIDE_ROOT`: Default root directory for operations
