@@ -1,6 +1,9 @@
 # `agentic-navigation-guide`
 
+[![CI](https://github.com/plx/agentic-navigation-guide/workflows/CI/badge.svg)](https://github.com/plx/agentic-navigation-guide/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/agentic-navigation-guide.svg)](https://crates.io/crates/agentic-navigation-guide)
+[![Documentation](https://docs.rs/agentic-navigation-guide/badge.svg)](https://docs.rs/agentic-navigation-guide)
+[![License](https://img.shields.io/crates/l/agentic-navigation-guide.svg)](https://github.com/plx/agentic-navigation-guide/blob/main/LICENSE)
 
 It's often helpful to include hand-written "navigation guides" within coding-assistant memory files (like CLAUDE.md, GEMINI.md, etc.). It's also hard to maintain these navigation guides over time, due to files and directories getting added, moved, renamed, and removed (etc.).
 
