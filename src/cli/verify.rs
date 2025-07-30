@@ -172,9 +172,9 @@ fn format_post_tool_use_error(
                 error_detail
             )
         }
-        AppError::Semantic(_) => {
-            // Get the basic error message with context
-            let error_detail = ErrorFormatter::format_with_context(error, file_content);
+        AppError::Semantic(semantic_error) => {
+            // For semantic errors, just use the error message without line context
+            let error_detail = semantic_error.to_string();
             
             format!(
                 "The agentic navigation guide has become out-of-date vis-a-vis the current state of the file system.\n\n\

@@ -24,10 +24,10 @@ impl Parser {
     /// Parse navigation guide content from a markdown string
     pub fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
-        let (prologue, guide_content, epilogue) = self.extract_guide_block(content)?;
+        let (prologue, guide_content, epilogue, line_offset) = self.extract_guide_block(content)?;
 
         // Parse the guide content
-        let items = self.parse_guide_content(&guide_content)?;
+        let items = self.parse_guide_content(&guide_content, line_offset)?;
 
         Ok(NavigationGuide {
             items,
@@ -40,7 +40,7 @@ impl Parser {
     fn extract_guide_block(
         &self,
         content: &str,
-    ) -> Result<(Option<String>, String, Option<String>)> {
+    ) -> Result<(Option<String>, String, Option<String>, usize)> {
         let lines: Vec<&str> = content.lines().collect();
         let mut start_idx = None;
         let mut end_idx = None;
@@ -77,11 +77,14 @@ impl Parser {
             None
         };
 
-        Ok((prologue, guide_content, epilogue))
+        // Calculate line offset: prologue lines + opening tag line
+        let line_offset = start + 1;
+
+        Ok((prologue, guide_content, epilogue, line_offset))
     }
 
     /// Parse the guide content into navigation guide lines
-    fn parse_guide_content(&self, content: &str) -> Result<Vec<NavigationGuideLine>> {
+    fn parse_guide_content(&self, content: &str, line_offset: usize) -> Result<Vec<NavigationGuideLine>> {
         if content.trim().is_empty() {
             return Err(SyntaxError::EmptyGuideBlock.into());
         }
@@ -91,7 +94,8 @@ impl Parser {
         let lines: Vec<&str> = content.lines().collect();
 
         for (idx, line) in lines.iter().enumerate() {
-            let line_number = idx + 1;
+            // Calculate the actual line number in the file
+            let line_number = idx + 1 + line_offset;
 
             // Check for blank lines
             if line.trim().is_empty() {
