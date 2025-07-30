@@ -1,26 +1,20 @@
-# Test Navigation Guide
-
-This is a test navigation guide for the project.
-
 <agentic-navigation-guide>
 - src/
-  - main.rs
-  - lib.rs
+  - main.rs # Main entry point
+  - lib.rs # Core logic goes here
   - types.rs # Core data types
   - errors.rs # Error handling
-  - parser.rs
-  - validator.rs
-  - verifier.rs
-  - dumper.rs
+  - parser.rs # logic for parsing guide from markdown
+  - validator.rs # logic for validating syntax of guide
+  - verifier.rs # logic for verifying guide against file system
+  - dumper.rs # file-system-hierarchy "dumping" logic
   - cli/
     - mod.rs
-    - check.rs
-    - dump.rs
-    - init.rs
-    - verify.rs
+    - check.rs # check subcommand
+    - dump.rs # dump subcommand
+    - init.rs # init subcommand
+    - verify.rs # verify subcommand
 - Cargo.toml
 - README.md
-- Specification.md
+- Specification.md # original project specification document
 </agentic-navigation-guide>
-
-This guide helps AI assistants navigate the project structure.
