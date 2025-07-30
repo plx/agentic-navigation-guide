@@ -147,8 +147,7 @@ impl Default for LogLevel {
 }
 
 /// Configuration for the CLI tool
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// The execution mode
     pub execution_mode: ExecutionMode,
@@ -159,4 +158,3 @@ pub struct Config {
     /// The path to the navigation guide file
     pub guide_path: Option<PathBuf>,
 }
-

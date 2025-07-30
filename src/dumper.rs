@@ -88,20 +88,37 @@ impl Dumper {
             walker = walker.max_depth(max_depth + 1); // +1 because we skip root
         }
 
+        let exclude_globs = self.exclude_globs.clone();
+        let root_path = self.root_path.clone();
+
+        let walker = walker.into_iter().filter_entry(move |entry| {
+            // Check exclusion patterns
+            if let Some(ref globs) = exclude_globs {
+                let path = entry.path();
+                if let Ok(relative_path) = path.strip_prefix(&root_path) {
+                    // Check the full relative path
+                    if globs.is_match(relative_path) {
+                        return false;
+                    }
+
+                    // For directories, check if any parent component matches
+                    // This prevents descending into excluded directories
+                    let mut current_path = PathBuf::new();
+                    for component in relative_path.components() {
+                        current_path.push(component);
+                        if globs.is_match(&current_path) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        });
+
         let mut entries = Vec::new();
 
         for entry in walker {
             let entry = entry?;
-
-            // Check exclusion patterns
-            if let Some(globs) = &self.exclude_globs {
-                let path = entry.path();
-                let relative_path = path.strip_prefix(&self.root_path).unwrap_or(path);
-                if globs.is_match(relative_path) {
-                    continue;
-                }
-            }
-
             entries.push(entry);
         }
 

@@ -194,9 +194,75 @@ impl Parser {
 
     /// Build a hierarchical structure from flat list items
     fn build_hierarchy(&self, items: Vec<NavigationGuideLine>) -> Result<Vec<NavigationGuideLine>> {
-        // For now, return the flat list - hierarchical building will be implemented later
-        // This is a complex operation that requires careful handling of parent-child relationships
-        Ok(items)
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // First pass: organize items by their parent-child relationships
+        let mut result: Vec<NavigationGuideLine> = Vec::new();
+        let mut parent_indices: Vec<Option<usize>> = vec![None; items.len()];
+
+        // Find parent index for each item
+        for i in 0..items.len() {
+            let current_level = items[i].indent_level;
+
+            if current_level == 0 {
+                parent_indices[i] = None; // Root item
+            } else {
+                // Find the nearest preceding directory at level current_level - 1
+                let mut parent_found = false;
+                for j in (0..i).rev() {
+                    if items[j].indent_level == current_level - 1 && items[j].is_directory() {
+                        parent_indices[i] = Some(j);
+                        parent_found = true;
+                        break;
+                    } else if items[j].indent_level < current_level - 1 {
+                        // Gone too far up the hierarchy
+                        break;
+                    }
+                }
+
+                if !parent_found {
+                    return Err(SyntaxError::InvalidIndentationLevel {
+                        line: items[i].line_number,
+                    }
+                    .into());
+                }
+            }
+        }
+
+        // Second pass: build the tree
+        // We need to process items in reverse order to ensure children are complete before adding to parents
+        let mut processed_items: Vec<Option<NavigationGuideLine>> =
+            items.into_iter().map(Some).collect();
+
+        // Process from last to first
+        for i in (0..processed_items.len()).rev() {
+            if let Some(item) = processed_items[i].take() {
+                if let Some(parent_idx) = parent_indices[i] {
+                    // Add this item to its parent's children
+                    if let Some(ref mut parent) = processed_items[parent_idx] {
+                        match &mut parent.item {
+                            FilesystemItem::Directory { children, .. } => {
+                                // Insert at the beginning to maintain order
+                                children.insert(0, item);
+                            }
+                            _ => {
+                                return Err(SyntaxError::InvalidIndentationLevel {
+                                    line: item.line_number,
+                                }
+                                .into());
+                            }
+                        }
+                    }
+                } else {
+                    // Root item - add to result
+                    result.insert(0, item);
+                }
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -220,7 +286,19 @@ mod tests {
 
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
-        assert_eq!(guide.items.len(), 3);
+        assert_eq!(guide.items.len(), 2); // src/ and Cargo.toml at root level
+
+        // Check that src/ contains main.rs as a child
+        let src_item = &guide.items[0];
+        assert!(src_item.is_directory());
+        assert_eq!(src_item.path(), "src");
+
+        if let Some(children) = src_item.children() {
+            assert_eq!(children.len(), 1);
+            assert_eq!(children[0].path(), "main.rs");
+        } else {
+            panic!("src/ should have children");
+        }
     }
 
     #[test]
