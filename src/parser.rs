@@ -333,4 +333,28 @@ mod tests {
         assert_eq!(guide.items[0].comment(), Some("source code"));
         assert_eq!(guide.items[1].comment(), Some("project manifest"));
     }
+
+    #[test]
+    fn test_trailing_whitespace_allowed() {
+        let content = r#"<agentic-navigation-guide>
+- foo.rs  
+- bar.rs          
+- baz/     
+  - qux.rs      
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert_eq!(guide.items.len(), 3);
+        assert_eq!(guide.items[0].path(), "foo.rs");
+        assert_eq!(guide.items[1].path(), "bar.rs");
+        assert_eq!(guide.items[2].path(), "baz");
+        
+        if let Some(children) = guide.items[2].children() {
+            assert_eq!(children.len(), 1);
+            assert_eq!(children[0].path(), "qux.rs");
+        } else {
+            panic!("baz/ should have children");
+        }
+    }
 }
