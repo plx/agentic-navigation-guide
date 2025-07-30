@@ -219,3 +219,4 @@ Additionally, the following basics should be setup properly:
 - clippy should be used, and setup to run automatically after tool use
 - tests should be used (and setup as a pre-push hook)
 - documentation should be used (and setup as a pre-push hook)
+- the binary should be installable as a (e.g. `cargo install` should work)
