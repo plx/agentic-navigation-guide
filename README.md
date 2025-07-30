@@ -1,13 +1,19 @@
-# `agentic-navigation-guide`
+# Overview of `agentic-navigation-guide`
 
 [![CI](https://github.com/plx/agentic-navigation-guide/workflows/CI/badge.svg)](https://github.com/plx/agentic-navigation-guide/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/agentic-navigation-guide.svg)](https://crates.io/crates/agentic-navigation-guide)
 [![Documentation](https://docs.rs/agentic-navigation-guide/badge.svg)](https://docs.rs/agentic-navigation-guide)
 [![License](https://img.shields.io/crates/l/agentic-navigation-guide.svg)](https://github.com/plx/agentic-navigation-guide/blob/main/LICENSE)
 
-It's often helpful to include hand-written "navigation guides" within coding-assistant memory files (like CLAUDE.md, GEMINI.md, etc.). It's also hard to maintain these navigation guides over time, due to files and directories getting added, moved, renamed, and removed (etc.).
+Coding assistants often have trouble navigating large repositories (...and often burn a lot of time and tokens trying to locate files).
+One way to mitigate this difficulty is to include (partial) file listings inside the assistant's memory files, but these listings can be challenging to maintain over time. Worse, once they become outdated, their presence is more harmful than helpful.
 
-This crate provides a CLI tool to assist with both (a) authoring these guides and then (b) validating them against the current state of the filesystem; this validation tool can be run as a stand-alone tool, and also has explicit support for being used as a "post-tool-use hook" within Claude Code.
+This crate provides a CLI tool to assist with both:
+
+- hand-authoring helpful navigation guides
+- validating them against the current state of the filesystem
+
+The validation can be done in a stand-alone way, and also has special support for being used as a "post-tool-use-hook" by Claude Code.
 
 ## Navigation Guide Format
 
