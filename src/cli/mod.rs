@@ -84,6 +84,8 @@ impl Cli {
             log_level,
             root_path: None,
             guide_path: None,
+            original_guide_path: None,
+            original_root_path: None,
         }
     }
 }

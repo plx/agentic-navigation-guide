@@ -38,6 +38,14 @@ impl VerifyArgs {
             config.execution_mode = ExecutionMode::PreCommitHook;
         }
 
+        // Store original paths for error messages
+        config.original_guide_path = self.guide.as_ref().map(|p| p.display().to_string())
+            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH").ok())
+            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME").ok());
+        
+        config.original_root_path = self.root.as_ref().map(|p| p.display().to_string())
+            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT").ok());
+
         // Determine guide path
         let guide_path = self
             .guide
@@ -87,8 +95,13 @@ impl VerifyArgs {
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{formatted}");
+                if config.execution_mode == ExecutionMode::PostToolUse {
+                    let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
+                    eprintln!("{formatted}");
+                } else {
+                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                    eprintln!("{formatted}");
+                }
                 return Err(e);
             }
         };
@@ -96,8 +109,13 @@ impl VerifyArgs {
         // First validate syntax
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
-            let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-            eprintln!("{formatted}");
+            if config.execution_mode == ExecutionMode::PostToolUse {
+                let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
+                eprintln!("{formatted}");
+            } else {
+                let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                eprintln!("{formatted}");
+            }
             return Err(e);
         }
 
@@ -111,10 +129,66 @@ impl VerifyArgs {
                 Ok(())
             }
             Err(e) => {
-                let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{formatted}");
+                if config.execution_mode == ExecutionMode::PostToolUse {
+                    let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
+                    eprintln!("{formatted}");
+                } else {
+                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                    eprintln!("{formatted}");
+                }
                 Err(e)
             }
+        }
+    }
+}
+
+/// Format errors specifically for post-tool-use hook mode
+fn format_post_tool_use_error(
+    error: &agentic_navigation_guide::errors::AppError,
+    _guide_path: &PathBuf,
+    _root_path: &PathBuf,
+    config: &Config,
+    file_content: Option<&str>,
+) -> String {
+    use agentic_navigation_guide::errors::AppError;
+    
+    // Get display paths - use original if available, otherwise use defaults
+    let display_guide_path = config.original_guide_path
+        .as_deref()
+        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
+    
+    let display_root_path = config.original_root_path
+        .as_deref()
+        .unwrap_or("./");
+    
+    match error {
+        AppError::Syntax(_) => {
+            // Get the basic error message with context
+            let error_detail = ErrorFormatter::format_with_context(error, file_content);
+            
+            format!(
+                "The agentic navigation guide at {} has a syntax error:\n\n{}",
+                display_guide_path,
+                error_detail
+            )
+        }
+        AppError::Semantic(semantic_error) => {
+            // For semantic errors, just use the error message without line context
+            let error_detail = semantic_error.to_string();
+            
+            format!(
+                "The agentic navigation guide has become out-of-date vis-a-vis the current state of the file system.\n\n\
+                - guide: {}\n\
+                - root: {}\n\
+                - details:\n  - {}",
+                display_guide_path,
+                display_root_path,
+                error_detail
+            )
+        }
+        _ => {
+            // For other errors, use standard formatting
+            ErrorFormatter::format_with_context(error, file_content)
         }
     }
 }
