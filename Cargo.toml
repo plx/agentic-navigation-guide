@@ -2,10 +2,10 @@
 name = "agentic-navigation-guide"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["plx <plxgithub@gmail.com>"]
 description = "A CLI tool for verifying hand-written navigation guides against filesystem structure"
 license = "MIT"
-repository = "https://github.com/yourusername/agentic-navigation-guide"
+repository = "https://github.com/plx/agentic-navigation-guide"
 keywords = ["cli", "filesystem", "validation", "documentation"]
 categories = ["command-line-utilities", "development-tools"]
 
