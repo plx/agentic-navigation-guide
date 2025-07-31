@@ -44,8 +44,33 @@ The main rules are:
 - blank lines are not allowed within the guide block
 - no special paths (`.`, `..`, `./`, `../`)
 - no ordering requirement is imposed
+- placeholder entries (`...`) can be used to indicate unlisted items (see below)
 
 Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries—the guide *must* be accurate*.
+
+### Placeholder Entries
+
+You can use `...` as a placeholder to indicate that there are additional files or directories not explicitly listed:
+
+```
+<agentic-navigation-guide>
+- src/
+  - main.rs # Entry point
+  - ... # Other source files
+- docs/
+  - README.md
+  - api.md
+  - ... # Additional documentation
+</agentic-navigation-guide>
+```
+
+Rules for placeholders:
+- Written as `...` (three dots)
+- May have an optional comment after it
+- Cannot have child elements nested under them
+- Must refer to at least one unlisted item in the parent directory
+- Cannot be adjacent to another `...` entry (must have at least one non-placeholder between them)
+- Cannot be used in an empty directory
 
 ## Suggested Usage
 

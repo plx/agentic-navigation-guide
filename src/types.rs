@@ -31,6 +31,11 @@ pub enum FilesystemItem {
         /// The target of the symlink (if specified in the guide)
         target: Option<String>,
     },
+    /// A placeholder representing one or more unlisted items
+    Placeholder {
+        /// Optional comment describing what the placeholder represents
+        comment: Option<String>,
+    },
 }
 
 /// Represents a single line in the navigation guide
@@ -51,6 +56,7 @@ impl NavigationGuideLine {
             FilesystemItem::File { path, .. }
             | FilesystemItem::Directory { path, .. }
             | FilesystemItem::Symlink { path, .. } => path,
+            FilesystemItem::Placeholder { .. } => "...",
         }
     }
 
@@ -59,13 +65,19 @@ impl NavigationGuideLine {
         match &self.item {
             FilesystemItem::File { comment, .. }
             | FilesystemItem::Directory { comment, .. }
-            | FilesystemItem::Symlink { comment, .. } => comment.as_deref(),
+            | FilesystemItem::Symlink { comment, .. }
+            | FilesystemItem::Placeholder { comment, .. } => comment.as_deref(),
         }
     }
 
     /// Check if this item is a directory
     pub fn is_directory(&self) -> bool {
         matches!(self.item, FilesystemItem::Directory { .. })
+    }
+
+    /// Check if this item is a placeholder
+    pub fn is_placeholder(&self) -> bool {
+        matches!(self.item, FilesystemItem::Placeholder { .. })
     }
 
     /// Get the children of a directory item

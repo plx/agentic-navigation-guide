@@ -33,8 +33,16 @@ impl Validator {
 
     /// Validate a single navigation guide item
     fn validate_item(&self, item: &NavigationGuideLine) -> Result<()> {
-        // Validate path characters
-        self.validate_path_characters(item)?;
+        match &item.item {
+            FilesystemItem::Placeholder { .. } => {
+                // Placeholders don't need path validation
+                // They will have additional validation in validate_placeholders
+            }
+            _ => {
+                // Validate path characters for non-placeholder items
+                self.validate_path_characters(item)?;
+            }
+        }
 
         match &item.item {
             FilesystemItem::Directory { path, children, .. } => {
@@ -52,6 +60,9 @@ impl Validator {
                 for child in children {
                     self.validate_item(child)?;
                 }
+
+                // Check placeholder-specific rules for children
+                self.validate_placeholder_rules(children)?;
             }
             FilesystemItem::File { path, .. } | FilesystemItem::Symlink { path, .. } => {
                 // Files and symlinks should not end with slash
@@ -62,6 +73,9 @@ impl Validator {
                     }
                     .into());
                 }
+            }
+            FilesystemItem::Placeholder { .. } => {
+                // Placeholder-specific validation is done at the parent level
             }
         }
 
@@ -169,6 +183,35 @@ impl Validator {
 
         // Validate proper nesting (no skipping levels)
         self.validate_nesting(items)?;
+
+        // Validate placeholder rules at root level
+        self.validate_placeholder_rules(items)?;
+
+        Ok(())
+    }
+
+    /// Validate placeholder-specific rules
+    fn validate_placeholder_rules(&self, items: &[NavigationGuideLine]) -> Result<()> {
+        // Check that placeholders are not adjacent
+        for i in 0..items.len() {
+            if items[i].is_placeholder() {
+                // Check if next item is also a placeholder
+                if i + 1 < items.len() && items[i + 1].is_placeholder() {
+                    return Err(SyntaxError::AdjacentPlaceholders {
+                        line: items[i + 1].line_number,
+                    }
+                    .into());
+                }
+
+                // Placeholders cannot have children (this should be enforced by parser)
+                if items[i].children().is_some() && !items[i].children().unwrap().is_empty() {
+                    return Err(SyntaxError::PlaceholderWithChildren {
+                        line: items[i].line_number,
+                    }
+                    .into());
+                }
+            }
+        }
 
         Ok(())
     }
@@ -288,5 +331,84 @@ mod tests {
                 SyntaxError::InvalidPathFormat { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn test_validate_adjacent_placeholders() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![
+                    NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::Placeholder {
+                            comment: Some("first placeholder".to_string()),
+                        },
+                    },
+                    NavigationGuideLine {
+                        line_number: 3,
+                        indent_level: 1,
+                        item: FilesystemItem::Placeholder {
+                            comment: Some("second placeholder".to_string()),
+                        },
+                    },
+                ],
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::AdjacentPlaceholders { line: 3 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_non_adjacent_placeholders() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![
+                    NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::Placeholder {
+                            comment: Some("first placeholder".to_string()),
+                        },
+                    },
+                    NavigationGuideLine {
+                        line_number: 3,
+                        indent_level: 1,
+                        item: FilesystemItem::File {
+                            path: "main.rs".to_string(),
+                            comment: None,
+                        },
+                    },
+                    NavigationGuideLine {
+                        line_number: 4,
+                        indent_level: 1,
+                        item: FilesystemItem::Placeholder {
+                            comment: Some("second placeholder".to_string()),
+                        },
+                    },
+                ],
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(result.is_ok());
     }
 }
