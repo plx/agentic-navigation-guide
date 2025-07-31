@@ -12,19 +12,19 @@ use std::path::{Path, PathBuf};
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
     /// Path to the navigation guide file
-    #[arg(short, long)]
+    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_PATH")]
     pub guide: Option<PathBuf>,
 
     /// Root directory for verification
-    #[arg(short, long)]
+    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
 
     /// Running as post-tool-use hook
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook"])]
     pub post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook"])]
     pub pre_commit_hook: bool,
 }
 
@@ -43,23 +43,13 @@ impl VerifyArgs {
             .guide
             .as_ref()
             .map(|p| p.display().to_string())
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH").ok())
             .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME").ok());
 
-        config.original_root_path = self
-            .root
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT").ok());
+        config.original_root_path = self.root.as_ref().map(|p| p.display().to_string());
 
         // Determine guide path
         let guide_path = self
             .guide
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH")
-                    .ok()
-                    .map(PathBuf::from)
-            })
             .or_else(|| {
                 std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
                     .ok()
@@ -74,11 +64,6 @@ impl VerifyArgs {
         // Determine root path
         let root_path = self
             .root
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT")
-                    .ok()
-                    .map(PathBuf::from)
-            })
             .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
         log::debug!(
