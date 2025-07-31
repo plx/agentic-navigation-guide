@@ -20,11 +20,11 @@ pub struct VerifyArgs {
     pub root: Option<PathBuf>,
 
     /// Running as post-tool-use hook
-    #[arg(long, conflicts_with = "execution_mode")]
+    #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook"])]
     pub post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
-    #[arg(long, conflicts_with = "execution_mode")]
+    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook"])]
     pub pre_commit_hook: bool,
 }
 
