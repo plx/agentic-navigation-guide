@@ -17,4 +17,5 @@
 - Cargo.toml
 - README.md
 - Specification.md # original project specification document
+- ... # Additional project files (tests, examples, etc.)
 </agentic-navigation-guide>

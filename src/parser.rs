@@ -135,7 +135,9 @@ impl Parser {
                 let (path, comment) = self.parse_path_comment(content, line_number)?;
 
                 // Determine item type
-                let item = if path.ends_with('/') {
+                let item = if path == "..." {
+                    FilesystemItem::Placeholder { comment }
+                } else if path.ends_with('/') {
                     FilesystemItem::Directory {
                         path: path.trim_end_matches('/').to_string(),
                         comment,
@@ -181,8 +183,10 @@ impl Parser {
                 .into());
             }
 
-            // Check for special directories
-            if path == "." || path == ".." || path == "./" || path == "../" {
+            // Check for special directories (but allow "..." placeholder)
+            if path == "..." {
+                // Allowed as placeholder
+            } else if path == "." || path == ".." || path == "./" || path == "../" {
                 return Err(SyntaxError::InvalidSpecialDirectory {
                     line: line_number,
                     path,
@@ -359,6 +363,44 @@ mod tests {
             assert_eq!(children[0].path(), "qux.rs");
         } else {
             panic!("baz/ should have children");
+        }
+    }
+
+    #[test]
+    fn test_parse_placeholder() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+  - main.rs
+  - ... # other source files
+- docs/
+  - README.md
+  - ...
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert_eq!(guide.items.len(), 2); // src/ and docs/ at root level
+
+        // Check src/ contains main.rs and a placeholder
+        let src_item = &guide.items[0];
+        if let Some(children) = src_item.children() {
+            assert_eq!(children.len(), 2);
+            assert_eq!(children[0].path(), "main.rs");
+            assert!(children[1].is_placeholder());
+            assert_eq!(children[1].comment(), Some("other source files"));
+        } else {
+            panic!("src/ should have children");
+        }
+
+        // Check docs/ contains README.md and a placeholder
+        let docs_item = &guide.items[1];
+        if let Some(children) = docs_item.children() {
+            assert_eq!(children.len(), 2);
+            assert_eq!(children[0].path(), "README.md");
+            assert!(children[1].is_placeholder());
+            assert_eq!(children[1].comment(), None);
+        } else {
+            panic!("docs/ should have children");
         }
     }
 }

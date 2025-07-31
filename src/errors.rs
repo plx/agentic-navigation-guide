@@ -88,6 +88,14 @@ pub enum SyntaxError {
     /// Invalid comment format
     #[error("line {line}: invalid comment format - comments must be separated by '#'")]
     InvalidCommentFormat { line: usize },
+
+    /// Adjacent placeholders
+    #[error("line {line}: placeholder entries (...) cannot be adjacent to each other")]
+    AdjacentPlaceholders { line: usize },
+
+    /// Placeholder with children
+    #[error("line {line}: placeholder entries (...) cannot have child elements")]
+    PlaceholderWithChildren { line: usize },
 }
 
 /// Semantic errors when verifying against filesystem
@@ -131,6 +139,12 @@ pub enum SemanticError {
     /// Permission denied accessing item
     #[error("line {line}: permission denied accessing '{path}'")]
     PermissionDenied { line: usize, path: String },
+
+    /// Placeholder with no unmentioned items
+    #[error(
+        "line {line}: placeholder (...) must refer to at least one unlisted item in '{parent}'"
+    )]
+    PlaceholderNoUnmentionedItems { line: usize, parent: String },
 }
 
 impl SyntaxError {
@@ -147,7 +161,9 @@ impl SyntaxError {
             | Self::InvalidIndentationLevel { line }
             | Self::BlankLineInGuide { line }
             | Self::InvalidPathFormat { line, .. }
-            | Self::InvalidCommentFormat { line } => Some(*line),
+            | Self::InvalidCommentFormat { line }
+            | Self::AdjacentPlaceholders { line }
+            | Self::PlaceholderWithChildren { line } => Some(*line),
             Self::EmptyGuideBlock => None,
         }
     }
@@ -161,7 +177,8 @@ impl SemanticError {
             | Self::TypeMismatch { line, .. }
             | Self::InvalidNesting { line, .. }
             | Self::SymlinkTargetMismatch { line, .. }
-            | Self::PermissionDenied { line, .. } => *line,
+            | Self::PermissionDenied { line, .. }
+            | Self::PlaceholderNoUnmentionedItems { line, .. } => *line,
         }
     }
 }
