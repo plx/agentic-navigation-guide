@@ -11,15 +11,15 @@ use std::path::PathBuf;
 #[derive(Args, Debug)]
 pub struct CheckArgs {
     /// Path to the navigation guide file
-    #[arg(short, long)]
+    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_PATH")]
     pub guide: Option<PathBuf>,
 
     /// Running as post-tool-use hook
-    #[arg(long)]
+    #[arg(long, conflicts_with = "execution_mode")]
     pub post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
-    #[arg(long)]
+    #[arg(long, conflicts_with = "execution_mode")]
     pub pre_commit_hook: bool,
 }
 
@@ -36,11 +36,6 @@ impl CheckArgs {
         // Determine guide path
         let guide_path = self
             .guide
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_PATH")
-                    .ok()
-                    .map(PathBuf::from)
-            })
             .or_else(|| {
                 std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
                     .ok()

@@ -31,7 +31,7 @@ pub struct DumpArgs {
     pub omit_xml_wrapper: bool,
 
     /// Root directory to dump
-    #[arg(short, long)]
+    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
 }
 
@@ -41,11 +41,6 @@ impl DumpArgs {
         // Determine root path
         let root_path = self
             .root
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_ROOT")
-                    .ok()
-                    .map(PathBuf::from)
-            })
             .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
         log::debug!("Dumping directory: {}", root_path.display());

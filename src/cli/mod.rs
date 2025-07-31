@@ -18,12 +18,33 @@ use clap::{Parser, Subcommand};
 )]
 pub struct Cli {
     /// Enable verbose output
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, conflicts_with_all = ["quiet", "log_level"])]
     pub verbose: bool,
 
     /// Enable quiet output (minimal messages)
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, conflicts_with_all = ["verbose", "log_level"])]
     pub quiet: bool,
+
+    /// Set log level directly
+    #[arg(
+        long,
+        global = true,
+        env = "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
+        value_parser = ["quiet", "default", "verbose"],
+        hide = true,
+        conflicts_with_all = ["verbose", "quiet"]
+    )]
+    pub log_level: Option<String>,
+
+    /// Set execution mode directly
+    #[arg(
+        long,
+        global = true,
+        env = "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
+        value_parser = ["default", "post-tool-use", "pre-commit-hook"],
+        hide = true
+    )]
+    pub execution_mode: Option<String>,
 
     /// Subcommand to execute
     #[command(subcommand)]
@@ -49,28 +70,31 @@ pub enum Command {
 impl Cli {
     /// Parse CLI arguments and environment variables into a Config
     pub fn build_config(&self) -> Config {
-        let log_level = if self.verbose {
-            LogLevel::Verbose
-        } else if self.quiet {
-            LogLevel::Quiet
-        } else {
-            LogLevel::Default
-        };
-
-        // Check environment variable for log level override
-        let log_level = std::env::var("AGENTIC_NAVIGATION_GUIDE_LOG_MODE")
-            .ok()
-            .and_then(|mode| match mode.as_str() {
+        // First resolve log level from the direct parameter
+        let log_level = self
+            .log_level
+            .as_ref()
+            .and_then(|level| match level.as_str() {
                 "quiet" => Some(LogLevel::Quiet),
                 "verbose" => Some(LogLevel::Verbose),
                 "default" => Some(LogLevel::Default),
                 _ => None,
             })
-            .unwrap_or(log_level);
+            .unwrap_or({
+                // Then check convenience flags as overrides
+                if self.verbose {
+                    LogLevel::Verbose
+                } else if self.quiet {
+                    LogLevel::Quiet
+                } else {
+                    LogLevel::Default
+                }
+            });
 
-        // Check execution mode from environment
-        let execution_mode = std::env::var("AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE")
-            .ok()
+        // Resolve execution mode from the direct parameter
+        let execution_mode = self
+            .execution_mode
+            .as_ref()
             .and_then(|mode| match mode.as_str() {
                 "post-tool-use" => Some(ExecutionMode::PostToolUse),
                 "pre-commit-hook" => Some(ExecutionMode::PreCommitHook),
