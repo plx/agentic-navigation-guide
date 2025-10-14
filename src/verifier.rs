@@ -249,6 +249,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         let result = verifier.verify(&guide);
@@ -291,6 +292,7 @@ mod tests {
             ],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed because lib.rs and mod.rs are unmentioned
@@ -327,6 +329,7 @@ mod tests {
             ],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed because placeholder has a comment (represents future items)
@@ -361,6 +364,7 @@ mod tests {
             ],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should fail because placeholder has no comment and all items are mentioned
@@ -414,6 +418,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed because lib.rs and utils.rs are unmentioned
@@ -447,6 +452,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed because placeholder has a comment (represents future files)
@@ -478,6 +484,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should fail because directory is empty and placeholder has no comment
@@ -546,6 +553,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed - both placeholders have comments, and there's an unmentioned file (utils.rs)
@@ -611,6 +619,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed - placeholder has a comment even in deeply nested directory
@@ -647,6 +656,7 @@ mod tests {
             ],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed - placeholder without comment is ok when unmentioned items exist

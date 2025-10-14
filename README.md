@@ -20,7 +20,7 @@ The validation can be done in a stand-alone way, and also has special support fo
 A "navigation guide" looks like this:
 
 ```
-<agentic-navigation-guide>
+<agentic-navigation-guide ignore=true>
 - src/
   - main.rs # Main entry point
   - lib.rs # Core logic goes here
@@ -53,7 +53,7 @@ Note that it's *not* an error to omit files and directories from the guide, but 
 You can use `...` as a placeholder to indicate that there are additional files or directories not explicitly listed:
 
 ```
-<agentic-navigation-guide>
+<agentic-navigation-guide ignore=true>
 - src/
   - main.rs # Entry point
   - ... # Other source files
@@ -75,7 +75,7 @@ Rules for placeholders:
 The distinction between commented and uncommented placeholders enables two important use cases:
 
 ```
-<agentic-navigation-guide>
+<agentic-navigation-guide ignore=true>
 - src/
   - main.rs
   - ... # Represents lib.rs, utils.rs, etc. that exist but aren't listed
@@ -89,6 +89,27 @@ The distinction between commented and uncommented placeholders enables two impor
 In this example:
 - The first `...` in `src/` has a comment and there ARE unmentioned files (lib.rs, utils.rs) - represents omitted existing items
 - The second `...` in `phases/` has a comment but phase-01-scaffolding.md is the ONLY file - represents future items that don't exist yet
+
+### Ignoring Guides
+
+You can mark a navigation guide to be ignored during verification by adding an `ignore` attribute to the opening tag:
+
+```markdown
+<agentic-navigation-guide ignore=true>
+- example/
+  - file.rs
+</agentic-navigation-guide>
+```
+
+This is particularly useful for:
+- **Documentation examples**: Example guides in README files that should not be validated
+- **Invalid examples**: Intentionally incorrect guides used to demonstrate error cases
+- **Template files**: Guide templates that may not match the current filesystem
+
+The tool accepts both `ignore=true` and `ignore="true"` formats. When a guide is ignored, the tool will:
+- Skip all syntax and semantic validation
+- Emit a warning that the guide was skipped
+- Provide an additional note if the ignored guide is in a standalone `AGENTIC_NAVIGATION_GUIDE.md` file
 
 ## Suggested Usage
 

@@ -98,6 +98,8 @@ pub struct NavigationGuide {
     pub prologue: Option<String>,
     /// The original epilogue content (after the guide block)
     pub epilogue: Option<String>,
+    /// Whether this guide should be ignored during verification
+    pub ignore: bool,
 }
 
 impl NavigationGuide {
@@ -107,6 +109,7 @@ impl NavigationGuide {
             items: Vec::new(),
             prologue: None,
             epilogue: None,
+            ignore: false,
         }
     }
 

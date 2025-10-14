@@ -75,7 +75,10 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 - `FilesystemItem`: Enum representing File, Directory, or Symlink
 - `NavigationGuideLine`: Parsed line with indent level and filesystem item
-- `NavigationGuide`: Complete guide with items and optional prologue/epilogue
+- `NavigationGuide`: Complete guide with items, optional prologue/epilogue, and ignore flag
+  - The `ignore` field indicates whether the guide should be skipped during verification
+  - Set using `<agentic-navigation-guide ignore=true>` in the opening tag
+  - Useful for documentation examples that shouldn't be validated
 - `ExecutionMode`: Default, PostToolUse (exit code 2), PreCommitHook, or GitHubActions
 
 ### Error Handling

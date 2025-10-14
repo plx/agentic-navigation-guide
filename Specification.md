@@ -39,6 +39,18 @@ Thus, for example, a minimal `AGENTIC_NAVIGATION_GUIDE.md` file might look like 
 </agentic-navigation-guide>
 ```
 
+The opening tag may optionally include an `ignore` attribute to indicate that the guide should be skipped during verification:
+
+```markdown
+<agentic-navigation-guide ignore=true>
+- src/
+  - main.rs
+- Cargo.toml
+</agentic-navigation-guide>
+```
+
+This is particularly useful for documentation examples that should not be validated against the actual filesystem.
+
 ...but it could also look like this:
 
 ```markdown
@@ -63,6 +75,10 @@ Here are the rules of the above format, spelled out in much fuller detail:
 
 - the navigation guide document must be written in markdown
 - the navigation guide *must* include the "sentinel" markers `<agentic-navigation-guide>` and `</agentic-navigation-guide>`
+- the opening marker may optionally include an `ignore` attribute: `<agentic-navigation-guide ignore=true>` or `<agentic-navigation-guide ignore="true">`
+  - guides with `ignore=true` are skipped during verification
+  - this is useful for documentation examples that should not be validated
+  - a warning is emitted when skipping an ignored guide
 - there must be only a single `agentic-navigation-guide` block within the document
 - the contents of the `agentic-navigation-guide` must:
   - be a single unordered list with no other content 

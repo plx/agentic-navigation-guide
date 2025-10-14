@@ -113,6 +113,40 @@ impl VerifyArgs {
             }
         };
 
+        // Check if the guide should be ignored
+        if guide.ignore {
+            let display_path = config
+                .original_guide_path
+                .as_deref()
+                .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
+
+            // Emit warning based on execution mode
+            if config.log_level != LogLevel::Quiet {
+                match config.execution_mode {
+                    ExecutionMode::GitHubActions => {
+                        eprintln!("⚠️  Skipping verification: guide at {display_path} has ignore=true");
+                    }
+                    _ => {
+                        eprintln!("Warning: Skipping verification of {display_path} (marked with ignore=true)");
+                    }
+                }
+
+                // Extra warning if this is a standalone guide file
+                if guide_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "AGENTIC_NAVIGATION_GUIDE.md")
+                    .unwrap_or(false)
+                {
+                    eprintln!(
+                        "Note: Standalone guide file is marked with ignore=true. This may be intentional for examples."
+                    );
+                }
+            }
+
+            return Ok(());
+        }
+
         // First validate syntax
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
