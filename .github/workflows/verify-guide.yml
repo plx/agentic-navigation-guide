@@ -13,9 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: Install agentic-navigation-guide
-        run: cargo install agentic-navigation-guide
-      - name: Verify installation
-        run: agentic-navigation-guide --version
+      - name: Build agentic-navigation-guide
+        run: cargo build --release
       - name: Verify navigation guide
-        run: agentic-navigation-guide verify --github-actions-check
+        run: cargo run --release -- verify --github-actions-check
