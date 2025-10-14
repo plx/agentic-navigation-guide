@@ -551,3 +551,174 @@ fn test_verify_placeholder_mixed_scenarios() {
         .assert()
         .success();
 }
+
+#[test]
+fn test_github_actions_mode_success() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create valid structure
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- README.md
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("✓ Navigation guide verified"));
+}
+
+#[test]
+fn test_github_actions_mode_error_format() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create guide with missing file
+    let guide_content = r#"<agentic-navigation-guide>
+- missing.txt
+- also_missing.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("❌"))
+        .stderr(predicate::str::contains("GUIDE.md:2:"))
+        .stderr(predicate::str::contains("missing.txt"));
+}
+
+#[test]
+fn test_github_actions_mode_env_var() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create guide with error
+    let guide_content = r#"<agentic-navigation-guide>
+- missing_file.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode via env var
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE", "github-actions")
+        .arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn test_github_actions_mode_syntax_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Guide with syntax error (indentation)
+    let guide_content = r#"<agentic-navigation-guide>
+- src
+  - main.rs
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run check with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("❌"))
+        .stderr(predicate::str::contains("GUIDE.md:3:"))
+        .stderr(predicate::str::contains("- main.rs"));
+}
+
+#[test]
+fn test_github_actions_mode_quiet() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create valid structure
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- README.md
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode and quiet
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--quiet")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn test_github_actions_check_shows_line_content() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create guide with error on a specific line
+    let guide_content = r#"<agentic-navigation-guide>
+- README.md
+- missing_file.txt
+- another.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+    fs::write(dir_path.join("another.txt"), "").unwrap();
+
+    // Run verify with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("GUIDE.md:3:"))
+        .stderr(predicate::str::contains("- missing_file.txt")); // Line content shown
+}

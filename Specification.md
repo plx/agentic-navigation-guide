@@ -198,6 +198,7 @@ Named Arguments:
 
 - `--post-tool-use-hook`: indicates we're being invoked as a post-tool-hook by claude code
 - `--pre-commit-hook`: indicates we're being invoked as a pre-commit-hook by git
+- `--github-actions-check`: indicates we're being invoked as a GitHub Actions check
 - `--guide <path>`: the path to the `AGENTIC_NAVIGATION_GUIDE.md` file
 
 If `--guide` is not specified, the following defaults are used, in this order of precedence:
@@ -206,7 +207,7 @@ If `--guide` is not specified, the following defaults are used, in this order of
 - the file in the current directory named by the `AGENTIC_NAVIGATION_GUIDE_NAME` environment variable, if set 
 - `AGENTIC_NAVIGATION_GUIDE.md` in the current directory
 
-Internally these can be represented as a 3-way "mode" enum like `default | post-tool-use | pre-commit-hook`; the value of this enum can also be controlled by an environment variable (e.g. `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`).
+Internally these can be represented as a 4-way "mode" enum like `default | post-tool-use | pre-commit-hook | github-actions`; the value of this enum can also be controlled by an environment variable (e.g. `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`).
 
 There is a single positional argument: the path to the `AGENTIC_NAVIGATION_GUIDE.md` file (default, if unspecified: the file at the `AGENTIC_NAVIGATION_GUIDE_PATH` environment variable, if set; otherwise, `AGENTIC_NAVIGATION_GUIDE.md` in the current directory).
 
@@ -230,7 +231,17 @@ The messages for syntactic errors should be identical to those for `check`. The 
 
 ## Details: Execution Modes
 
-We want to make sure the internals are aware of when they're being run as a pre-commit hook, a post-tool-use hook, or in "default" mode. For now the main distinction is that we need to be careful to return error code **2** when we fail on a post-tool-use hook invocation, since that's what claude code expects.
+We want to make sure the internals are aware of the execution context to provide appropriate output:
+
+- **Default**: Standard mode with full error messages, exit code 1 on failure
+- **Post-Tool-Use**: Running as a Claude Code hook, exit code **2** on failure (as Claude Code expects)
+- **Pre-Commit-Hook**: Running as a git pre-commit hook, exit code 1 on failure
+- **GitHub-Actions**: Running as a CI check with:
+  - Concise success messages ("✓ Navigation guide verified" instead of full text)
+  - Error messages in `file:line: error` format for easy IDE integration
+  - Visual indicators (emoji) for quick scanning in CI logs
+  - Line content displayed below each error
+  - Exit code 1 on failure
 
 ## Details: Rust
 

@@ -133,6 +133,8 @@ pub enum ExecutionMode {
     PostToolUse,
     /// Running as a pre-commit hook
     PreCommitHook,
+    /// Running as a GitHub Actions check
+    GitHubActions,
 }
 
 impl Default for ExecutionMode {

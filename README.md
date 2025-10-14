@@ -140,6 +140,39 @@ To set it up as a post-tool-use-hook, you can update your `~/.claude/settings.js
 }
 ```
 
+## GitHub Actions Integration
+
+To use the tool as a CI check in GitHub Actions, add a job to your workflow:
+
+```yaml
+verify-navigation-guide:
+  name: Verify Navigation Guide
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - name: Install agentic-navigation-guide
+      run: cargo install agentic-navigation-guide
+    - name: Verify installation
+      run: agentic-navigation-guide --version
+    - name: Verify navigation guide
+      run: agentic-navigation-guide verify --github-actions-check
+```
+
+The `--github-actions-check` flag provides:
+- Concise output on success ("✓ Navigation guide verified")
+- Detailed error messages with file:line references
+- Exit code 1 on failure (standard for CI checks)
+- Visual indicators (emoji) for quick scanning
+
+You can also set the execution mode via environment variable:
+```yaml
+- name: Verify navigation guide
+  run: agentic-navigation-guide verify
+  env:
+    AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE: github-actions
+```
+
 ## Future Roadmap
 
 This is an early preview of the tool, so there are a few rough edges. Potential future steps:

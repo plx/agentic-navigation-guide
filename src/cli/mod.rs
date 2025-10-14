@@ -41,7 +41,7 @@ pub struct Cli {
         long,
         global = true,
         env = "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-        value_parser = ["default", "post-tool-use", "pre-commit-hook"],
+        value_parser = ["default", "post-tool-use", "pre-commit-hook", "github-actions"],
         hide = true
     )]
     pub execution_mode: Option<String>,
@@ -98,6 +98,7 @@ impl Cli {
             .and_then(|mode| match mode.as_str() {
                 "post-tool-use" => Some(ExecutionMode::PostToolUse),
                 "pre-commit-hook" => Some(ExecutionMode::PreCommitHook),
+                "github-actions" => Some(ExecutionMode::GitHubActions),
                 "default" => Some(ExecutionMode::Default),
                 _ => None,
             })

@@ -20,12 +20,16 @@ pub struct VerifyArgs {
     pub root: Option<PathBuf>,
 
     /// Running as post-tool-use hook
-    #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook"])]
+    #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
     pub post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
-    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook"])]
+    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "github_actions_check"])]
     pub pre_commit_hook: bool,
+
+    /// Running as GitHub Actions check
+    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "pre_commit_hook"])]
+    pub github_actions_check: bool,
 }
 
 impl VerifyArgs {
@@ -36,6 +40,8 @@ impl VerifyArgs {
             config.execution_mode = ExecutionMode::PostToolUse;
         } else if self.pre_commit_hook {
             config.execution_mode = ExecutionMode::PreCommitHook;
+        } else if self.github_actions_check {
+            config.execution_mode = ExecutionMode::GitHubActions;
         }
 
         // Store original paths for error messages
@@ -95,6 +101,10 @@ impl VerifyArgs {
                         Some(&content),
                     );
                     eprintln!("{formatted}");
+                } else if config.execution_mode == ExecutionMode::GitHubActions {
+                    let formatted =
+                        format_github_actions_error(&e, &guide_path, Some(&content), config);
+                    eprintln!("{formatted}");
                 } else {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
@@ -110,6 +120,10 @@ impl VerifyArgs {
                 let formatted =
                     format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
                 eprintln!("{formatted}");
+            } else if config.execution_mode == ExecutionMode::GitHubActions {
+                let formatted =
+                    format_github_actions_error(&e, &guide_path, Some(&content), config);
+                eprintln!("{formatted}");
             } else {
                 let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                 eprintln!("{formatted}");
@@ -122,7 +136,14 @@ impl VerifyArgs {
         match verifier.verify(&guide) {
             Ok(()) => {
                 if config.log_level != LogLevel::Quiet {
-                    println!("✓ Navigation guide is valid and matches filesystem");
+                    match config.execution_mode {
+                        ExecutionMode::GitHubActions => {
+                            println!("✓ Navigation guide verified");
+                        }
+                        _ => {
+                            println!("✓ Navigation guide is valid and matches filesystem");
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -135,6 +156,10 @@ impl VerifyArgs {
                         config,
                         Some(&content),
                     );
+                    eprintln!("{formatted}");
+                } else if config.execution_mode == ExecutionMode::GitHubActions {
+                    let formatted =
+                        format_github_actions_error(&e, &guide_path, Some(&content), config);
                     eprintln!("{formatted}");
                 } else {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
@@ -189,4 +214,50 @@ fn format_post_tool_use_error(
             ErrorFormatter::format_with_context(error, file_content)
         }
     }
+}
+
+/// Format errors specifically for GitHub Actions mode
+fn format_github_actions_error(
+    error: &agentic_navigation_guide::errors::AppError,
+    _guide_path: &Path,
+    file_content: Option<&str>,
+    config: &Config,
+) -> String {
+    use agentic_navigation_guide::errors::AppError;
+
+    let display_guide_path = config
+        .original_guide_path
+        .as_deref()
+        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
+
+    let mut output = String::new();
+
+    // Error header with emoji
+    output.push_str("❌ Navigation guide verification failed\n\n");
+
+    // Get line number from error
+    let line_num = match error {
+        AppError::Syntax(e) => e.line_number(),
+        AppError::Semantic(e) => Some(e.line_number()),
+        _ => None,
+    };
+
+    // Format error with file:line if available
+    if let Some(line_num) = line_num {
+        output.push_str(&format!("{display_guide_path}:{line_num}: "));
+        output.push_str(&error.to_string());
+        output.push('\n');
+
+        // Show the actual line content if available
+        if let Some(content) = file_content {
+            if let Some(line) = content.lines().nth(line_num.saturating_sub(1)) {
+                let trimmed_line = line.trim_end();
+                output.push_str(&format!("  {trimmed_line}\n"));
+            }
+        }
+    } else {
+        output.push_str(&format!("{display_guide_path}: {error}\n"));
+    }
+
+    output
 }

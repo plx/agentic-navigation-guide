@@ -42,6 +42,9 @@ cargo run -- check --guide path/to/guide.md
 cargo run -- verify
 cargo run -- verify --guide path/to/guide.md --root /path/to/root
 
+# Verify in GitHub Actions mode (concise output, file:line format)
+cargo run -- verify --github-actions-check
+
 # Initialize new guide file
 cargo run -- init --output AGENTIC_NAVIGATION_GUIDE.md
 ```
@@ -73,7 +76,7 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 - `FilesystemItem`: Enum representing File, Directory, or Symlink
 - `NavigationGuideLine`: Parsed line with indent level and filesystem item
 - `NavigationGuide`: Complete guide with items and optional prologue/epilogue
-- `ExecutionMode`: Default, PostToolUse (exit code 2), or PreCommitHook
+- `ExecutionMode`: Default, PostToolUse (exit code 2), PreCommitHook, or GitHubActions
 
 ### Error Handling
 
@@ -86,6 +89,6 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 These environment variables are used to configure the `agentic-navigation-guide` tool's behavior:
 
 - `AGENTIC_NAVIGATION_GUIDE_LOG_MODE`: Set to "quiet", "verbose", or "default"
-- `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", or "default"
+- `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", "github-actions", or "default"
 - `AGENTIC_NAVIGATION_GUIDE_PATH`: Default path to guide file
 - `AGENTIC_NAVIGATION_GUIDE_ROOT`: Default root directory for operations
