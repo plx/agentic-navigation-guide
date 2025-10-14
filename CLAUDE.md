@@ -45,6 +45,10 @@ cargo run -- verify --guide path/to/guide.md --root /path/to/root
 # Verify in GitHub Actions mode (concise output, file:line format)
 cargo run -- verify --github-actions-check
 
+# Recursively verify all navigation guides (for monorepos)
+cargo run -- verify --recursive
+cargo run -- verify --recursive --guide-name GUIDE.md --exclude target --exclude node_modules
+
 # Initialize new guide file
 cargo run -- init --output AGENTIC_NAVIGATION_GUIDE.md
 ```
@@ -62,6 +66,8 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 3. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist and are of the correct type (file/directory).
 
 4. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
+
+5. **Recursive** (`src/recursive.rs`): Provides recursive guide discovery and batch verification for monorepos with nested navigation guides. Uses WalkDir to find all guide files and verifies each relative to its parent directory.
 
 ### Data Flow
 
@@ -95,3 +101,4 @@ These environment variables are used to configure the `agentic-navigation-guide`
 - `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", "github-actions", or "default"
 - `AGENTIC_NAVIGATION_GUIDE_PATH`: Default path to guide file
 - `AGENTIC_NAVIGATION_GUIDE_ROOT`: Default root directory for operations
+- `AGENTIC_NAVIGATION_GUIDE_NAME`: Default guide filename for recursive mode (e.g., "GUIDE.md")

@@ -194,13 +194,63 @@ You can also set the execution mode via environment variable:
     AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE: github-actions
 ```
 
+## Recursive Verification for Monorepos
+
+For monorepos or projects with nested navigation guides, you can use the `--recursive` flag to automatically discover and verify all guide files:
+
+```bash
+# Recursively verify all AGENTIC_NAVIGATION_GUIDE.md files
+agentic-navigation-guide verify --recursive
+
+# Use a custom guide name (e.g., GUIDE.md)
+agentic-navigation-guide verify --recursive --guide-name GUIDE.md
+
+# Exclude directories from the search
+agentic-navigation-guide verify --recursive --exclude target --exclude node_modules
+```
+
+### Example Monorepo Structure
+
+```
+AGENTIC_NAVIGATION_GUIDE.md         # Root-level guide
+CLAUDE.md
+/backend/
+  AGENTIC_NAVIGATION_GUIDE.md       # Backend guide (verified relative to /backend/)
+  CLAUDE.md
+  /services/
+    /sso/
+      AGENTIC_NAVIGATION_GUIDE.md   # SSO service guide (verified relative to /backend/services/sso/)
+      CLAUDE.md
+    /taskrunner/
+      AGENTIC_NAVIGATION_GUIDE.md   # Taskrunner guide (verified relative to /backend/services/taskrunner/)
+      CLAUDE.md
+/frontend/
+  AGENTIC_NAVIGATION_GUIDE.md       # Frontend guide (verified relative to /frontend/)
+  CLAUDE.md
+  /consumer/
+    AGENTIC_NAVIGATION_GUIDE.md     # Consumer app guide (verified relative to /frontend/consumer/)
+    CLAUDE.md
+  /internal/
+    AGENTIC_NAVIGATION_GUIDE.md     # Internal app guide (verified relative to /frontend/internal/)
+    CLAUDE.md
+```
+
+Each guide is verified relative to its parent directory, allowing you to maintain focused navigation guides for different parts of your codebase.
+
+### Recursive Verification Features
+
+- **Automatic Discovery**: Finds all guide files matching the specified name throughout the directory tree
+- **Relative Verification**: Each guide is verified against its parent directory as the root
+- **Custom Names**: Support for uniform custom guide filenames (e.g., `--guide-name GUIDE.md`)
+- **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
+- **Aggregated Results**: Shows summary of all verified guides with pass/fail counts
+- **Execution Modes**: Works with all execution modes (default, post-tool-use, pre-commit-hook, GitHub Actions)
+
 ## Future Roadmap
 
 This is an early preview of the tool, so there are a few rough edges. Potential future steps:
 
 - [ ] support for auto-installing the hook (e.g. auto-editing your settings to include it)
 - [ ] support for auto-generating the hook (e.g. suggested prompts/commands to have your agent write the guide comments)
-- [ ] support for nested guides 
+- [x] support for nested guides (completed - use `--recursive` flag)
 - [ ] inspecting the post-tool-use-hook json and skipping unnecessary work
-
-Note that the tool is already configurable-enough it can be used with nested guides if invoked with the right arguments—the part that's missing is good ergonomics to make it work automagically.

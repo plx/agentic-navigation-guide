@@ -24,7 +24,8 @@ impl Parser {
     /// Parse navigation guide content from a markdown string
     pub fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
-        let (prologue, guide_content, epilogue, line_offset, ignore) = self.extract_guide_block(content)?;
+        let (prologue, guide_content, epilogue, line_offset, ignore) =
+            self.extract_guide_block(content)?;
 
         // Parse the guide content
         let items = self.parse_guide_content(&guide_content, line_offset)?;

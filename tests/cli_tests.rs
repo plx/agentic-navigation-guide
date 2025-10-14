@@ -722,3 +722,455 @@ fn test_github_actions_check_shows_line_content() {
         .stderr(predicate::str::contains("GUIDE.md:3:"))
         .stderr(predicate::str::contains("- missing_file.txt")); // Line content shown
 }
+
+#[test]
+fn test_recursive_verify_basic() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a monorepo structure with multiple guides
+    fs::create_dir_all(root.join("backend/src")).unwrap();
+    fs::write(root.join("backend/src/main.rs"), "").unwrap();
+    fs::write(root.join("backend/README.md"), "").unwrap();
+
+    fs::create_dir_all(root.join("frontend/src")).unwrap();
+    fs::write(root.join("frontend/src/index.js"), "").unwrap();
+    fs::write(root.join("frontend/package.json"), "").unwrap();
+
+    // Create guide files
+    let backend_guide = r#"<agentic-navigation-guide>
+- src/
+  - main.rs
+- README.md
+</agentic-navigation-guide>"#;
+
+    let frontend_guide = r#"<agentic-navigation-guide>
+- src/
+  - index.js
+- package.json
+</agentic-navigation-guide>"#;
+
+    fs::write(
+        root.join("backend/AGENTIC_NAVIGATION_GUIDE.md"),
+        backend_guide,
+    )
+    .unwrap();
+    fs::write(
+        root.join("frontend/AGENTIC_NAVIGATION_GUIDE.md"),
+        frontend_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 2 navigation guide(s)"));
+}
+
+#[test]
+fn test_recursive_verify_with_custom_name() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with custom guide name
+    fs::create_dir_all(root.join("module-a")).unwrap();
+    fs::write(root.join("module-a/file.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("module-b")).unwrap();
+    fs::write(root.join("module-b/data.json"), "").unwrap();
+
+    let guide_a = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    let guide_b = r#"<agentic-navigation-guide>
+- data.json
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("module-a/GUIDE.md"), guide_a).unwrap();
+    fs::write(root.join("module-b/GUIDE.md"), guide_b).unwrap();
+
+    // Run recursive verify with custom guide name
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--guide-name")
+        .arg("GUIDE.md")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_recursive_verify_with_failures() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with one valid and one invalid guide
+    fs::create_dir_all(root.join("valid")).unwrap();
+    fs::write(root.join("valid/file.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("invalid")).unwrap();
+    // Note: missing.txt is NOT created
+
+    let valid_guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    let invalid_guide = r#"<agentic-navigation-guide>
+- missing.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("valid/AGENTIC_NAVIGATION_GUIDE.md"), valid_guide).unwrap();
+    fs::write(
+        root.join("invalid/AGENTIC_NAVIGATION_GUIDE.md"),
+        invalid_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify - should fail
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing.txt"));
+}
+
+#[test]
+fn test_recursive_verify_with_exclusions() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with guides in excluded directories
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+
+    fs::create_dir_all(root.join("target/debug")).unwrap();
+    fs::write(root.join("target/debug/binary"), "").unwrap();
+
+    fs::create_dir_all(root.join("node_modules/package")).unwrap();
+    fs::write(root.join("node_modules/package/index.js"), "").unwrap();
+
+    let src_guide = r#"<agentic-navigation-guide>
+- main.rs
+</agentic-navigation-guide>"#;
+
+    // These guides should be excluded
+    let target_guide = r#"<agentic-navigation-guide>
+- debug/
+</agentic-navigation-guide>"#;
+
+    let node_guide = r#"<agentic-navigation-guide>
+- package/
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("src/AGENTIC_NAVIGATION_GUIDE.md"), src_guide).unwrap();
+    fs::write(
+        root.join("target/AGENTIC_NAVIGATION_GUIDE.md"),
+        target_guide,
+    )
+    .unwrap();
+    fs::write(
+        root.join("node_modules/AGENTIC_NAVIGATION_GUIDE.md"),
+        node_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify with exclusions
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--exclude")
+        .arg("target")
+        .arg("--exclude")
+        .arg("node_modules")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 navigation guide(s)")); // Only src/
+}
+
+#[test]
+fn test_recursive_verify_with_ignored_guides() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with ignored guide
+    fs::create_dir_all(root.join("docs/examples")).unwrap();
+    fs::write(root.join("docs/examples/demo.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+
+    let ignored_guide = r#"<agentic-navigation-guide ignore=true>
+- nonexistent.txt
+</agentic-navigation-guide>"#;
+
+    let valid_guide = r#"<agentic-navigation-guide>
+- main.rs
+</agentic-navigation-guide>"#;
+
+    fs::write(
+        root.join("docs/examples/AGENTIC_NAVIGATION_GUIDE.md"),
+        ignored_guide,
+    )
+    .unwrap();
+    fs::write(root.join("src/AGENTIC_NAVIGATION_GUIDE.md"), valid_guide).unwrap();
+
+    // Run recursive verify - should succeed and report ignored guide
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("ignore=true"));
+}
+
+#[test]
+fn test_recursive_verify_no_guides_found() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with no guide files
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+
+    // Run recursive verify
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("No navigation guide files"));
+}
+
+#[test]
+fn test_recursive_verify_deeply_nested() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create deeply nested structure
+    fs::create_dir_all(root.join("a/b/c/d")).unwrap();
+    fs::write(root.join("a/b/c/d/deep.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- deep.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("a/b/c/d/AGENTIC_NAVIGATION_GUIDE.md"), guide).unwrap();
+
+    // Run recursive verify
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_recursive_verify_github_actions_mode() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with one valid and one invalid guide
+    fs::create_dir_all(root.join("valid")).unwrap();
+    fs::write(root.join("valid/file.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("invalid")).unwrap();
+
+    let valid_guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    let invalid_guide = r#"<agentic-navigation-guide>
+- missing.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("valid/AGENTIC_NAVIGATION_GUIDE.md"), valid_guide).unwrap();
+    fs::write(
+        root.join("invalid/AGENTIC_NAVIGATION_GUIDE.md"),
+        invalid_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify in GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--github-actions-check")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("❌"));
+}
+
+#[test]
+fn test_recursive_verify_quiet_mode() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create valid structure
+    fs::create_dir_all(root.join("module")).unwrap();
+    fs::write(root.join("module/file.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("module/AGENTIC_NAVIGATION_GUIDE.md"), guide).unwrap();
+
+    // Run recursive verify in quiet mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--quiet")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn test_guide_name_requires_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Try to use --guide-name without --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide-name")
+        .arg("GUIDE.md")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the following required arguments were not provided",
+        ))
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_exclude_requires_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Try to use --exclude without --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--exclude")
+        .arg("target")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the following required arguments were not provided",
+        ))
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_guide_conflicts_with_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a guide file
+    fs::write(
+        root.join("GUIDE.md"),
+        "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    // Try to use --guide with --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(root.join("GUIDE.md"))
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"))
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_recursive_conflicts_with_guide() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a guide file
+    fs::write(
+        root.join("GUIDE.md"),
+        "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    // Try to use --recursive with --guide (reversed order from previous test)
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--guide")
+        .arg(root.join("GUIDE.md"))
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_guide_name_and_exclude_work_with_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create valid structure with custom guide name
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+    fs::write(
+        root.join("src/GUIDE.md"),
+        "<agentic-navigation-guide>\n- main.rs\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    fs::create_dir_all(root.join("target")).unwrap();
+    fs::write(
+        root.join("target/GUIDE.md"),
+        "<agentic-navigation-guide>\n- binary\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    // Verify that --guide-name and --exclude work correctly WITH --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--guide-name")
+        .arg("GUIDE.md")
+        .arg("--exclude")
+        .arg("target")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 navigation guide(s)"));
+}

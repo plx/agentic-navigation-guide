@@ -88,7 +88,9 @@ impl CheckArgs {
             if config.log_level != LogLevel::Quiet {
                 match config.execution_mode {
                     ExecutionMode::GitHubActions => {
-                        eprintln!("⚠️  Skipping syntax check: guide at {display_path} has ignore=true");
+                        eprintln!(
+                            "⚠️  Skipping syntax check: guide at {display_path} has ignore=true"
+                        );
                     }
                     _ => {
                         eprintln!("Warning: Skipping syntax check of {display_path} (marked with ignore=true)");

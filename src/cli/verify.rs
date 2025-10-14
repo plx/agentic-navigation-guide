@@ -12,12 +12,29 @@ use std::path::{Path, PathBuf};
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
     /// Path to the navigation guide file
-    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_PATH")]
+    #[arg(
+        short,
+        long,
+        env = "AGENTIC_NAVIGATION_GUIDE_PATH",
+        conflicts_with = "recursive"
+    )]
     pub guide: Option<PathBuf>,
 
     /// Root directory for verification
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
+
+    /// Recursively find and verify all navigation guides
+    #[arg(long, conflicts_with = "guide")]
+    pub recursive: bool,
+
+    /// Name of the navigation guide file to search for (only used with --recursive)
+    #[arg(long, requires = "recursive", env = "AGENTIC_NAVIGATION_GUIDE_NAME")]
+    pub guide_name: Option<String>,
+
+    /// Glob patterns to exclude from recursive search (can be specified multiple times)
+    #[arg(long = "exclude", requires = "recursive")]
+    pub exclude_patterns: Vec<String>,
 
     /// Running as post-tool-use hook
     #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
@@ -42,6 +59,11 @@ impl VerifyArgs {
             config.execution_mode = ExecutionMode::PreCommitHook;
         } else if self.github_actions_check {
             config.execution_mode = ExecutionMode::GitHubActions;
+        }
+
+        // Handle recursive mode
+        if self.recursive {
+            return self.execute_recursive(config);
         }
 
         // Store original paths for error messages
@@ -124,7 +146,9 @@ impl VerifyArgs {
             if config.log_level != LogLevel::Quiet {
                 match config.execution_mode {
                     ExecutionMode::GitHubActions => {
-                        eprintln!("⚠️  Skipping verification: guide at {display_path} has ignore=true");
+                        eprintln!(
+                            "⚠️  Skipping verification: guide at {display_path} has ignore=true"
+                        );
                     }
                     _ => {
                         eprintln!("Warning: Skipping verification of {display_path} (marked with ignore=true)");
@@ -201,6 +225,70 @@ impl VerifyArgs {
                 }
                 Err(e)
             }
+        }
+    }
+
+    /// Execute verification in recursive mode
+    fn execute_recursive(self, config: &Config) -> Result<()> {
+        use agentic_navigation_guide::recursive;
+
+        // Determine the root path for recursive search
+        let search_root = self
+            .root
+            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+
+        // Determine the guide name to search for
+        let guide_name = self
+            .guide_name
+            .unwrap_or_else(|| "AGENTIC_NAVIGATION_GUIDE.md".to_string());
+
+        log::debug!(
+            "Recursively searching for '{}' guides in {}",
+            guide_name,
+            search_root.display()
+        );
+
+        // Find all guide files
+        let guides = recursive::find_guides(&search_root, &guide_name, &self.exclude_patterns)?;
+
+        if guides.is_empty() {
+            if config.log_level != LogLevel::Quiet {
+                eprintln!(
+                    "No navigation guide files named '{}' found in {}",
+                    guide_name,
+                    search_root.display()
+                );
+            }
+            return Ok(());
+        }
+
+        if config.log_level != LogLevel::Quiet {
+            match config.execution_mode {
+                ExecutionMode::GitHubActions => {
+                    println!("Found {} navigation guide(s)", guides.len());
+                }
+                _ => {
+                    println!(
+                        "Found {} navigation guide(s) to verify in {}",
+                        guides.len(),
+                        search_root.display()
+                    );
+                }
+            }
+        }
+
+        // Verify all guides
+        let results = recursive::verify_guides(&guides, config)?;
+
+        // Display results and determine exit status
+        let all_passed = recursive::display_results(&results, config);
+
+        if all_passed {
+            Ok(())
+        } else {
+            Err(agentic_navigation_guide::errors::AppError::Other(
+                "Some guides failed verification".to_string(),
+            ))
         }
     }
 }
