@@ -6,6 +6,9 @@ use agentic_navigation_guide::types::Config;
 use clap::Args;
 use std::path::PathBuf;
 
+/// Common version control system directories that should be excluded by default
+const DEFAULT_VCS_EXCLUDES: &[&str] = &[".git", ".svn", ".hg", ".bzr", "CVS", "_darcs"];
+
 /// Arguments for the init subcommand
 #[derive(Args, Debug)]
 pub struct InitArgs {
@@ -28,6 +31,11 @@ pub struct InitArgs {
     /// Root directory to dump
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
+
+    /// Include version control system directories (e.g., .git, .svn, .hg)
+    /// By default, common VCS directories are excluded
+    #[arg(long)]
+    pub include_vcs_directories: bool,
 }
 
 impl InitArgs {
@@ -48,10 +56,17 @@ impl InitArgs {
 
         log::info!("Initializing navigation guide for: {}", root_path.display());
 
+        // Build exclude patterns: VCS directories (unless --include-vcs-directories) + user patterns
+        let mut exclude_patterns = Vec::new();
+        if !self.include_vcs_directories {
+            exclude_patterns.extend(DEFAULT_VCS_EXCLUDES.iter().map(|s| s.to_string()));
+        }
+        exclude_patterns.extend(self.exclude);
+
         // Create dumper
         let dumper = Dumper::new(&root_path)
             .with_max_depth(self.depth)
-            .with_exclude_patterns(&self.exclude)?
+            .with_exclude_patterns(&exclude_patterns)?
             .with_indent_size(self.indent);
 
         // Generate output with wrapper (always include for init)

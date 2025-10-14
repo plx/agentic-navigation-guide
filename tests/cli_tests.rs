@@ -1174,3 +1174,134 @@ fn test_guide_name_and_exclude_work_with_recursive() {
         .success()
         .stdout(predicate::str::contains("Found 1 navigation guide(s)"));
 }
+
+#[test]
+fn test_init_excludes_vcs_directories_by_default() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("GUIDE.md");
+
+    // Create structure with VCS directories and nested files
+    fs::create_dir_all(dir_path.join(".git/objects/pack")).unwrap();
+    fs::write(dir_path.join(".git/config"), "[core]\n").unwrap();
+    fs::write(dir_path.join(".git/objects/pack/file.pack"), "").unwrap();
+
+    fs::create_dir_all(dir_path.join(".svn/pristine")).unwrap();
+    fs::write(dir_path.join(".svn/pristine/data"), "").unwrap();
+
+    fs::create_dir_all(dir_path.join(".hg")).unwrap();
+    fs::write(dir_path.join(".hg/store"), "").unwrap();
+
+    fs::create_dir(dir_path.join(".bzr")).unwrap();
+    fs::create_dir(dir_path.join("CVS")).unwrap();
+    fs::create_dir(dir_path.join("_darcs")).unwrap();
+
+    // Create normal directories
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    // Run init without any exclusions
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+
+    // Verify VCS directories are excluded by default
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("- src/"), "Should contain src/");
+    assert!(content.contains("- README.md"), "Should contain README.md");
+    assert!(!content.contains(".git"), "Should NOT contain .git");
+    assert!(!content.contains(".svn"), "Should NOT contain .svn");
+    assert!(!content.contains(".hg"), "Should NOT contain .hg");
+    assert!(!content.contains(".bzr"), "Should NOT contain .bzr");
+    assert!(!content.contains("CVS"), "Should NOT contain CVS");
+    assert!(!content.contains("_darcs"), "Should NOT contain _darcs");
+}
+
+#[test]
+fn test_init_with_include_vcs_directories_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("GUIDE.md");
+
+    // Create structure with VCS directories
+    fs::create_dir_all(dir_path.join(".git/objects")).unwrap();
+    fs::write(dir_path.join(".git/config"), "[core]\n").unwrap();
+    fs::write(dir_path.join(".git/objects/abc123"), "").unwrap();
+
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+
+    // Run init WITH --include-vcs-directories flag
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .arg("--include-vcs-directories")
+        .assert()
+        .success();
+
+    // Verify VCS directories ARE included when flag is set
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("- src/"), "Should contain src/");
+    assert!(
+        content.contains("- .git/"),
+        "Should contain .git/ when flag is set"
+    );
+    assert!(
+        content.contains("  - config"),
+        "Should contain nested .git files"
+    );
+}
+
+#[test]
+fn test_init_vcs_exclusions_with_user_exclusions() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("GUIDE.md");
+
+    // Create structure with VCS directories and other directories
+    fs::create_dir(dir_path.join(".git")).unwrap();
+    fs::create_dir(dir_path.join("target")).unwrap();
+    fs::create_dir(dir_path.join("node_modules")).unwrap();
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+
+    // Run init with user-specified exclusions (target, node_modules)
+    // VCS exclusions should be automatic
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .arg("--exclude")
+        .arg("target")
+        .arg("--exclude")
+        .arg("node_modules")
+        .assert()
+        .success();
+
+    // Verify both VCS and user exclusions work together
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("- src/"), "Should contain src/");
+    assert!(
+        !content.contains(".git"),
+        "Should NOT contain .git (auto-excluded)"
+    );
+    assert!(
+        !content.contains("target"),
+        "Should NOT contain target (user-excluded)"
+    );
+    assert!(
+        !content.contains("node_modules"),
+        "Should NOT contain node_modules (user-excluded)"
+    );
+}
