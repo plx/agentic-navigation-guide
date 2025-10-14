@@ -132,8 +132,10 @@ Placeholder entries (`...`) have special semantic validation rules that depend o
   ```markdown
   - src/
     - main.rs
-    - ... # (represents lib.rs, utils.rs, etc.)
+    - ...
   ```
+
+Note: here the uncommented `...` in `src/` represents files like `lib.rs`, `types.rs`, etc. that *do exist* but aren't listed in the guide.
 
 This distinction enables two important workflows:
 1. **Documenting existing codebases**: Use uncommented placeholders to acknowledge existing files without listing every detail
