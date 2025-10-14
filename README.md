@@ -68,9 +68,27 @@ Rules for placeholders:
 - Written as `...` (three dots)
 - May have an optional comment after it
 - Cannot have child elements nested under them
-- Must refer to at least one unlisted item in the parent directory
+- **With a comment**: Allowed in any directory, even if all items are listed or the directory is empty (useful for indicating future items)
+- **Without a comment**: Must refer to at least one unlisted item in the parent directory (useful for omitting existing items)
 - Cannot be adjacent to another `...` entry (must have at least one non-placeholder between them)
-- Cannot be used in an empty directory
+
+The distinction between commented and uncommented placeholders enables two important use cases:
+
+```
+<agentic-navigation-guide>
+- src/
+  - main.rs
+  - ... # Represents lib.rs, utils.rs, etc. that exist but aren't listed
+- plans/
+  - phases/
+    - phase-01-scaffolding.md # Phase 1 - COMPLETED
+    - ... # Plans for future phases will appear here
+</agentic-navigation-guide>
+```
+
+In this example:
+- The first `...` in `src/` has a comment and there ARE unmentioned files (lib.rs, utils.rs) - represents omitted existing items
+- The second `...` in `phases/` has a comment but phase-01-scaffolding.md is the ONLY file - represents future items that don't exist yet
 
 ## Suggested Usage
 

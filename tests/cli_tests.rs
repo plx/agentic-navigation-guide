@@ -437,3 +437,117 @@ fn test_pre_commit_hook_mode() {
         .failure()
         .code(1); // Standard failure exit code for git hooks
 }
+
+#[test]
+fn test_verify_placeholder_future_items() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create scenario matching user's example: plans/phases/ with one file
+    fs::create_dir_all(dir_path.join("plans/phases")).unwrap();
+    fs::write(
+        dir_path.join("plans/phases/phase-01-project-scaffolding.md"),
+        "# Phase 01",
+    )
+    .unwrap();
+
+    // Guide with placeholder that has a comment about future phases
+    let guide_content = r#"<agentic-navigation-guide>
+- plans/
+  - phases/
+    - phase-01-project-scaffolding.md # Plan for "Phase 01" - COMPLETED
+    - ... # Plans for future phases will appear here
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Should succeed - placeholder has a comment indicating future items
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_verify_placeholder_no_comment_fails() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Same scenario but placeholder without comment
+    fs::create_dir_all(dir_path.join("plans/phases")).unwrap();
+    fs::write(
+        dir_path.join("plans/phases/phase-01-project-scaffolding.md"),
+        "# Phase 01",
+    )
+    .unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- plans/
+  - phases/
+    - phase-01-project-scaffolding.md
+    - ...
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Should fail - placeholder without comment and no unmentioned items
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("placeholder"));
+}
+
+#[test]
+fn test_verify_placeholder_mixed_scenarios() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create complex nested structure
+    fs::create_dir_all(dir_path.join("src/modules")).unwrap();
+    fs::create_dir_all(dir_path.join("tests")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+    fs::write(dir_path.join("src/lib.rs"), "").unwrap();
+    fs::write(dir_path.join("src/utils.rs"), "").unwrap();
+    fs::write(dir_path.join("tests/integration.rs"), "").unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    // Guide with various placeholder configurations
+    let guide_content = r#"<agentic-navigation-guide>
+- src/
+  - main.rs # Entry point
+  - ... # Other source files
+  - modules/
+    - ... # Future modules will be added here
+- tests/
+  - integration.rs
+- README.md
+- ... # Additional project files coming soon
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Should succeed - mixed placeholders with various scenarios:
+    // - src/ has placeholder with comment AND unmentioned items (lib.rs, utils.rs)
+    // - modules/ has placeholder with comment but directory is empty
+    // - root has placeholder with comment for future items
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+}

@@ -108,6 +108,39 @@ In addition to the above syntactic requirements, the navigation guide must also 
 
 As has been mentioned, the navigation guide need not be a *complete* description of the filesystem; it's ok if it *omits* files and directories.
 
+### Details: Placeholder Semantic Validation
+
+Placeholder entries (`...`) have special semantic validation rules that depend on whether they include a comment:
+
+**Placeholders WITH a comment:**
+- Allowed in any directory, even if all items are already listed in the guide
+- Allowed in empty directories
+- The comment describes the meaning of the placeholder (either omitted existing items OR future items that don't yet exist)
+- Use case: Indicating planned future files/directories, as in:
+  ```markdown
+  - plans/
+    - phases/
+      - phase-01-scaffolding.md # COMPLETED
+      - ... # Plans for future phases will appear here
+  ```
+
+**Placeholders WITHOUT a comment:**
+- Must refer to at least one item in the parent directory that exists on the filesystem but is not explicitly listed in the guide
+- Cannot be used in empty directories
+- The placeholder's meaning is implicit: it represents the unlisted items
+- Use case: Omitting details about existing files while acknowledging their presence, as in:
+  ```markdown
+  - src/
+    - main.rs
+    - ... # (represents lib.rs, utils.rs, etc.)
+  ```
+
+This distinction enables two important workflows:
+1. **Documenting existing codebases**: Use uncommented placeholders to acknowledge existing files without listing every detail
+2. **Planning future development**: Use commented placeholders to document intended future structure before files exist
+
+The validation logic checks each placeholder independently. In a directory with multiple placeholders, each is validated according to its own comment status. All placeholders in a given directory check against the same set of "mentioned items" (the explicitly-listed files/directories at that level).
+
 ## Component: `agentic-navigation-guide`
 
 The `agentic-navigation-guide` crate provides an eponynous CLI tool with several subcommands (which we will outline below). The options common to *all* commands are:
