@@ -212,11 +212,16 @@ impl Verifier {
         }
 
         if unmentioned_count == 0 {
-            return Err(SemanticError::PlaceholderNoUnmentionedItems {
-                line: item.line_number,
-                parent: parent_path.to_string_lossy().to_string(),
+            // Only require unmentioned items if the placeholder has no comment.
+            // Placeholders with comments can represent future items that don't yet exist.
+            if item.comment().is_none() {
+                return Err(SemanticError::PlaceholderNoUnmentionedItems {
+                    line: item.line_number,
+                    parent: parent_path.to_string_lossy().to_string(),
+                }
+                .into());
             }
-            .into());
+            // Placeholders with comments are allowed even without unmentioned items
         }
 
         Ok(())
@@ -244,6 +249,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         let result = verifier.verify(&guide);
@@ -286,6 +292,7 @@ mod tests {
             ],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed because lib.rs and mod.rs are unmentioned
@@ -294,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_placeholder_without_unmentioned_items() {
+    fn test_verify_placeholder_with_comment_no_items() {
         let temp_dir = TempDir::new().unwrap();
 
         // Create only one file
@@ -316,15 +323,51 @@ mod tests {
                     line_number: 2,
                     indent_level: 0,
                     item: FilesystemItem::Placeholder {
-                        comment: Some("other files".to_string()),
+                        comment: Some("future files will appear here".to_string()),
                     },
                 },
             ],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
-        // Should fail because all items are mentioned
+        // Should succeed because placeholder has a comment (represents future items)
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_placeholder_without_comment_no_items() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create only one file
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder { comment: None },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        // Should fail because placeholder has no comment and all items are mentioned
         let result = verifier.verify(&guide);
         assert!(matches!(
             result,
@@ -375,6 +418,7 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
         // Should succeed because lib.rs and utils.rs are unmentioned
@@ -408,9 +452,42 @@ mod tests {
             }],
             prologue: None,
             epilogue: None,
+            ignore: false,
         };
 
-        // Should fail because directory is empty
+        // Should succeed because placeholder has a comment (represents future files)
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_placeholder_in_empty_directory_no_comment() {
+        let temp_dir = TempDir::new().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        std::fs::create_dir(&src_dir).unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::Directory {
+                    path: "src".to_string(),
+                    comment: None,
+                    children: vec![NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::Placeholder { comment: None },
+                    }],
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        // Should fail because directory is empty and placeholder has no comment
         let result = verifier.verify(&guide);
         assert!(matches!(
             result,
@@ -418,5 +495,172 @@ mod tests {
                 SemanticError::PlaceholderNoUnmentionedItems { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn test_multiple_placeholders_mixed_comments() {
+        let temp_dir = TempDir::new().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        std::fs::create_dir(&src_dir).unwrap();
+
+        // Create some files
+        std::fs::write(src_dir.join("main.rs"), "").unwrap();
+        std::fs::write(src_dir.join("lib.rs"), "").unwrap();
+        std::fs::write(src_dir.join("utils.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::Directory {
+                    path: "src".to_string(),
+                    comment: None,
+                    children: vec![
+                        NavigationGuideLine {
+                            line_number: 2,
+                            indent_level: 1,
+                            item: FilesystemItem::File {
+                                path: "main.rs".to_string(),
+                                comment: None,
+                            },
+                        },
+                        NavigationGuideLine {
+                            line_number: 3,
+                            indent_level: 1,
+                            item: FilesystemItem::Placeholder {
+                                comment: Some("other modules".to_string()),
+                            },
+                        },
+                        NavigationGuideLine {
+                            line_number: 4,
+                            indent_level: 1,
+                            item: FilesystemItem::File {
+                                path: "lib.rs".to_string(),
+                                comment: None,
+                            },
+                        },
+                        NavigationGuideLine {
+                            line_number: 5,
+                            indent_level: 1,
+                            item: FilesystemItem::Placeholder {
+                                comment: Some("future expansion files".to_string()),
+                            },
+                        },
+                    ],
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        // Should succeed - both placeholders have comments, and there's an unmentioned file (utils.rs)
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_placeholder_with_comment_in_nested_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested_dir = temp_dir.path().join("src/modules/auth");
+        std::fs::create_dir_all(&nested_dir).unwrap();
+
+        // Create only one file in the nested directory
+        std::fs::write(nested_dir.join("login.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::Directory {
+                    path: "src".to_string(),
+                    comment: None,
+                    children: vec![NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::Directory {
+                            path: "modules".to_string(),
+                            comment: None,
+                            children: vec![NavigationGuideLine {
+                                line_number: 3,
+                                indent_level: 2,
+                                item: FilesystemItem::Directory {
+                                    path: "auth".to_string(),
+                                    comment: None,
+                                    children: vec![
+                                        NavigationGuideLine {
+                                            line_number: 4,
+                                            indent_level: 3,
+                                            item: FilesystemItem::File {
+                                                path: "login.rs".to_string(),
+                                                comment: None,
+                                            },
+                                        },
+                                        NavigationGuideLine {
+                                            line_number: 5,
+                                            indent_level: 3,
+                                            item: FilesystemItem::Placeholder {
+                                                comment: Some(
+                                                    "additional auth features coming soon"
+                                                        .to_string(),
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            }],
+                        },
+                    }],
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        // Should succeed - placeholder has a comment even in deeply nested directory
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_placeholder_without_comment_with_unmentioned() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create multiple files
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+        std::fs::write(temp_dir.path().join("lib.rs"), "").unwrap();
+        std::fs::write(temp_dir.path().join("utils.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder { comment: None },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        // Should succeed - placeholder without comment is ok when unmentioned items exist
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
     }
 }

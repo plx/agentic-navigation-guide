@@ -42,6 +42,13 @@ cargo run -- check --guide path/to/guide.md
 cargo run -- verify
 cargo run -- verify --guide path/to/guide.md --root /path/to/root
 
+# Verify in GitHub Actions mode (concise output, file:line format)
+cargo run -- verify --github-actions-check
+
+# Recursively verify all navigation guides (for monorepos)
+cargo run -- verify --recursive
+cargo run -- verify --recursive --guide-name GUIDE.md --exclude target --exclude node_modules
+
 # Initialize new guide file
 cargo run -- init --output AGENTIC_NAVIGATION_GUIDE.md
 ```
@@ -60,6 +67,8 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 4. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
 
+5. **Recursive** (`src/recursive.rs`): Provides recursive guide discovery and batch verification for monorepos with nested navigation guides. Uses WalkDir to find all guide files and verifies each relative to its parent directory.
+
 ### Data Flow
 
 1. **Input**: Markdown files containing `<agentic-navigation-guide>` blocks
@@ -72,8 +81,11 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 - `FilesystemItem`: Enum representing File, Directory, or Symlink
 - `NavigationGuideLine`: Parsed line with indent level and filesystem item
-- `NavigationGuide`: Complete guide with items and optional prologue/epilogue
-- `ExecutionMode`: Default, PostToolUse (exit code 2), or PreCommitHook
+- `NavigationGuide`: Complete guide with items, optional prologue/epilogue, and ignore flag
+  - The `ignore` field indicates whether the guide should be skipped during verification
+  - Set using `<agentic-navigation-guide ignore=true>` in the opening tag
+  - Useful for documentation examples that shouldn't be validated
+- `ExecutionMode`: Default, PostToolUse (exit code 2), PreCommitHook, or GitHubActions
 
 ### Error Handling
 
@@ -86,6 +98,7 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 These environment variables are used to configure the `agentic-navigation-guide` tool's behavior:
 
 - `AGENTIC_NAVIGATION_GUIDE_LOG_MODE`: Set to "quiet", "verbose", or "default"
-- `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", or "default"
+- `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", "github-actions", or "default"
 - `AGENTIC_NAVIGATION_GUIDE_PATH`: Default path to guide file
 - `AGENTIC_NAVIGATION_GUIDE_ROOT`: Default root directory for operations
+- `AGENTIC_NAVIGATION_GUIDE_NAME`: Default guide filename for recursive mode (e.g., "GUIDE.md")

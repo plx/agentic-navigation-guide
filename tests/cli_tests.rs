@@ -437,3 +437,871 @@ fn test_pre_commit_hook_mode() {
         .failure()
         .code(1); // Standard failure exit code for git hooks
 }
+
+#[test]
+fn test_verify_placeholder_future_items() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create scenario matching user's example: plans/phases/ with one file
+    fs::create_dir_all(dir_path.join("plans/phases")).unwrap();
+    fs::write(
+        dir_path.join("plans/phases/phase-01-project-scaffolding.md"),
+        "# Phase 01",
+    )
+    .unwrap();
+
+    // Guide with placeholder that has a comment about future phases
+    let guide_content = r#"<agentic-navigation-guide>
+- plans/
+  - phases/
+    - phase-01-project-scaffolding.md # Plan for "Phase 01" - COMPLETED
+    - ... # Plans for future phases will appear here
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Should succeed - placeholder has a comment indicating future items
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_verify_placeholder_no_comment_fails() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Same scenario but placeholder without comment
+    fs::create_dir_all(dir_path.join("plans/phases")).unwrap();
+    fs::write(
+        dir_path.join("plans/phases/phase-01-project-scaffolding.md"),
+        "# Phase 01",
+    )
+    .unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- plans/
+  - phases/
+    - phase-01-project-scaffolding.md
+    - ...
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Should fail - placeholder without comment and no unmentioned items
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("placeholder"));
+}
+
+#[test]
+fn test_verify_placeholder_mixed_scenarios() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create complex nested structure
+    fs::create_dir_all(dir_path.join("src/modules")).unwrap();
+    fs::create_dir_all(dir_path.join("tests")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+    fs::write(dir_path.join("src/lib.rs"), "").unwrap();
+    fs::write(dir_path.join("src/utils.rs"), "").unwrap();
+    fs::write(dir_path.join("tests/integration.rs"), "").unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    // Guide with various placeholder configurations
+    let guide_content = r#"<agentic-navigation-guide>
+- src/
+  - main.rs # Entry point
+  - ... # Other source files
+  - modules/
+    - ... # Future modules will be added here
+- tests/
+  - integration.rs
+- README.md
+- ... # Additional project files coming soon
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Should succeed - mixed placeholders with various scenarios:
+    // - src/ has placeholder with comment AND unmentioned items (lib.rs, utils.rs)
+    // - modules/ has placeholder with comment but directory is empty
+    // - root has placeholder with comment for future items
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_github_actions_mode_success() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create valid structure
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- README.md
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("✓ Navigation guide verified"));
+}
+
+#[test]
+fn test_github_actions_mode_error_format() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create guide with missing file
+    let guide_content = r#"<agentic-navigation-guide>
+- missing.txt
+- also_missing.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("❌"))
+        .stderr(predicate::str::contains("GUIDE.md:2:"))
+        .stderr(predicate::str::contains("missing.txt"));
+}
+
+#[test]
+fn test_github_actions_mode_env_var() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create guide with error
+    let guide_content = r#"<agentic-navigation-guide>
+- missing_file.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode via env var
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE", "github-actions")
+        .arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn test_github_actions_mode_syntax_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Guide with syntax error (indentation)
+    let guide_content = r#"<agentic-navigation-guide>
+- src
+  - main.rs
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run check with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("❌"))
+        .stderr(predicate::str::contains("GUIDE.md:3:"))
+        .stderr(predicate::str::contains("- main.rs"));
+}
+
+#[test]
+fn test_github_actions_mode_quiet() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create valid structure
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- README.md
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    // Run verify with GitHub Actions mode and quiet
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--quiet")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn test_github_actions_check_shows_line_content() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create guide with error on a specific line
+    let guide_content = r#"<agentic-navigation-guide>
+- README.md
+- missing_file.txt
+- another.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+    fs::write(dir_path.join("another.txt"), "").unwrap();
+
+    // Run verify with GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("GUIDE.md:3:"))
+        .stderr(predicate::str::contains("- missing_file.txt")); // Line content shown
+}
+
+#[test]
+fn test_recursive_verify_basic() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a monorepo structure with multiple guides
+    fs::create_dir_all(root.join("backend/src")).unwrap();
+    fs::write(root.join("backend/src/main.rs"), "").unwrap();
+    fs::write(root.join("backend/README.md"), "").unwrap();
+
+    fs::create_dir_all(root.join("frontend/src")).unwrap();
+    fs::write(root.join("frontend/src/index.js"), "").unwrap();
+    fs::write(root.join("frontend/package.json"), "").unwrap();
+
+    // Create guide files
+    let backend_guide = r#"<agentic-navigation-guide>
+- src/
+  - main.rs
+- README.md
+</agentic-navigation-guide>"#;
+
+    let frontend_guide = r#"<agentic-navigation-guide>
+- src/
+  - index.js
+- package.json
+</agentic-navigation-guide>"#;
+
+    fs::write(
+        root.join("backend/AGENTIC_NAVIGATION_GUIDE.md"),
+        backend_guide,
+    )
+    .unwrap();
+    fs::write(
+        root.join("frontend/AGENTIC_NAVIGATION_GUIDE.md"),
+        frontend_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 2 navigation guide(s)"));
+}
+
+#[test]
+fn test_recursive_verify_with_custom_name() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with custom guide name
+    fs::create_dir_all(root.join("module-a")).unwrap();
+    fs::write(root.join("module-a/file.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("module-b")).unwrap();
+    fs::write(root.join("module-b/data.json"), "").unwrap();
+
+    let guide_a = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    let guide_b = r#"<agentic-navigation-guide>
+- data.json
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("module-a/GUIDE.md"), guide_a).unwrap();
+    fs::write(root.join("module-b/GUIDE.md"), guide_b).unwrap();
+
+    // Run recursive verify with custom guide name
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--guide-name")
+        .arg("GUIDE.md")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_recursive_verify_with_failures() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with one valid and one invalid guide
+    fs::create_dir_all(root.join("valid")).unwrap();
+    fs::write(root.join("valid/file.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("invalid")).unwrap();
+    // Note: missing.txt is NOT created
+
+    let valid_guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    let invalid_guide = r#"<agentic-navigation-guide>
+- missing.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("valid/AGENTIC_NAVIGATION_GUIDE.md"), valid_guide).unwrap();
+    fs::write(
+        root.join("invalid/AGENTIC_NAVIGATION_GUIDE.md"),
+        invalid_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify - should fail
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing.txt"));
+}
+
+#[test]
+fn test_recursive_verify_with_exclusions() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with guides in excluded directories
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+
+    fs::create_dir_all(root.join("target/debug")).unwrap();
+    fs::write(root.join("target/debug/binary"), "").unwrap();
+
+    fs::create_dir_all(root.join("node_modules/package")).unwrap();
+    fs::write(root.join("node_modules/package/index.js"), "").unwrap();
+
+    let src_guide = r#"<agentic-navigation-guide>
+- main.rs
+</agentic-navigation-guide>"#;
+
+    // These guides should be excluded
+    let target_guide = r#"<agentic-navigation-guide>
+- debug/
+</agentic-navigation-guide>"#;
+
+    let node_guide = r#"<agentic-navigation-guide>
+- package/
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("src/AGENTIC_NAVIGATION_GUIDE.md"), src_guide).unwrap();
+    fs::write(
+        root.join("target/AGENTIC_NAVIGATION_GUIDE.md"),
+        target_guide,
+    )
+    .unwrap();
+    fs::write(
+        root.join("node_modules/AGENTIC_NAVIGATION_GUIDE.md"),
+        node_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify with exclusions
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--exclude")
+        .arg("target")
+        .arg("--exclude")
+        .arg("node_modules")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 navigation guide(s)")); // Only src/
+}
+
+#[test]
+fn test_recursive_verify_with_ignored_guides() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with ignored guide
+    fs::create_dir_all(root.join("docs/examples")).unwrap();
+    fs::write(root.join("docs/examples/demo.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+
+    let ignored_guide = r#"<agentic-navigation-guide ignore=true>
+- nonexistent.txt
+</agentic-navigation-guide>"#;
+
+    let valid_guide = r#"<agentic-navigation-guide>
+- main.rs
+</agentic-navigation-guide>"#;
+
+    fs::write(
+        root.join("docs/examples/AGENTIC_NAVIGATION_GUIDE.md"),
+        ignored_guide,
+    )
+    .unwrap();
+    fs::write(root.join("src/AGENTIC_NAVIGATION_GUIDE.md"), valid_guide).unwrap();
+
+    // Run recursive verify - should succeed and report ignored guide
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("ignore=true"));
+}
+
+#[test]
+fn test_recursive_verify_no_guides_found() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with no guide files
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+
+    // Run recursive verify
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("No navigation guide files"));
+}
+
+#[test]
+fn test_recursive_verify_deeply_nested() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create deeply nested structure
+    fs::create_dir_all(root.join("a/b/c/d")).unwrap();
+    fs::write(root.join("a/b/c/d/deep.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- deep.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("a/b/c/d/AGENTIC_NAVIGATION_GUIDE.md"), guide).unwrap();
+
+    // Run recursive verify
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_recursive_verify_github_actions_mode() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with one valid and one invalid guide
+    fs::create_dir_all(root.join("valid")).unwrap();
+    fs::write(root.join("valid/file.txt"), "").unwrap();
+
+    fs::create_dir_all(root.join("invalid")).unwrap();
+
+    let valid_guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    let invalid_guide = r#"<agentic-navigation-guide>
+- missing.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("valid/AGENTIC_NAVIGATION_GUIDE.md"), valid_guide).unwrap();
+    fs::write(
+        root.join("invalid/AGENTIC_NAVIGATION_GUIDE.md"),
+        invalid_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify in GitHub Actions mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--github-actions-check")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("❌"));
+}
+
+#[test]
+fn test_recursive_verify_quiet_mode() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create valid structure
+    fs::create_dir_all(root.join("module")).unwrap();
+    fs::write(root.join("module/file.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(root.join("module/AGENTIC_NAVIGATION_GUIDE.md"), guide).unwrap();
+
+    // Run recursive verify in quiet mode
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--quiet")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn test_guide_name_requires_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Try to use --guide-name without --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide-name")
+        .arg("GUIDE.md")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the following required arguments were not provided",
+        ))
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_exclude_requires_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Try to use --exclude without --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--exclude")
+        .arg("target")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the following required arguments were not provided",
+        ))
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_guide_conflicts_with_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a guide file
+    fs::write(
+        root.join("GUIDE.md"),
+        "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    // Try to use --guide with --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(root.join("GUIDE.md"))
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"))
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_recursive_conflicts_with_guide() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a guide file
+    fs::write(
+        root.join("GUIDE.md"),
+        "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    // Try to use --recursive with --guide (reversed order from previous test)
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--guide")
+        .arg(root.join("GUIDE.md"))
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_guide_name_and_exclude_work_with_recursive() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create valid structure with custom guide name
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "").unwrap();
+    fs::write(
+        root.join("src/GUIDE.md"),
+        "<agentic-navigation-guide>\n- main.rs\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    fs::create_dir_all(root.join("target")).unwrap();
+    fs::write(
+        root.join("target/GUIDE.md"),
+        "<agentic-navigation-guide>\n- binary\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    // Verify that --guide-name and --exclude work correctly WITH --recursive
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--guide-name")
+        .arg("GUIDE.md")
+        .arg("--exclude")
+        .arg("target")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 navigation guide(s)"));
+}
+
+#[test]
+fn test_init_excludes_vcs_directories_by_default() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("GUIDE.md");
+
+    // Create structure with VCS directories and nested files
+    fs::create_dir_all(dir_path.join(".git/objects/pack")).unwrap();
+    fs::write(dir_path.join(".git/config"), "[core]\n").unwrap();
+    fs::write(dir_path.join(".git/objects/pack/file.pack"), "").unwrap();
+
+    fs::create_dir_all(dir_path.join(".svn/pristine")).unwrap();
+    fs::write(dir_path.join(".svn/pristine/data"), "").unwrap();
+
+    fs::create_dir_all(dir_path.join(".hg")).unwrap();
+    fs::write(dir_path.join(".hg/store"), "").unwrap();
+
+    fs::create_dir(dir_path.join(".bzr")).unwrap();
+    fs::create_dir(dir_path.join("CVS")).unwrap();
+    fs::create_dir(dir_path.join("_darcs")).unwrap();
+
+    // Create normal directories
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    // Run init without any exclusions
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+
+    // Verify VCS directories are excluded by default
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("- src/"), "Should contain src/");
+    assert!(content.contains("- README.md"), "Should contain README.md");
+    assert!(!content.contains(".git"), "Should NOT contain .git");
+    assert!(!content.contains(".svn"), "Should NOT contain .svn");
+    assert!(!content.contains(".hg"), "Should NOT contain .hg");
+    assert!(!content.contains(".bzr"), "Should NOT contain .bzr");
+    assert!(!content.contains("CVS"), "Should NOT contain CVS");
+    assert!(!content.contains("_darcs"), "Should NOT contain _darcs");
+}
+
+#[test]
+fn test_init_with_include_vcs_directories_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("GUIDE.md");
+
+    // Create structure with VCS directories
+    fs::create_dir_all(dir_path.join(".git/objects")).unwrap();
+    fs::write(dir_path.join(".git/config"), "[core]\n").unwrap();
+    fs::write(dir_path.join(".git/objects/abc123"), "").unwrap();
+
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+
+    // Run init WITH --include-vcs-directories flag
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .arg("--include-vcs-directories")
+        .assert()
+        .success();
+
+    // Verify VCS directories ARE included when flag is set
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("- src/"), "Should contain src/");
+    assert!(
+        content.contains("- .git/"),
+        "Should contain .git/ when flag is set"
+    );
+    assert!(
+        content.contains("  - config"),
+        "Should contain nested .git files"
+    );
+}
+
+#[test]
+fn test_init_vcs_exclusions_with_user_exclusions() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("GUIDE.md");
+
+    // Create structure with VCS directories and other directories
+    fs::create_dir(dir_path.join(".git")).unwrap();
+    fs::create_dir(dir_path.join("target")).unwrap();
+    fs::create_dir(dir_path.join("node_modules")).unwrap();
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+
+    // Run init with user-specified exclusions (target, node_modules)
+    // VCS exclusions should be automatic
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .arg("--exclude")
+        .arg("target")
+        .arg("--exclude")
+        .arg("node_modules")
+        .assert()
+        .success();
+
+    // Verify both VCS and user exclusions work together
+    let content = fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("- src/"), "Should contain src/");
+    assert!(
+        !content.contains(".git"),
+        "Should NOT contain .git (auto-excluded)"
+    );
+    assert!(
+        !content.contains("target"),
+        "Should NOT contain target (user-excluded)"
+    );
+    assert!(
+        !content.contains("node_modules"),
+        "Should NOT contain node_modules (user-excluded)"
+    );
+}

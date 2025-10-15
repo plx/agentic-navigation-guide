@@ -1,0 +1,19 @@
+name: Verify Navigation Guide
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify:
+    name: Verify Navigation Guide
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build agentic-navigation-guide
+        run: cargo build --release
+      - name: Verify navigation guide
+        run: cargo run --release -- verify --github-actions-check

@@ -20,7 +20,7 @@ The validation can be done in a stand-alone way, and also has special support fo
 A "navigation guide" looks like this:
 
 ```
-<agentic-navigation-guide>
+<agentic-navigation-guide ignore=true>
 - src/
   - main.rs # Main entry point
   - lib.rs # Core logic goes here
@@ -53,7 +53,7 @@ Note that it's *not* an error to omit files and directories from the guide, but 
 You can use `...` as a placeholder to indicate that there are additional files or directories not explicitly listed:
 
 ```
-<agentic-navigation-guide>
+<agentic-navigation-guide ignore=true>
 - src/
   - main.rs # Entry point
   - ... # Other source files
@@ -68,9 +68,48 @@ Rules for placeholders:
 - Written as `...` (three dots)
 - May have an optional comment after it
 - Cannot have child elements nested under them
-- Must refer to at least one unlisted item in the parent directory
+- **With a comment**: Allowed in any directory, even if all items are listed or the directory is empty (useful for indicating future items)
+- **Without a comment**: Must refer to at least one unlisted item in the parent directory (useful for omitting existing items)
 - Cannot be adjacent to another `...` entry (must have at least one non-placeholder between them)
-- Cannot be used in an empty directory
+
+The distinction between commented and uncommented placeholders enables two important use cases:
+
+```
+<agentic-navigation-guide ignore=true>
+- src/
+  - main.rs
+  - ... # Represents lib.rs, utils.rs, etc. that exist but aren't listed
+- plans/
+  - phases/
+    - phase-01-scaffolding.md # Phase 1 - COMPLETED
+    - ... # Plans for future phases will appear here
+</agentic-navigation-guide>
+```
+
+In this example:
+- The first `...` in `src/` has a comment and there ARE unmentioned files (lib.rs, utils.rs) - represents omitted existing items
+- The second `...` in `phases/` has a comment but phase-01-scaffolding.md is the ONLY file - represents future items that don't exist yet
+
+### Ignoring Guides
+
+You can mark a navigation guide to be ignored during verification by adding an `ignore` attribute to the opening tag:
+
+```markdown
+<agentic-navigation-guide ignore=true>
+- example/
+  - file.rs
+</agentic-navigation-guide>
+```
+
+This is particularly useful for:
+- **Documentation examples**: Example guides in README files that should not be validated
+- **Invalid examples**: Intentionally incorrect guides used to demonstrate error cases
+- **Template files**: Guide templates that may not match the current filesystem
+
+The tool accepts both `ignore=true` and `ignore="true"` formats. When a guide is ignored, the tool will:
+- Skip all syntax and semantic validation
+- Emit a warning that the guide was skipped
+- Provide an additional note if the ignored guide is in a standalone `AGENTIC_NAVIGATION_GUIDE.md` file
 
 ## Suggested Usage
 
@@ -122,13 +161,96 @@ To set it up as a post-tool-use-hook, you can update your `~/.claude/settings.js
 }
 ```
 
+## GitHub Actions Integration
+
+To use the tool as a CI check in GitHub Actions, add a job to your workflow:
+
+```yaml
+verify-navigation-guide:
+  name: Verify Navigation Guide
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - name: Install agentic-navigation-guide
+      run: cargo install agentic-navigation-guide
+    - name: Verify installation
+      run: agentic-navigation-guide --version
+    - name: Verify navigation guide
+      run: agentic-navigation-guide verify --github-actions-check
+```
+
+The `--github-actions-check` flag provides:
+- Concise output on success ("✓ Navigation guide verified")
+- Detailed error messages with file:line references
+- Exit code 1 on failure (standard for CI checks)
+- Visual indicators (emoji) for quick scanning
+
+You can also set the execution mode via environment variable:
+```yaml
+- name: Verify navigation guide
+  run: agentic-navigation-guide verify
+  env:
+    AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE: github-actions
+```
+
+## Recursive Verification for Monorepos
+
+For monorepos or projects with nested navigation guides, you can use the `--recursive` flag to automatically discover and verify all guide files:
+
+```bash
+# Recursively verify all AGENTIC_NAVIGATION_GUIDE.md files
+agentic-navigation-guide verify --recursive
+
+# Use a custom guide name (e.g., GUIDE.md)
+agentic-navigation-guide verify --recursive --guide-name GUIDE.md
+
+# Exclude directories from the search
+agentic-navigation-guide verify --recursive --exclude target --exclude node_modules
+```
+
+### Example Monorepo Structure
+
+```
+AGENTIC_NAVIGATION_GUIDE.md         # Root-level guide
+CLAUDE.md
+/backend/
+  AGENTIC_NAVIGATION_GUIDE.md       # Backend guide (verified relative to /backend/)
+  CLAUDE.md
+  /services/
+    /sso/
+      AGENTIC_NAVIGATION_GUIDE.md   # SSO service guide (verified relative to /backend/services/sso/)
+      CLAUDE.md
+    /taskrunner/
+      AGENTIC_NAVIGATION_GUIDE.md   # Taskrunner guide (verified relative to /backend/services/taskrunner/)
+      CLAUDE.md
+/frontend/
+  AGENTIC_NAVIGATION_GUIDE.md       # Frontend guide (verified relative to /frontend/)
+  CLAUDE.md
+  /consumer/
+    AGENTIC_NAVIGATION_GUIDE.md     # Consumer app guide (verified relative to /frontend/consumer/)
+    CLAUDE.md
+  /internal/
+    AGENTIC_NAVIGATION_GUIDE.md     # Internal app guide (verified relative to /frontend/internal/)
+    CLAUDE.md
+```
+
+Each guide is verified relative to its parent directory, allowing you to maintain focused navigation guides for different parts of your codebase.
+
+### Recursive Verification Features
+
+- **Automatic Discovery**: Finds all guide files matching the specified name throughout the directory tree
+- **Relative Verification**: Each guide is verified against its parent directory as the root
+- **Custom Names**: Support for uniform custom guide filenames (e.g., `--guide-name GUIDE.md`)
+- **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
+- **Aggregated Results**: Shows summary of all verified guides with pass/fail counts
+- **Execution Modes**: Works with all execution modes (default, post-tool-use, pre-commit-hook, GitHub Actions)
+
 ## Future Roadmap
 
 This is an early preview of the tool, so there are a few rough edges. Potential future steps:
 
 - [ ] support for auto-installing the hook (e.g. auto-editing your settings to include it)
 - [ ] support for auto-generating the hook (e.g. suggested prompts/commands to have your agent write the guide comments)
-- [ ] support for nested guides 
+- [x] support for nested guides (completed - use `--recursive` flag)
 - [ ] inspecting the post-tool-use-hook json and skipping unnecessary work
-
-Note that the tool is already configurable-enough it can be used with nested guides if invoked with the right arguments—the part that's missing is good ergonomics to make it work automagically.

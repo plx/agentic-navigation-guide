@@ -39,6 +39,18 @@ Thus, for example, a minimal `AGENTIC_NAVIGATION_GUIDE.md` file might look like 
 </agentic-navigation-guide>
 ```
 
+The opening tag may optionally include an `ignore` attribute to indicate that the guide should be skipped during verification:
+
+```markdown
+<agentic-navigation-guide ignore=true>
+- src/
+  - main.rs
+- Cargo.toml
+</agentic-navigation-guide>
+```
+
+This is particularly useful for documentation examples that should not be validated against the actual filesystem.
+
 ...but it could also look like this:
 
 ```markdown
@@ -63,6 +75,10 @@ Here are the rules of the above format, spelled out in much fuller detail:
 
 - the navigation guide document must be written in markdown
 - the navigation guide *must* include the "sentinel" markers `<agentic-navigation-guide>` and `</agentic-navigation-guide>`
+- the opening marker may optionally include an `ignore` attribute: `<agentic-navigation-guide ignore=true>` or `<agentic-navigation-guide ignore="true">`
+  - guides with `ignore=true` are skipped during verification
+  - this is useful for documentation examples that should not be validated
+  - a warning is emitted when skipping an ignored guide
 - there must be only a single `agentic-navigation-guide` block within the document
 - the contents of the `agentic-navigation-guide` must:
   - be a single unordered list with no other content 
@@ -107,6 +123,41 @@ In addition to the above syntactic requirements, the navigation guide must also 
 - the nesting structure must reflect the filesystem contents (i.e. if the guide specifies a path as a child of another path, the former must be a child of the latter in the filesystem)
 
 As has been mentioned, the navigation guide need not be a *complete* description of the filesystem; it's ok if it *omits* files and directories.
+
+### Details: Placeholder Semantic Validation
+
+Placeholder entries (`...`) have special semantic validation rules that depend on whether they include a comment:
+
+**Placeholders WITH a comment:**
+- Allowed in any directory, even if all items are already listed in the guide
+- Allowed in empty directories
+- The comment describes the meaning of the placeholder (either omitted existing items OR future items that don't yet exist)
+- Use case: Indicating planned future files/directories, as in:
+  ```markdown
+  - plans/
+    - phases/
+      - phase-01-scaffolding.md # COMPLETED
+      - ... # Plans for future phases will appear here
+  ```
+
+**Placeholders WITHOUT a comment:**
+- Must refer to at least one item in the parent directory that exists on the filesystem but is not explicitly listed in the guide
+- Cannot be used in empty directories
+- The placeholder's meaning is implicit: it represents the unlisted items
+- Use case: Omitting details about existing files while acknowledging their presence, as in:
+  ```markdown
+  - src/
+    - main.rs
+    - ...
+  ```
+
+Note: here the uncommented `...` in `src/` represents files like `lib.rs`, `types.rs`, etc. that *do exist* but aren't listed in the guide.
+
+This distinction enables two important workflows:
+1. **Documenting existing codebases**: Use uncommented placeholders to acknowledge existing files without listing every detail
+2. **Planning future development**: Use commented placeholders to document intended future structure before files exist
+
+The validation logic checks each placeholder independently. In a directory with multiple placeholders, each is validated according to its own comment status. All placeholders in a given directory check against the same set of "mentioned items" (the explicitly-listed files/directories at that level).
 
 ## Component: `agentic-navigation-guide`
 
@@ -163,6 +214,7 @@ Named Arguments:
 
 - `--post-tool-use-hook`: indicates we're being invoked as a post-tool-hook by claude code
 - `--pre-commit-hook`: indicates we're being invoked as a pre-commit-hook by git
+- `--github-actions-check`: indicates we're being invoked as a GitHub Actions check
 - `--guide <path>`: the path to the `AGENTIC_NAVIGATION_GUIDE.md` file
 
 If `--guide` is not specified, the following defaults are used, in this order of precedence:
@@ -171,7 +223,7 @@ If `--guide` is not specified, the following defaults are used, in this order of
 - the file in the current directory named by the `AGENTIC_NAVIGATION_GUIDE_NAME` environment variable, if set 
 - `AGENTIC_NAVIGATION_GUIDE.md` in the current directory
 
-Internally these can be represented as a 3-way "mode" enum like `default | post-tool-use | pre-commit-hook`; the value of this enum can also be controlled by an environment variable (e.g. `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`).
+Internally these can be represented as a 4-way "mode" enum like `default | post-tool-use | pre-commit-hook | github-actions`; the value of this enum can also be controlled by an environment variable (e.g. `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`).
 
 There is a single positional argument: the path to the `AGENTIC_NAVIGATION_GUIDE.md` file (default, if unspecified: the file at the `AGENTIC_NAVIGATION_GUIDE_PATH` environment variable, if set; otherwise, `AGENTIC_NAVIGATION_GUIDE.md` in the current directory).
 
@@ -195,7 +247,17 @@ The messages for syntactic errors should be identical to those for `check`. The 
 
 ## Details: Execution Modes
 
-We want to make sure the internals are aware of when they're being run as a pre-commit hook, a post-tool-use hook, or in "default" mode. For now the main distinction is that we need to be careful to return error code **2** when we fail on a post-tool-use hook invocation, since that's what claude code expects.
+We want to make sure the internals are aware of the execution context to provide appropriate output:
+
+- **Default**: Standard mode with full error messages, exit code 1 on failure
+- **Post-Tool-Use**: Running as a Claude Code hook, exit code **2** on failure (as Claude Code expects)
+- **Pre-Commit-Hook**: Running as a git pre-commit hook, exit code 1 on failure
+- **GitHub-Actions**: Running as a CI check with:
+  - Concise success messages ("✓ Navigation guide verified" instead of full text)
+  - Error messages in `file:line: error` format for easy IDE integration
+  - Visual indicators (emoji) for quick scanning in CI logs
+  - Line content displayed below each error
+  - Exit code 1 on failure
 
 ## Details: Rust
 

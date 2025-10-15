@@ -23,6 +23,7 @@
 pub mod dumper;
 pub mod errors;
 pub mod parser;
+pub mod recursive;
 pub mod types;
 pub mod validator;
 pub mod verifier;
@@ -30,6 +31,7 @@ pub mod verifier;
 pub use dumper::Dumper;
 pub use errors::{AppError, Result, SemanticError, SyntaxError};
 pub use parser::Parser;
+pub use recursive::{find_guides, verify_guides, GuideLocation, GuideVerificationResult};
 pub use types::{ExecutionMode, FilesystemItem, LogLevel, NavigationGuide, NavigationGuideLine};
 pub use validator::Validator;
 pub use verifier::Verifier;

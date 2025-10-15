@@ -24,7 +24,8 @@ impl Parser {
     /// Parse navigation guide content from a markdown string
     pub fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
-        let (prologue, guide_content, epilogue, line_offset) = self.extract_guide_block(content)?;
+        let (prologue, guide_content, epilogue, line_offset, ignore) =
+            self.extract_guide_block(content)?;
 
         // Parse the guide content
         let items = self.parse_guide_content(&guide_content, line_offset)?;
@@ -33,26 +34,35 @@ impl Parser {
             items,
             prologue,
             epilogue,
+            ignore,
         })
     }
 
     /// Extract the guide block from the markdown content
+    #[allow(clippy::type_complexity)]
     fn extract_guide_block(
         &self,
         content: &str,
-    ) -> Result<(Option<String>, String, Option<String>, usize)> {
+    ) -> Result<(Option<String>, String, Option<String>, usize, bool)> {
         let lines: Vec<&str> = content.lines().collect();
         let mut start_idx = None;
         let mut end_idx = None;
+        let mut ignore = false;
 
         // Find the opening and closing markers
         for (idx, line) in lines.iter().enumerate() {
-            if line.trim() == "<agentic-navigation-guide>" {
+            let trimmed = line.trim();
+
+            // Check for opening tag with or without attributes
+            if trimmed.starts_with("<agentic-navigation-guide") && trimmed.ends_with(">") {
                 if start_idx.is_some() {
                     return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
                 }
                 start_idx = Some(idx);
-            } else if line.trim() == "</agentic-navigation-guide>" {
+
+                // Parse ignore attribute if present
+                ignore = self.parse_ignore_attribute(trimmed);
+            } else if trimmed == "</agentic-navigation-guide>" {
                 end_idx = Some(idx);
                 break;
             }
@@ -80,7 +90,17 @@ impl Parser {
         // Calculate line offset: prologue lines + opening tag line
         let line_offset = start + 1;
 
-        Ok((prologue, guide_content, epilogue, line_offset))
+        Ok((prologue, guide_content, epilogue, line_offset, ignore))
+    }
+
+    /// Parse the ignore attribute from the opening tag
+    /// Supports both `ignore=true` and `ignore="true"` formats
+    fn parse_ignore_attribute(&self, tag: &str) -> bool {
+        // Check for ignore=true or ignore="true"
+        if tag.contains("ignore=true") || tag.contains("ignore=\"true\"") {
+            return true;
+        }
+        false
     }
 
     /// Parse the guide content into navigation guide lines
@@ -402,5 +422,60 @@ mod tests {
         } else {
             panic!("docs/ should have children");
         }
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_unquoted() {
+        let content = r#"<agentic-navigation-guide ignore=true>
+- src/
+  - main.rs
+- Cargo.toml
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_quoted() {
+        let content = r#"<agentic-navigation-guide ignore="true">
+- src/
+  - main.rs
+- Cargo.toml
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_without_ignore_attribute() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+  - main.rs
+- Cargo.toml
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_with_spaces() {
+        let content = r#"<agentic-navigation-guide  ignore=true  >
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
     }
 }

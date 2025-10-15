@@ -12,20 +12,41 @@ use std::path::{Path, PathBuf};
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
     /// Path to the navigation guide file
-    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_PATH")]
+    #[arg(
+        short,
+        long,
+        env = "AGENTIC_NAVIGATION_GUIDE_PATH",
+        conflicts_with = "recursive"
+    )]
     pub guide: Option<PathBuf>,
 
     /// Root directory for verification
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
 
+    /// Recursively find and verify all navigation guides
+    #[arg(long, conflicts_with = "guide")]
+    pub recursive: bool,
+
+    /// Name of the navigation guide file to search for (only used with --recursive)
+    #[arg(long, requires = "recursive", env = "AGENTIC_NAVIGATION_GUIDE_NAME")]
+    pub guide_name: Option<String>,
+
+    /// Glob patterns to exclude from recursive search (can be specified multiple times)
+    #[arg(long = "exclude", requires = "recursive")]
+    pub exclude_patterns: Vec<String>,
+
     /// Running as post-tool-use hook
-    #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook"])]
+    #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
     pub post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
-    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook"])]
+    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "github_actions_check"])]
     pub pre_commit_hook: bool,
+
+    /// Running as GitHub Actions check
+    #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "pre_commit_hook"])]
+    pub github_actions_check: bool,
 }
 
 impl VerifyArgs {
@@ -36,6 +57,13 @@ impl VerifyArgs {
             config.execution_mode = ExecutionMode::PostToolUse;
         } else if self.pre_commit_hook {
             config.execution_mode = ExecutionMode::PreCommitHook;
+        } else if self.github_actions_check {
+            config.execution_mode = ExecutionMode::GitHubActions;
+        }
+
+        // Handle recursive mode
+        if self.recursive {
+            return self.execute_recursive(config);
         }
 
         // Store original paths for error messages
@@ -95,6 +123,10 @@ impl VerifyArgs {
                         Some(&content),
                     );
                     eprintln!("{formatted}");
+                } else if config.execution_mode == ExecutionMode::GitHubActions {
+                    let formatted =
+                        format_github_actions_error(&e, &guide_path, Some(&content), config);
+                    eprintln!("{formatted}");
                 } else {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
@@ -103,12 +135,52 @@ impl VerifyArgs {
             }
         };
 
+        // Check if the guide should be ignored
+        if guide.ignore {
+            let display_path = config
+                .original_guide_path
+                .as_deref()
+                .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
+
+            // Emit warning based on execution mode
+            if config.log_level != LogLevel::Quiet {
+                match config.execution_mode {
+                    ExecutionMode::GitHubActions => {
+                        eprintln!(
+                            "⚠️  Skipping verification: guide at {display_path} has ignore=true"
+                        );
+                    }
+                    _ => {
+                        eprintln!("Warning: Skipping verification of {display_path} (marked with ignore=true)");
+                    }
+                }
+
+                // Extra warning if this is a standalone guide file
+                if guide_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "AGENTIC_NAVIGATION_GUIDE.md")
+                    .unwrap_or(false)
+                {
+                    eprintln!(
+                        "Note: Standalone guide file is marked with ignore=true. This may be intentional for examples."
+                    );
+                }
+            }
+
+            return Ok(());
+        }
+
         // First validate syntax
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
             if config.execution_mode == ExecutionMode::PostToolUse {
                 let formatted =
                     format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
+                eprintln!("{formatted}");
+            } else if config.execution_mode == ExecutionMode::GitHubActions {
+                let formatted =
+                    format_github_actions_error(&e, &guide_path, Some(&content), config);
                 eprintln!("{formatted}");
             } else {
                 let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
@@ -122,7 +194,14 @@ impl VerifyArgs {
         match verifier.verify(&guide) {
             Ok(()) => {
                 if config.log_level != LogLevel::Quiet {
-                    println!("✓ Navigation guide is valid and matches filesystem");
+                    match config.execution_mode {
+                        ExecutionMode::GitHubActions => {
+                            println!("✓ Navigation guide verified");
+                        }
+                        _ => {
+                            println!("✓ Navigation guide is valid and matches filesystem");
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -136,12 +215,80 @@ impl VerifyArgs {
                         Some(&content),
                     );
                     eprintln!("{formatted}");
+                } else if config.execution_mode == ExecutionMode::GitHubActions {
+                    let formatted =
+                        format_github_actions_error(&e, &guide_path, Some(&content), config);
+                    eprintln!("{formatted}");
                 } else {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
                 }
                 Err(e)
             }
+        }
+    }
+
+    /// Execute verification in recursive mode
+    fn execute_recursive(self, config: &Config) -> Result<()> {
+        use agentic_navigation_guide::recursive;
+
+        // Determine the root path for recursive search
+        let search_root = self
+            .root
+            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+
+        // Determine the guide name to search for
+        let guide_name = self
+            .guide_name
+            .unwrap_or_else(|| "AGENTIC_NAVIGATION_GUIDE.md".to_string());
+
+        log::debug!(
+            "Recursively searching for '{}' guides in {}",
+            guide_name,
+            search_root.display()
+        );
+
+        // Find all guide files
+        let guides = recursive::find_guides(&search_root, &guide_name, &self.exclude_patterns)?;
+
+        if guides.is_empty() {
+            if config.log_level != LogLevel::Quiet {
+                eprintln!(
+                    "No navigation guide files named '{}' found in {}",
+                    guide_name,
+                    search_root.display()
+                );
+            }
+            return Ok(());
+        }
+
+        if config.log_level != LogLevel::Quiet {
+            match config.execution_mode {
+                ExecutionMode::GitHubActions => {
+                    println!("Found {} navigation guide(s)", guides.len());
+                }
+                _ => {
+                    println!(
+                        "Found {} navigation guide(s) to verify in {}",
+                        guides.len(),
+                        search_root.display()
+                    );
+                }
+            }
+        }
+
+        // Verify all guides
+        let results = recursive::verify_guides(&guides, config)?;
+
+        // Display results and determine exit status
+        let all_passed = recursive::display_results(&results, config);
+
+        if all_passed {
+            Ok(())
+        } else {
+            Err(agentic_navigation_guide::errors::AppError::Other(
+                "Some guides failed verification".to_string(),
+            ))
         }
     }
 }
@@ -189,4 +336,50 @@ fn format_post_tool_use_error(
             ErrorFormatter::format_with_context(error, file_content)
         }
     }
+}
+
+/// Format errors specifically for GitHub Actions mode
+fn format_github_actions_error(
+    error: &agentic_navigation_guide::errors::AppError,
+    _guide_path: &Path,
+    file_content: Option<&str>,
+    config: &Config,
+) -> String {
+    use agentic_navigation_guide::errors::AppError;
+
+    let display_guide_path = config
+        .original_guide_path
+        .as_deref()
+        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
+
+    let mut output = String::new();
+
+    // Error header with emoji
+    output.push_str("❌ Navigation guide verification failed\n\n");
+
+    // Get line number from error
+    let line_num = match error {
+        AppError::Syntax(e) => e.line_number(),
+        AppError::Semantic(e) => Some(e.line_number()),
+        _ => None,
+    };
+
+    // Format error with file:line if available
+    if let Some(line_num) = line_num {
+        output.push_str(&format!("{display_guide_path}:{line_num}: "));
+        output.push_str(&error.to_string());
+        output.push('\n');
+
+        // Show the actual line content if available
+        if let Some(content) = file_content {
+            if let Some(line) = content.lines().nth(line_num.saturating_sub(1)) {
+                let trimmed_line = line.trim_end();
+                output.push_str(&format!("  {trimmed_line}\n"));
+            }
+        }
+    } else {
+        output.push_str(&format!("{display_guide_path}: {error}\n"));
+    }
+
+    output
 }
