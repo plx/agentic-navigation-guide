@@ -153,26 +153,34 @@ impl Parser {
 
                 // Parse path and comment
                 let (path, comment) = self.parse_path_comment(content, line_number)?;
+                let expanded_paths = Self::expand_wildcard_path(&path, line_number)?;
 
-                // Determine item type
-                let item = if path == "..." {
-                    FilesystemItem::Placeholder { comment }
-                } else if path.ends_with('/') {
-                    FilesystemItem::Directory {
-                        path: path.trim_end_matches('/').to_string(),
-                        comment,
-                        children: Vec::new(),
-                    }
-                } else {
-                    // Could be a file or symlink - we'll treat as file for now
-                    FilesystemItem::File { path, comment }
-                };
+                for expanded in expanded_paths {
+                    // Determine item type
+                    let item = if expanded == "..." {
+                        FilesystemItem::Placeholder {
+                            comment: comment.clone(),
+                        }
+                    } else if expanded.ends_with('/') {
+                        FilesystemItem::Directory {
+                            path: expanded.trim_end_matches('/').to_string(),
+                            comment: comment.clone(),
+                            children: Vec::new(),
+                        }
+                    } else {
+                        // Could be a file or symlink - we'll treat as file for now
+                        FilesystemItem::File {
+                            path: expanded,
+                            comment: comment.clone(),
+                        }
+                    };
 
-                items.push(NavigationGuideLine {
-                    line_number,
-                    indent_level,
-                    item,
-                });
+                    items.push(NavigationGuideLine {
+                        line_number,
+                        indent_level,
+                        item,
+                    });
+                }
             } else {
                 return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
             }
@@ -222,6 +230,278 @@ impl Parser {
             }
             .into())
         }
+    }
+
+    /// Process escape sequences in a string, converting escaped characters to their literal forms.
+    ///
+    /// Handles the following escape sequences:
+    /// - `\"` → `"`
+    /// - `\,` → `,`
+    /// - `\\` → `\`
+    /// - `\[` → `[`
+    /// - `\]` → `]`
+    ///
+    /// # Arguments
+    /// * `s` - The string containing escape sequences
+    ///
+    /// # Returns
+    /// A new string with escape sequences processed
+    fn process_escapes(s: &str) -> String {
+        let mut result = String::new();
+        let mut chars = s.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                if let Some(&next) = chars.peek() {
+                    // Consume the escaped character
+                    chars.next();
+                    result.push(next);
+                } else {
+                    // Trailing backslash - just include it
+                    result.push(ch);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
+    }
+
+    /// Expand wildcard choices within a path, if present.
+    ///
+    /// This function processes paths containing choice blocks (syntax: `prefix[choice1, choice2]suffix`)
+    /// and expands them into multiple paths. It supports:
+    /// - Multiple choices separated by commas: `Foo[.h, .cpp]` → `["Foo.h", "Foo.cpp"]`
+    /// - Quoted strings to preserve commas and special chars: `Foo["a, b", c]`
+    /// - Escape sequences for literal special characters: `\,`, `\"`, `\\`, `\[`, `\]`
+    /// - Prefix and suffix around the choice block: `src[/main, /lib].rs` → `["src/main.rs", "src/lib.rs"]`
+    ///
+    /// Escape sequences are preserved during parsing and processed at the end,
+    /// ensuring consistent handling across prefix, choices, and suffix.
+    ///
+    /// # Arguments
+    /// * `path` - The path potentially containing a choice block
+    /// * `line_number` - Line number in the source file for error reporting
+    ///
+    /// # Returns
+    /// A vector of expanded paths. Returns a single-element vector if no choice block is present.
+    ///
+    /// # Errors
+    /// Returns `SyntaxError::InvalidWildcardSyntax` if:
+    /// - The choice block is malformed (unterminated, invalid escapes, etc.)
+    /// - Multiple choice blocks are present (only one is allowed per path)
+    /// - The choice block is empty or contains only whitespace
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Single expansion (no choice block)
+    /// expand_wildcard_path("foo.rs", 1) → Ok(vec!["foo.rs"])
+    ///
+    /// // Multiple choices
+    /// expand_wildcard_path("File[.h, .cpp]", 1) → Ok(vec!["File.h", "File.cpp"])
+    ///
+    /// // With prefix and suffix
+    /// expand_wildcard_path("src[/main, /lib].rs", 1) → Ok(vec!["src/main.rs", "src/lib.rs"])
+    ///
+    /// // Quoted strings and escapes
+    /// expand_wildcard_path("file[\"a, b\", \\,c]", 1) → Ok(vec!["filea, b", "file,c"])
+    /// ```
+    fn expand_wildcard_path(path: &str, line_number: usize) -> Result<Vec<String>> {
+        let mut prefix = String::new();
+        let mut suffix = String::new();
+        let mut block_content = String::new();
+
+        let mut in_block = false;
+        let mut block_found = false;
+        let mut in_quotes = false;
+        let mut iter = path.chars().peekable();
+
+        while let Some(ch) = iter.next() {
+            match ch {
+                '\\' => {
+                    let next = iter
+                        .next()
+                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "incomplete escape sequence".to_string(),
+                        })?;
+
+                    // Preserve escape sequences consistently across prefix, block, and suffix
+                    if in_block {
+                        block_content.push('\\');
+                        block_content.push(next);
+                    } else if block_found {
+                        suffix.push('\\');
+                        suffix.push(next);
+                    } else {
+                        prefix.push('\\');
+                        prefix.push(next);
+                    }
+                }
+                '[' if !in_block => {
+                    if block_found {
+                        return Err(SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "multiple wildcard choice blocks are not supported"
+                                .to_string(),
+                        }
+                        .into());
+                    }
+                    block_found = true;
+                    in_block = true;
+                    in_quotes = false;
+                }
+                ']' if in_block && !in_quotes => {
+                    in_block = false;
+                    in_quotes = false;
+                }
+                ']' if in_block => {
+                    block_content.push(ch);
+                }
+                '"' if in_block => {
+                    in_quotes = !in_quotes;
+                    block_content.push(ch);
+                }
+                _ => {
+                    if in_block {
+                        block_content.push(ch);
+                    } else if block_found {
+                        suffix.push(ch);
+                    } else {
+                        prefix.push(ch);
+                    }
+                }
+            }
+        }
+
+        if in_block {
+            return Err(SyntaxError::InvalidWildcardSyntax {
+                line: line_number,
+                path: path.to_string(),
+                message: "unterminated wildcard choice block".to_string(),
+            }
+            .into());
+        }
+
+        if !block_found {
+            // No wildcard block - just process escapes in the prefix and return
+            return Ok(vec![Self::process_escapes(&prefix)]);
+        }
+
+        let choices = Self::parse_choice_block(&block_content, path, line_number)?;
+        let mut results = Vec::with_capacity(choices.len());
+
+        // Process escapes in prefix and suffix once
+        let processed_prefix = Self::process_escapes(&prefix);
+        let processed_suffix = Self::process_escapes(&suffix);
+
+        for choice in choices {
+            // Process escapes in each choice and combine with prefix/suffix
+            let processed_choice = Self::process_escapes(&choice);
+            let mut expanded = processed_prefix.clone();
+            expanded.push_str(&processed_choice);
+            expanded.push_str(&processed_suffix);
+            results.push(expanded);
+        }
+
+        Ok(results)
+    }
+
+    /// Parse the contents of a wildcard choice block into individual options.
+    ///
+    /// Takes the content between `[` and `]` and splits it into individual choices.
+    /// This is a helper function for `expand_wildcard_path`.
+    ///
+    /// # Parsing Rules
+    /// - Choices are separated by commas (`,`)
+    /// - Commas inside quoted strings (`"..."`) are not treated as separators
+    /// - Whitespace outside quotes is ignored/trimmed
+    /// - Whitespace inside quotes is preserved
+    /// - Escape sequences (`\,`, `\"`, etc.) are preserved for later processing
+    /// - Quote characters (`"`) toggle quote mode but are not included in output
+    ///
+    /// # Arguments
+    /// * `content` - The string content between `[` and `]` (without the brackets)
+    /// * `path` - The full original path for error messages
+    /// * `line_number` - Line number in the source file for error reporting
+    ///
+    /// # Returns
+    /// A vector of choice strings with escape sequences still intact (to be processed by caller).
+    ///
+    /// # Errors
+    /// Returns `SyntaxError::InvalidWildcardSyntax` if:
+    /// - Quote strings are unterminated
+    /// - Escape sequences are incomplete (trailing backslash)
+    /// - The choice block is empty or all choices are empty/whitespace
+    ///
+    /// # Examples
+    /// ```ignore
+    /// parse_choice_block("a, b, c", "path", 1) → Ok(vec!["a", "b", "c"])
+    /// parse_choice_block("\"a, b\", c", "path", 1) → Ok(vec!["a, b", "c"])
+    /// parse_choice_block("\\,a, b", "path", 1) → Ok(vec!["\\,a", "b"])  // Escape preserved
+    /// parse_choice_block("  a  ,  b  ", "path", 1) → Ok(vec!["a", "b"])  // Trimmed
+    /// ```
+    fn parse_choice_block(content: &str, path: &str, line_number: usize) -> Result<Vec<String>> {
+        let mut choices = Vec::new();
+        let mut current = String::new();
+        let mut chars = content.chars().peekable();
+        let mut in_quotes = false;
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\\' => {
+                    let next = chars
+                        .next()
+                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "incomplete escape sequence".to_string(),
+                        })?;
+                    // Preserve escape sequences - they'll be processed later
+                    current.push('\\');
+                    current.push(next);
+                }
+                '"' => {
+                    in_quotes = !in_quotes;
+                }
+                ',' if !in_quotes => {
+                    choices.push(current.trim().to_string());
+                    current.clear();
+                }
+                ch if ch.is_whitespace() && !in_quotes => {
+                    // Ignore whitespace outside of quotes
+                }
+                _ => {
+                    current.push(ch);
+                }
+            }
+        }
+
+        if in_quotes {
+            return Err(SyntaxError::InvalidWildcardSyntax {
+                line: line_number,
+                path: path.to_string(),
+                message: "unterminated quoted string in wildcard choices".to_string(),
+            }
+            .into());
+        }
+
+        choices.push(current.trim().to_string());
+
+        // Validate that the choice block is not empty
+        if choices.is_empty() || choices.iter().all(|c| c.is_empty()) {
+            return Err(SyntaxError::InvalidWildcardSyntax {
+                line: line_number,
+                path: path.to_string(),
+                message: "choice block cannot be empty".to_string(),
+            }
+            .into());
+        }
+
+        Ok(choices)
     }
 
     /// Build a hierarchical structure from flat list items
@@ -477,5 +757,196 @@ mod tests {
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
         assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_wildcard_expands_multiple_files() {
+        let content = r#"<agentic-navigation-guide>
+- FooCoordinator[.h, .cpp] # Coordinates foo interactions
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 2);
+        assert_eq!(guide.items[0].path(), "FooCoordinator.h");
+        assert_eq!(guide.items[1].path(), "FooCoordinator.cpp");
+        assert_eq!(
+            guide.items[0].comment(),
+            Some("Coordinates foo interactions")
+        );
+        assert_eq!(
+            guide.items[1].comment(),
+            Some("Coordinates foo interactions")
+        );
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_empty_choice_and_whitespace() {
+        let content = r#"<agentic-navigation-guide>
+- Config[, .local].json
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 2);
+        assert_eq!(guide.items[0].path(), "Config.json");
+        assert_eq!(guide.items[1].path(), "Config.local.json");
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_escapes_and_quotes() {
+        let content = r#"<agentic-navigation-guide>
+- data["with , comma", \,space, "literal []"] # variations
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 3);
+        // Note: Quote characters are not included in output, and whitespace outside
+        // quotes is trimmed. Inside quotes, content (including commas and spaces) is preserved.
+        // - "with , comma" → with , comma (quotes removed, content preserved)
+        // - \,space → ,space (escape processed, whitespace outside quotes trimmed)
+        // - "literal []" → literal [] (quotes removed, brackets preserved)
+        assert_eq!(guide.items[0].path(), "datawith , comma");
+        assert_eq!(guide.items[1].path(), "data,space");
+        assert_eq!(guide.items[2].path(), "dataliteral []");
+    }
+
+    #[test]
+    fn test_parse_wildcard_literal_brackets_without_expansion() {
+        let content = r#"<agentic-navigation-guide>
+- Foo\[bar\].txt
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "Foo[bar].txt");
+    }
+
+    #[test]
+    fn test_parse_wildcard_multiple_blocks_error() {
+        let content = r#"<agentic-navigation-guide>
+- Foo[.h][.cpp]
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidWildcardSyntax { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_parse_choice_block_with_quotes() {
+        let parsed =
+            Parser::parse_choice_block("\"with , comma\", \\,space, \"literal []\"", "path", 1)
+                .unwrap();
+
+        // Note: parse_choice_block now preserves escape sequences
+        // They are processed later in expand_wildcard_path
+        assert_eq!(parsed, vec!["with , comma", "\\,space", "literal []"]);
+    }
+
+    #[test]
+    fn test_expand_wildcard_with_escapes_and_quotes() {
+        let expanded =
+            Parser::expand_wildcard_path("data[\"with , comma\", \\,space, \"literal []\"]", 1)
+                .unwrap();
+
+        assert_eq!(
+            expanded,
+            vec![
+                "datawith , comma".to_string(),
+                "data,space".to_string(),
+                "dataliteral []".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_escaped_quotes_in_quoted_strings() {
+        let content = r#"<agentic-navigation-guide>
+- file[\"test\\\"quote\"].txt
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), r#"file"test\"quote".txt"#);
+    }
+
+    #[test]
+    fn test_parse_wildcard_empty_choice_block_error() {
+        let content = r#"<agentic-navigation-guide>
+- Foo[]
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidWildcardSyntax { .. }
+            ))
+        ));
+
+        if let Err(crate::errors::AppError::Syntax(SyntaxError::InvalidWildcardSyntax {
+            message,
+            ..
+        })) = result
+        {
+            assert_eq!(message, "choice block cannot be empty");
+        }
+    }
+
+    #[test]
+    fn test_parse_wildcard_whitespace_only_choice_block_error() {
+        let content = r#"<agentic-navigation-guide>
+- Foo[   ,  ,   ]
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidWildcardSyntax { .. }
+            ))
+        ));
+
+        if let Err(crate::errors::AppError::Syntax(SyntaxError::InvalidWildcardSyntax {
+            message,
+            ..
+        })) = result
+        {
+            assert_eq!(message, "choice block cannot be empty");
+        }
+    }
+
+    #[test]
+    fn test_parse_wildcard_complex_nested_escapes() {
+        // Test escaped quotes with actual quoted string to preserve spaces
+        let content = r#"<agentic-navigation-guide>
+- file["a \"b\" c"].txt
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        // Note: Escaped quotes inside a quoted string are processed
+        assert_eq!(guide.items[0].path(), r#"filea "b" c.txt"#);
     }
 }

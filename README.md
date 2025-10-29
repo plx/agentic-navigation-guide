@@ -90,6 +90,45 @@ In this example:
 - The first `...` in `src/` has a comment and there ARE unmentioned files (lib.rs, utils.rs) - represents omitted existing items
 - The second `...` in `phases/` has a comment but phase-01-scaffolding.md is the ONLY file - represents future items that don't exist yet
 
+### Limited Choice Expansions
+
+To keep related paths together while avoiding duplication, a single guide entry may include a *choice list* written with square
+brackets. For example:
+
+```
+- FooCoordinator[.h, .cpp] # Coordinates foo interactions
+```
+
+is equivalent to writing:
+
+```
+- FooCoordinator.h # Coordinates foo interactions
+- FooCoordinator.cpp # Coordinates foo interactions
+```
+
+Each entry may contain at most one choice list and it expands into one concrete item for every option in the brackets. The same
+comment is attached to every expanded item.
+
+Choice lists follow these rules:
+
+- Whitespace inside the brackets is ignored unless it appears inside a quoted string.
+- An empty string may be included by leaving an empty slot (e.g. `[, .local]`).
+- Use a backslash to escape individual characters (e.g. `\,` for a literal comma, `\ ` for a literal space, `\[` for a literal
+  `[` character).
+- Surround complex values with double quotes to preserve punctuation or embedded brackets. Within quotes, escape `"` to include
+  a literal quote character.
+
+**Examples:**
+
+```markdown
+- FooCoordinator[.h, .cpp]        # expands to FooCoordinator.h and FooCoordinator.cpp
+- Config[, .local].json           # expands to Config.json and Config.local.json
+- src[/main, /lib].rs             # expands to src/main.rs and src/lib.rs
+```
+
+These expansions are intended for small sets of closely related alternatives—typically filename suffixes or prefixes—so that
+the guide stays concise without sacrificing clarity.
+
 ### Ignoring Guides
 
 You can mark a navigation guide to be ignored during verification by adding an `ignore` attribute to the opening tag:
