@@ -153,26 +153,34 @@ impl Parser {
 
                 // Parse path and comment
                 let (path, comment) = self.parse_path_comment(content, line_number)?;
+                let expanded_paths = Self::expand_wildcard_path(&path, line_number)?;
 
-                // Determine item type
-                let item = if path == "..." {
-                    FilesystemItem::Placeholder { comment }
-                } else if path.ends_with('/') {
-                    FilesystemItem::Directory {
-                        path: path.trim_end_matches('/').to_string(),
-                        comment,
-                        children: Vec::new(),
-                    }
-                } else {
-                    // Could be a file or symlink - we'll treat as file for now
-                    FilesystemItem::File { path, comment }
-                };
+                for expanded in expanded_paths {
+                    // Determine item type
+                    let item = if expanded == "..." {
+                        FilesystemItem::Placeholder {
+                            comment: comment.clone(),
+                        }
+                    } else if expanded.ends_with('/') {
+                        FilesystemItem::Directory {
+                            path: expanded.trim_end_matches('/').to_string(),
+                            comment: comment.clone(),
+                            children: Vec::new(),
+                        }
+                    } else {
+                        // Could be a file or symlink - we'll treat as file for now
+                        FilesystemItem::File {
+                            path: expanded,
+                            comment: comment.clone(),
+                        }
+                    };
 
-                items.push(NavigationGuideLine {
-                    line_number,
-                    indent_level,
-                    item,
-                });
+                    items.push(NavigationGuideLine {
+                        line_number,
+                        indent_level,
+                        item,
+                    });
+                }
             } else {
                 return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
             }
@@ -222,6 +230,149 @@ impl Parser {
             }
             .into())
         }
+    }
+
+    /// Expand wildcard choices within a path, if present
+    fn expand_wildcard_path(path: &str, line_number: usize) -> Result<Vec<String>> {
+        let mut prefix = String::new();
+        let mut suffix = String::new();
+        let mut block_content = String::new();
+
+        let mut in_block = false;
+        let mut block_found = false;
+        let mut in_quotes = false;
+        let mut iter = path.chars().peekable();
+
+        while let Some(ch) = iter.next() {
+            match ch {
+                '\\' => {
+                    let next = iter
+                        .next()
+                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "incomplete escape sequence".to_string(),
+                        })?;
+
+                    if in_block {
+                        block_content.push('\\');
+                        block_content.push(next);
+                    } else if block_found {
+                        suffix.push(next);
+                    } else {
+                        prefix.push(next);
+                    }
+                }
+                '[' if !in_block => {
+                    if block_found {
+                        return Err(SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "multiple wildcard choice blocks are not supported"
+                                .to_string(),
+                        }
+                        .into());
+                    }
+                    block_found = true;
+                    in_block = true;
+                    in_quotes = false;
+                }
+                ']' if in_block && !in_quotes => {
+                    in_block = false;
+                    in_quotes = false;
+                }
+                ']' if in_block => {
+                    block_content.push(ch);
+                }
+                '"' if in_block => {
+                    in_quotes = !in_quotes;
+                    block_content.push(ch);
+                }
+                _ => {
+                    if in_block {
+                        block_content.push(ch);
+                    } else if block_found {
+                        suffix.push(ch);
+                    } else {
+                        prefix.push(ch);
+                    }
+                }
+            }
+        }
+
+        if in_block {
+            return Err(SyntaxError::InvalidWildcardSyntax {
+                line: line_number,
+                path: path.to_string(),
+                message: "unterminated wildcard choice block".to_string(),
+            }
+            .into());
+        }
+
+        if !block_found {
+            return Ok(vec![prefix]);
+        }
+
+        let choices = Self::parse_choice_block(&block_content, path, line_number)?;
+        let mut results = Vec::with_capacity(choices.len());
+
+        for choice in choices {
+            let mut expanded = prefix.clone();
+            expanded.push_str(&choice);
+            expanded.push_str(&suffix);
+            results.push(expanded);
+        }
+
+        Ok(results)
+    }
+
+    /// Parse the contents of a wildcard choice block into individual options
+    fn parse_choice_block(content: &str, path: &str, line_number: usize) -> Result<Vec<String>> {
+        let mut choices = Vec::new();
+        let mut current = String::new();
+        let mut chars = content.chars().peekable();
+        let mut in_quotes = false;
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\\' => {
+                    let next = chars
+                        .next()
+                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "incomplete escape sequence".to_string(),
+                        })?;
+                    current.push(next);
+                }
+                '"' => {
+                    in_quotes = !in_quotes;
+                }
+                ',' if !in_quotes => {
+                    choices.push(current.trim().to_string());
+                    current.clear();
+                }
+                ch if ch.is_whitespace() && !in_quotes => {
+                    // Ignore whitespace outside of quotes
+                }
+                _ => {
+                    current.push(ch);
+                }
+            }
+        }
+
+        if in_quotes {
+            return Err(SyntaxError::InvalidWildcardSyntax {
+                line: line_number,
+                path: path.to_string(),
+                message: "unterminated quoted string in wildcard choices".to_string(),
+            }
+            .into());
+        }
+
+        choices.push(current.trim().to_string());
+
+        Ok(choices)
     }
 
     /// Build a hierarchical structure from flat list items
@@ -477,5 +628,111 @@ mod tests {
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
         assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_wildcard_expands_multiple_files() {
+        let content = r#"<agentic-navigation-guide>
+- FooCoordinator[.h, .cpp] # Coordinates foo interactions
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 2);
+        assert_eq!(guide.items[0].path(), "FooCoordinator.h");
+        assert_eq!(guide.items[1].path(), "FooCoordinator.cpp");
+        assert_eq!(
+            guide.items[0].comment(),
+            Some("Coordinates foo interactions")
+        );
+        assert_eq!(
+            guide.items[1].comment(),
+            Some("Coordinates foo interactions")
+        );
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_empty_choice_and_whitespace() {
+        let content = r#"<agentic-navigation-guide>
+- Config[, .local].json
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 2);
+        assert_eq!(guide.items[0].path(), "Config.json");
+        assert_eq!(guide.items[1].path(), "Config.local.json");
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_escapes_and_quotes() {
+        let content = r#"<agentic-navigation-guide>
+- data["with , comma", \,space, "literal []"] # variations
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 3);
+        assert_eq!(guide.items[0].path(), "datawith , comma");
+        assert_eq!(guide.items[1].path(), "data,space");
+        assert_eq!(guide.items[2].path(), "dataliteral []");
+    }
+
+    #[test]
+    fn test_parse_wildcard_literal_brackets_without_expansion() {
+        let content = r#"<agentic-navigation-guide>
+- Foo\[bar\].txt
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "Foo[bar].txt");
+    }
+
+    #[test]
+    fn test_parse_wildcard_multiple_blocks_error() {
+        let content = r#"<agentic-navigation-guide>
+- Foo[.h][.cpp]
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidWildcardSyntax { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_parse_choice_block_with_quotes() {
+        let parsed =
+            Parser::parse_choice_block("\"with , comma\", \\,space, \"literal []\"", "path", 1)
+                .unwrap();
+
+        assert_eq!(parsed, vec!["with , comma", ",space", "literal []"]);
+    }
+
+    #[test]
+    fn test_expand_wildcard_with_escapes_and_quotes() {
+        let expanded =
+            Parser::expand_wildcard_path("data[\"with , comma\", \\,space, \"literal []\"]", 1)
+                .unwrap();
+
+        assert_eq!(
+            expanded,
+            vec![
+                "datawith , comma".to_string(),
+                "data,space".to_string(),
+                "dataliteral []".to_string(),
+            ]
+        );
     }
 }

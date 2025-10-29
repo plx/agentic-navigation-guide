@@ -85,6 +85,14 @@ pub enum SyntaxError {
     #[error("line {line}: invalid path format '{path}'")]
     InvalidPathFormat { line: usize, path: String },
 
+    /// Invalid wildcard choice syntax
+    #[error("line {line}: invalid wildcard choice syntax in '{path}': {message}")]
+    InvalidWildcardSyntax {
+        line: usize,
+        path: String,
+        message: String,
+    },
+
     /// Invalid comment format
     #[error("line {line}: invalid comment format - comments must be separated by '#'")]
     InvalidCommentFormat { line: usize },
@@ -161,6 +169,7 @@ impl SyntaxError {
             | Self::InvalidIndentationLevel { line }
             | Self::BlankLineInGuide { line }
             | Self::InvalidPathFormat { line, .. }
+            | Self::InvalidWildcardSyntax { line, .. }
             | Self::InvalidCommentFormat { line }
             | Self::AdjacentPlaceholders { line }
             | Self::PlaceholderWithChildren { line } => Some(*line),

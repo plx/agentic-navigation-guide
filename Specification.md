@@ -91,9 +91,26 @@ Here are the rules of the above format, spelled out in much fuller detail:
   - symlinks *may* be represented as files, or with the referred-to location (e.g. `- latest.a # symlink to latest build`) 
   - items *may* include a "comment" after the item, separated by a `#` character (it is *not* an error to include multiple `#` characters in a comment)
   - we allow arbitrary whitespace between the path and the comment (e.g. `src/    # source code`) 
-  - we allow arbitrary whitespace between the comment and the end of the line
-  - we *do not* enforce a specific ordering within the unordered list
-  - we *do not* require completeness (i.e. it's ok to omit files and directories)
+- we allow arbitrary whitespace between the comment and the end of the line
+- we *do not* enforce a specific ordering within the unordered list
+- we *do not* require completeness (i.e. it's ok to omit files and directories)
+
+Each list item may optionally contain a *single* choice list to represent a handful of alternatives without repeating the base
+path. The syntax uses square brackets to enumerate the choices:
+
+```
+- FooCoordinator[.h, .cpp] # Coordinates foo interactions
+```
+
+This expands to both `FooCoordinator.h` and `FooCoordinator.cpp`, each inheriting the same comment. Choice lists obey the
+following rules:
+
+- At most one bracketed choice list per line.
+- Whitespace inside the brackets is ignored unless it occurs inside a quoted string.
+- Empty choices are allowed by leaving an empty slot, e.g. `[, .local]` expands to both `Config` and `Config.local` when combined
+  with a suffix.
+- A backslash escapes individual characters inside the list (`\,` for commas, `\ ` for spaces, `\[` for literal `[` characters).
+- Surround complex options with double quotes; escape double quotes inside with `\"`.
 
 For example, every line of the following is valid:
 
