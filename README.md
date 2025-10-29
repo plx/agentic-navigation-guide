@@ -118,6 +118,14 @@ Choice lists follow these rules:
 - Surround complex values with double quotes to preserve punctuation or embedded brackets. Within quotes, escape `"` to include
   a literal quote character.
 
+**Examples:**
+
+```markdown
+- FooCoordinator[.h, .cpp]        # expands to FooCoordinator.h and FooCoordinator.cpp
+- Config[, .local].json           # expands to Config.json and Config.local.json
+- src[/main, /lib].rs             # expands to src/main.rs and src/lib.rs
+```
+
 These expansions are intended for small sets of closely related alternatives—typically filename suffixes or prefixes—so that
 the guide stays concise without sacrificing clarity.
 
