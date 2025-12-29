@@ -1,0 +1,8 @@
+{
+  "name": "agentic-navigation-guide",
+  "description": "Create, validate, and maintain navigation guides for AI coding assistants. Provides skills for authoring guides, agents for automated guide management, and hooks for continuous validation.",
+  "version": "0.2.0",
+  "author": {
+    "name": "agentic-navigation-guide contributors"
+  }
+}

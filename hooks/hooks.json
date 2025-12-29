@@ -1,0 +1,13 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit|Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "agentic-navigation-guide verify --post-tool-use-hook"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "agentic-navigation-guide-marketplace",
+  "owner": {
+    "name": "agentic-navigation-guide contributors"
+  },
+  "plugins": [
+    {
+      "name": "agentic-navigation-guide",
+      "source": ".",
+      "description": "Full suite: skills, agents, commands, and hooks for navigation guide management"
+    }
+  ]
+}

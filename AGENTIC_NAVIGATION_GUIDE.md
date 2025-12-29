@@ -1,21 +1,41 @@
 <agentic-navigation-guide>
 - src/
-  - main.rs # Main entry point
-  - lib.rs # Core logic goes here
+  - main.rs # CLI entry point
+  - lib.rs # Core library exports
   - types.rs # Core data types
-  - errors.rs # Error handling
-  - parser.rs # logic for parsing guide from markdown
-  - validator.rs # logic for validating syntax of guide
-  - verifier.rs # logic for verifying guide against file system
-  - dumper.rs # file-system-hierarchy "dumping" logic
+  - errors.rs # Error types and messages
+  - parser.rs # Parse guides from markdown
+  - validator.rs # Validate guide syntax
+  - verifier.rs # Verify guide against filesystem
+  - dumper.rs # Generate guides from filesystem
+  - recursive.rs # Monorepo recursive verification
   - cli/
-    - mod.rs
+    - mod.rs # CLI module root
     - check.rs # check subcommand
     - dump.rs # dump subcommand
     - init.rs # init subcommand
     - verify.rs # verify subcommand
+- .claude-plugin/
+  - plugin.json # Plugin metadata
+  - marketplace.json # Marketplace definition
+- skills/
+  - authoring-guide.md # Creating new guides
+  - summarizing-items.md # Writing good comments
+  - revising-guide.md # Updating existing guides
+  - configuring-hooks.md # Hook setup documentation
+- agents/
+  - summarize-item.md # Summarize single file/directory
+  - create-guide.md # Create guide from scratch
+  - refresh-guide.md # Update existing guide
+- commands/
+  - setup-guide.md # Setup repository with guide
+  - update-guide.md # Update existing guide
+  - check-guide.md # Check guide syntax
+  - verify-guide.md # Verify guide accuracy
+- hooks/
+  - hooks.json # PostToolUse hook config
 - Cargo.toml
 - README.md
-- Specification.md # original project specification document
-- ... # Additional project files (tests, examples, etc.)
+- Specification.md # Format specification
+- ... # Tests, CI configs, etc.
 </agentic-navigation-guide>
