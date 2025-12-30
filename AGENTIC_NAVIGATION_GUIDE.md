@@ -34,7 +34,10 @@
   - verify-guide.md # Verify guide accuracy
 - hooks/
   - hooks.json # PostToolUse hook config
+- scripts/
+  - pre-commit # Git pre-commit hook script
 - Cargo.toml
+- Makefile # Development commands
 - README.md
 - Specification.md # Format specification
 - ... # Tests, CI configs, etc.

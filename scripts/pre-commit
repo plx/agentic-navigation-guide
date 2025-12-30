@@ -1,0 +1,45 @@
+#!/bin/sh
+# Pre-commit hook for agentic-navigation-guide
+# Runs formatting and linting checks before allowing a commit
+#
+# To install this hook, run from the repository root:
+#   cp scripts/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# Or create a symlink:
+#   ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check formatting
+echo "Checking formatting with rustfmt..."
+if ! cargo fmt -- --check; then
+    echo ""
+    echo "ERROR: Code is not formatted correctly."
+    echo "Run 'cargo fmt' to fix formatting issues."
+    exit 1
+fi
+
+# Run clippy
+echo "Running clippy linter..."
+if ! cargo clippy -- -D warnings; then
+    echo ""
+    echo "ERROR: Clippy found issues."
+    echo "Fix the issues above before committing."
+    exit 1
+fi
+
+# Verify navigation guide (if the tool is built)
+if command -v agentic-navigation-guide >/dev/null 2>&1; then
+    echo "Verifying navigation guide..."
+    if ! agentic-navigation-guide verify --pre-commit-hook; then
+        echo ""
+        echo "ERROR: Navigation guide verification failed."
+        echo "Update AGENTIC_NAVIGATION_GUIDE.md to match the filesystem."
+        exit 1
+    fi
+fi
+
+echo "All pre-commit checks passed!"
