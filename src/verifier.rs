@@ -472,6 +472,42 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn test_verify_rejects_file_symlink_traversal_outside_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        let outside_file = temp_dir.path().join("outside.txt");
+        std::fs::create_dir(&root_dir).unwrap();
+        std::fs::write(&outside_file, "secret").unwrap();
+        symlink(&outside_file, root_dir.join("linked.txt")).unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: "linked.txt".to_string(),
+                    comment: None,
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PathEscapesRoot { .. }
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_verify_allows_directory_symlink_traversal_within_root() {
         use std::os::unix::fs::symlink;
 
