@@ -1,6 +1,6 @@
 //! Check subcommand implementation
 
-use agentic_navigation_guide::errors::{ErrorFormatter, Result};
+use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use agentic_navigation_guide::validator::Validator;
@@ -60,7 +60,8 @@ impl CheckArgs {
             Ok(content) => content,
             Err(e) => {
                 eprintln!("Error reading file {}: {}", guide_path.display(), e);
-                return Err(e.into());
+                let err: AppError = e.into();
+                return Err(err.reported());
             }
         };
 
@@ -76,7 +77,7 @@ impl CheckArgs {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
                 }
-                return Err(e);
+                return Err(e.reported());
             }
         };
 
@@ -137,7 +138,7 @@ impl CheckArgs {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
                 }
-                Err(e)
+                Err(e.reported())
             }
         }
     }

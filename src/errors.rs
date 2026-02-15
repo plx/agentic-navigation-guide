@@ -9,6 +9,10 @@ pub type Result<T> = std::result::Result<T, AppError>;
 /// Top-level application error type
 #[derive(Debug, Error)]
 pub enum AppError {
+    /// Error was already printed to stderr in a command-specific format
+    #[error("{0}")]
+    Reported(Box<AppError>),
+
     /// Syntax error in the navigation guide
     #[error("syntax error: {0}")]
     Syntax(#[from] SyntaxError),
@@ -32,6 +36,30 @@ pub enum AppError {
     /// Other errors
     #[error("{0}")]
     Other(String),
+}
+
+impl AppError {
+    /// Mark this error as already reported to stderr.
+    pub fn reported(self) -> Self {
+        if matches!(self, Self::Reported(_)) {
+            self
+        } else {
+            Self::Reported(Box::new(self))
+        }
+    }
+
+    /// Returns true when this error has already been printed to stderr.
+    pub fn is_reported(&self) -> bool {
+        matches!(self, Self::Reported(_))
+    }
+
+    /// Returns the underlying error with any reporting wrapper removed.
+    pub fn root_cause(&self) -> &Self {
+        match self {
+            Self::Reported(inner) => inner.root_cause(),
+            _ => self,
+        }
+    }
 }
 
 /// Syntax errors in navigation guide format
@@ -198,7 +226,7 @@ pub struct ErrorFormatter;
 impl ErrorFormatter {
     /// Format an error with line context if available
     pub fn format_with_context(error: &AppError, file_content: Option<&str>) -> String {
-        match error {
+        match error.root_cause() {
             AppError::Syntax(e) => {
                 if let Some(line_num) = e.line_number() {
                     Self::format_with_line_context(e.to_string(), line_num, file_content)

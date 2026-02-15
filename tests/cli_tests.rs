@@ -221,6 +221,24 @@ fn test_init_command() {
 }
 
 #[test]
+fn test_init_command_existing_output_file_reports_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+    let output_path = dir_path.join("EXISTING_GUIDE.md");
+    fs::write(&output_path, "already here").unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("init")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("File already exists"));
+}
+
+#[test]
 fn test_post_tool_use_mode() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
@@ -410,6 +428,24 @@ fn test_dump_with_glob_patterns() {
         .stdout(predicate::str::contains("src/"))
         .stdout(predicate::str::contains(".toml").not())
         .stdout(predicate::str::contains(".env").not());
+}
+
+#[test]
+fn test_dump_with_invalid_glob_pattern_reports_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::write(dir_path.join("README.md"), "# test").unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("dump")
+        .arg("--root")
+        .arg(dir_path)
+        .arg("--exclude")
+        .arg("[")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid glob pattern"));
 }
 
 #[test]
@@ -898,6 +934,23 @@ fn test_recursive_verify_with_exclusions() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Found 1 navigation guide(s)")); // Only src/
+}
+
+#[test]
+fn test_recursive_verify_with_invalid_glob_pattern_reports_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--exclude")
+        .arg("[")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid glob pattern"));
 }
 
 #[test]
