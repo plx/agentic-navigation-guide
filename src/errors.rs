@@ -181,6 +181,17 @@ pub enum SemanticError {
         "line {line}: placeholder (...) must refer to at least one unlisted item in '{parent}'"
     )]
     PlaceholderNoUnmentionedItems { line: usize, parent: String },
+
+    /// Path resolves outside the configured verification root
+    #[error(
+        "line {line}: '{path}' resolves outside root boundary '{root}' (resolved: {resolved})"
+    )]
+    PathEscapesRoot {
+        line: usize,
+        path: String,
+        root: PathBuf,
+        resolved: PathBuf,
+    },
 }
 
 impl SyntaxError {
@@ -215,7 +226,8 @@ impl SemanticError {
             | Self::InvalidNesting { line, .. }
             | Self::SymlinkTargetMismatch { line, .. }
             | Self::PermissionDenied { line, .. }
-            | Self::PlaceholderNoUnmentionedItems { line, .. } => *line,
+            | Self::PlaceholderNoUnmentionedItems { line, .. }
+            | Self::PathEscapesRoot { line, .. } => *line,
         }
     }
 }

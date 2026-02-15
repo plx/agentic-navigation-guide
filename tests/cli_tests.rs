@@ -150,6 +150,65 @@ fn test_verify_command_missing_file() {
 }
 
 #[test]
+fn test_verify_command_rejects_path_outside_root_boundary() {
+    let temp_dir = TempDir::new().unwrap();
+    let workspace_root = temp_dir.path().join("project");
+    fs::create_dir(&workspace_root).unwrap();
+    fs::write(temp_dir.path().join("outside.txt"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- ../outside.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = workspace_root.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(&workspace_root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("outside root boundary"))
+        .stderr(predicate::str::contains("../outside.txt"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_verify_command_rejects_symlink_directory_escape() {
+    use std::os::unix::fs::symlink;
+
+    let temp_dir = TempDir::new().unwrap();
+    let workspace_root = temp_dir.path().join("project");
+    let outside_dir = temp_dir.path().join("outside");
+    fs::create_dir(&workspace_root).unwrap();
+    fs::create_dir(&outside_dir).unwrap();
+    fs::write(outside_dir.join("secret.txt"), "").unwrap();
+    symlink(&outside_dir, workspace_root.join("linked")).unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- linked/
+  - secret.txt
+</agentic-navigation-guide>"#;
+
+    let guide_path = workspace_root.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(&workspace_root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("outside root boundary"))
+        .stderr(predicate::str::contains("linked"));
+}
+
+#[test]
 fn test_check_command_valid_syntax() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
