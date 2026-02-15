@@ -354,6 +354,53 @@ fn test_verify_command_unhashed_suffix_is_not_comment() {
 }
 
 #[test]
+fn test_check_command_accepts_escaped_hash_in_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- docs/issue\#123.md
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Navigation guide syntax is valid"));
+}
+
+#[test]
+fn test_verify_command_accepts_escaped_hash_in_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::create_dir_all(dir_path.join("docs")).unwrap();
+    fs::write(dir_path.join("docs/issue#123.md"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- docs/issue\#123.md # tracked issue notes
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Navigation guide is valid"));
+}
+
+#[test]
 fn test_check_command_multiple_guide_blocks_error() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();

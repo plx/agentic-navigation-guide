@@ -41,9 +41,9 @@ The main rules are:
 - each entry must be a list item (start with `-`)
 - nesting is indicated by indentation
 - a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a file/symlink-style path
-- comments are optional; the first `#` starts the comment portion
-- if an entry has no `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
-- literal `#` characters in paths are not currently supported
+- comments are optional; the first unescaped `#` starts the comment portion
+- use `\#` to include a literal `#` character in a path
+- if an entry has no unescaped `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
 - blank lines are not allowed within the guide block
 - paths are validated structurally (must be relative, cannot contain empty components like `//`, and cannot contain `.` or `..` components)
 - no ordering requirement is imposed
@@ -122,7 +122,7 @@ Choice lists follow these rules:
 
 - Whitespace inside the brackets is ignored unless it appears inside a quoted string.
 - An empty string may be included by leaving an empty slot (e.g. `[, .local]`).
-- Use a backslash to escape individual characters (e.g. `\,` for a literal comma, `\ ` for a literal space, `\[` for a literal
+- Use a backslash to escape individual characters (e.g. `\,` for a literal comma, `\ ` for a literal space, `\#` for a literal `#`, `\[` for a literal
   `[` character).
 - Surround complex values with double quotes to preserve punctuation or embedded brackets. Within quotes, escape `"` to include
   a literal quote character.

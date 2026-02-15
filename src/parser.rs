@@ -8,8 +8,6 @@ use regex::Regex;
 pub struct Parser {
     /// Regular expression for detecting list items
     list_item_regex: Regex,
-    /// Regular expression for parsing path and comment
-    path_comment_regex: Regex,
 }
 
 impl Parser {
@@ -17,7 +15,6 @@ impl Parser {
     pub fn new() -> Self {
         Self {
             list_item_regex: Regex::new(r"^(\s*)-\s+(.+)$").unwrap(),
-            path_comment_regex: Regex::new(r"^([^#]+?)(?:\s*#\s*(.*))?$").unwrap(),
         }
     }
 
@@ -209,38 +206,54 @@ impl Parser {
         content: &str,
         line_number: usize,
     ) -> Result<(String, Option<String>)> {
-        if let Some(captures) = self.path_comment_regex.captures(content) {
-            let path = captures.get(1).unwrap().as_str().trim().to_string();
-            let comment = captures.get(2).map(|m| m.as_str().trim().to_string());
+        let (raw_path, raw_comment) = Self::split_path_comment(content);
+        let path = raw_path.trim().to_string();
+        let comment = raw_comment.map(|value| value.trim().to_string());
 
-            // Validate path
-            if path.is_empty() {
-                return Err(SyntaxError::InvalidPathFormat {
-                    line: line_number,
-                    path: String::new(),
-                }
-                .into());
-            }
-
-            // Check for special directories (but allow "..." placeholder)
-            if path == "..." {
-                // Allowed as placeholder
-            } else if path == "." || path == ".." || path == "./" || path == "../" {
-                return Err(SyntaxError::InvalidSpecialDirectory {
-                    line: line_number,
-                    path,
-                }
-                .into());
-            }
-
-            Ok((path, comment))
-        } else {
-            Err(SyntaxError::InvalidPathFormat {
+        // Validate path
+        if path.is_empty() {
+            return Err(SyntaxError::InvalidPathFormat {
                 line: line_number,
-                path: content.to_string(),
+                path: String::new(),
             }
-            .into())
+            .into());
         }
+
+        // Check for special directories (but allow "..." placeholder)
+        if path == "..." {
+            // Allowed as placeholder
+        } else if path == "." || path == ".." || path == "./" || path == "../" {
+            return Err(SyntaxError::InvalidSpecialDirectory {
+                line: line_number,
+                path,
+            }
+            .into());
+        }
+
+        Ok((path, comment))
+    }
+
+    /// Split a list item value into path and optional comment at the first unescaped `#`.
+    fn split_path_comment(content: &str) -> (&str, Option<&str>) {
+        let mut escaped = false;
+
+        for (idx, ch) in content.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            if ch == '#' {
+                return (&content[..idx], Some(&content[idx + 1..]));
+            }
+        }
+
+        (content, None)
     }
 
     /// Process escape sequences in a string, converting escaped characters to their literal forms.
@@ -251,6 +264,7 @@ impl Parser {
     /// - `\\` → `\`
     /// - `\[` → `[`
     /// - `\]` → `]`
+    /// - `\#` → `#`
     ///
     /// # Arguments
     /// * `s` - The string containing escape sequences
@@ -712,6 +726,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_with_escaped_hash_in_path() {
+        let content = r#"<agentic-navigation-guide>
+- docs/issue\#123.md # ticket
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "docs/issue#123.md");
+        assert_eq!(guide.items[0].comment(), Some("ticket"));
+    }
+
+    #[test]
+    fn test_parse_comment_uses_first_unescaped_hash() {
+        let content = r#"<agentic-navigation-guide>
+- docs/issue\#123.md#ticket
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "docs/issue#123.md");
+        assert_eq!(guide.items[0].comment(), Some("ticket"));
+    }
+
+    #[test]
     fn test_trailing_whitespace_allowed() {
         let content = r#"<agentic-navigation-guide>
 - foo.rs  
@@ -1017,5 +1059,17 @@ mod tests {
         assert_eq!(guide.items.len(), 1);
         // Note: Escaped quotes inside a quoted string are processed
         assert_eq!(guide.items[0].path(), r#"filea "b" c.txt"#);
+    }
+
+    #[test]
+    fn test_split_path_comment_ignores_escaped_hashes() {
+        assert_eq!(
+            Parser::split_path_comment(r#"docs/issue\#123.md#ticket"#),
+            (r#"docs/issue\#123.md"#, Some("ticket"))
+        );
+        assert_eq!(
+            Parser::split_path_comment(r#"docs/issue\#123.md"#),
+            (r#"docs/issue\#123.md"#, None)
+        );
     }
 }
