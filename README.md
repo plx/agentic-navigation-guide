@@ -15,6 +15,27 @@ This crate provides a CLI tool to assist with both:
 
 The validation can be done in a stand-alone way, and also has special support for being used as a "post-tool-use-hook" by Claude Code.
 
+## Docs and Implementation Alignment Policy
+
+### Source-of-Truth Precedence
+
+1. Current implementation (`src/` plus tests) is authoritative for realized runtime behavior.
+2. `README.md` is authoritative for the current user-facing contract and should match implementation.
+3. `Specification.md` captures original intent and historical context, and is not guaranteed to be fully current.
+
+If `README.md` and implementation are incoherent or contradictory, treat that as a defect and resolve both in the same change when possible.
+
+### Update Process for Behavior Changes
+
+When user-facing behavior changes, update user-facing docs in the same change. This includes:
+- CLI commands, flags, defaults, and environment-variable behavior
+- output format, error messaging, and exit-code behavior
+- syntax and validation behavior for navigation guides
+
+### Known Intentional Divergences
+
+- None currently recorded. If one is introduced intentionally, add a dated bullet with rationale.
+
 ## Navigation Guide Format
 
 A "navigation guide" looks like this:
