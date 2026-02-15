@@ -1329,6 +1329,36 @@ fn test_recursive_verify_with_ignored_guides() {
 }
 
 #[test]
+fn test_recursive_verify_with_non_ignore_attribute_is_not_skipped() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create structure with a guide that should NOT be treated as ignored.
+    fs::create_dir_all(root.join("docs/examples")).unwrap();
+
+    let non_ignored_guide = r#"<agentic-navigation-guide notignore=true>
+- missing.txt
+</agentic-navigation-guide>"#;
+
+    fs::write(
+        root.join("docs/examples/AGENTIC_NAVIGATION_GUIDE.md"),
+        non_ignored_guide,
+    )
+    .unwrap();
+
+    // Run recursive verify - should fail because the guide is not ignored.
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing.txt"))
+        .stderr(predicate::str::contains("ignore=true").not());
+}
+
+#[test]
 fn test_recursive_verify_no_guides_found() {
     let temp_dir = TempDir::new().unwrap();
     let root = temp_dir.path();

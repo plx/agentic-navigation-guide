@@ -104,10 +104,97 @@ impl Parser {
     /// Parse the ignore attribute from the opening tag
     /// Supports both `ignore=true` and `ignore="true"` formats
     fn parse_ignore_attribute(&self, tag: &str) -> bool {
-        // Check for ignore=true or ignore="true"
-        if tag.contains("ignore=true") || tag.contains("ignore=\"true\"") {
-            return true;
+        const OPENING_TAG_PREFIX: &str = "<agentic-navigation-guide";
+
+        let Some(without_prefix) = tag.strip_prefix(OPENING_TAG_PREFIX) else {
+            return false;
+        };
+        let Some(attributes) = without_prefix.strip_suffix('>') else {
+            return false;
+        };
+
+        Self::has_ignore_true_attribute(attributes)
+    }
+
+    /// Check whether an opening tag's attributes contain `ignore=true` or `ignore="true"`.
+    fn has_ignore_true_attribute(attributes: &str) -> bool {
+        let bytes = attributes.as_bytes();
+        let mut idx = 0;
+
+        while idx < bytes.len() {
+            // Skip leading whitespace before each attribute.
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            if idx >= bytes.len() {
+                break;
+            }
+
+            // Parse attribute key until whitespace or '='.
+            let key_start = idx;
+            while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() && bytes[idx] != b'=' {
+                idx += 1;
+            }
+            let key = &attributes[key_start..idx];
+
+            // Skip whitespace between key and '='.
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+
+            // Missing '=' means this token is not a key/value attribute.
+            if idx >= bytes.len() || bytes[idx] != b'=' {
+                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                    idx += 1;
+                }
+                continue;
+            }
+            idx += 1; // consume '='
+
+            // Skip whitespace between '=' and value.
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            if idx >= bytes.len() {
+                break;
+            }
+
+            let value = if bytes[idx] == b'"' {
+                // Quoted value, preserving exact inner content for strict matching.
+                idx += 1; // consume opening quote
+                let value_start = idx;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    idx += 1;
+                }
+                if idx >= bytes.len() {
+                    break; // Unterminated quote: ignore the malformed trailing attribute.
+                }
+
+                let quoted_value = &attributes[value_start..idx];
+                idx += 1; // consume closing quote
+
+                // Enforce token boundary after a quoted value.
+                if idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                    while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                        idx += 1;
+                    }
+                    continue;
+                }
+
+                quoted_value
+            } else {
+                let value_start = idx;
+                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                    idx += 1;
+                }
+                &attributes[value_start..idx]
+            };
+
+            if key == "ignore" && value == "true" {
+                return true;
+            }
         }
+
         false
     }
 
@@ -889,6 +976,45 @@ mod tests {
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_with_mixed_attributes() {
+        let content = r#"<agentic-navigation-guide foo=bar ignore="true" notignore=true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_does_not_match_partial_key() {
+        let content = r#"<agentic-navigation-guide notignore=true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_requires_true_value() {
+        let content = r#"<agentic-navigation-guide ignore=false>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
         assert_eq!(guide.items.len(), 1);
     }
 
