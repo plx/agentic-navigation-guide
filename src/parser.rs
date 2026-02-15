@@ -49,13 +49,14 @@ impl Parser {
         let mut end_idx = None;
         let mut ignore = false;
 
-        // Find the opening and closing markers
+        // Find and validate opening/closing markers across the full document.
+        // We require exactly one opening marker and exactly one closing marker.
         for (idx, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
 
             // Check for opening tag with or without attributes
             if trimmed.starts_with("<agentic-navigation-guide") && trimmed.ends_with(">") {
-                if start_idx.is_some() {
+                if start_idx.is_some() || end_idx.is_some() {
                     return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
                 }
                 start_idx = Some(idx);
@@ -63,8 +64,18 @@ impl Parser {
                 // Parse ignore attribute if present
                 ignore = self.parse_ignore_attribute(trimmed);
             } else if trimmed == "</agentic-navigation-guide>" {
-                end_idx = Some(idx);
-                break;
+                if start_idx.is_some() {
+                    if end_idx.is_some() {
+                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
+                    }
+                    end_idx = Some(idx);
+                } else if end_idx.is_none() {
+                    // Preserve missing opening marker behavior while still tracking
+                    // a stray closing marker for follow-up marker conflict detection.
+                    end_idx = Some(idx);
+                } else {
+                    return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
+                }
             }
         }
 
@@ -624,6 +635,64 @@ mod tests {
             result,
             Err(crate::errors::AppError::Syntax(
                 SyntaxError::MissingOpeningMarker { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_multiple_guide_blocks_second_block_after_first_close() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide>
+
+<agentic-navigation-guide>
+- docs/
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MultipleGuideBlocks { line: 5 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_multiple_guide_blocks_second_opening_before_first_close() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+<agentic-navigation-guide>
+- docs/
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MultipleGuideBlocks { line: 3 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_multiple_guide_blocks_extra_closing_marker() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide>
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MultipleGuideBlocks { line: 4 }
             ))
         ));
     }

@@ -200,6 +200,57 @@ fn test_check_command_invalid_syntax() {
 }
 
 #[test]
+fn test_check_command_multiple_guide_blocks_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide>
+
+<agentic-navigation-guide>
+- docs/
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "line 5: multiple <agentic-navigation-guide> blocks found",
+        ));
+}
+
+#[test]
+fn test_check_command_stray_closing_marker_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide>
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "line 4: multiple <agentic-navigation-guide> blocks found",
+        ));
+}
+
+#[test]
 fn test_init_command() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
