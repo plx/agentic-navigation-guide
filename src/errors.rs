@@ -85,10 +85,6 @@ pub enum SyntaxError {
     #[error("line {line}: invalid list format - must start with '-'")]
     InvalidListFormat { line: usize },
 
-    /// Directory missing trailing slash
-    #[error("line {line}: directory '{path}' must end with '/'")]
-    DirectoryMissingSlash { line: usize, path: String },
-
     /// Invalid special directory
     #[error("line {line}: invalid special directory '{path}' (. and .. are not allowed)")]
     InvalidSpecialDirectory { line: usize, path: String },
@@ -120,10 +116,6 @@ pub enum SyntaxError {
         path: String,
         message: String,
     },
-
-    /// Invalid comment format
-    #[error("line {line}: invalid comment format - comments must be separated by '#'")]
-    InvalidCommentFormat { line: usize },
 
     /// Adjacent placeholders
     #[error("line {line}: placeholder entries (...) cannot be adjacent to each other")]
@@ -202,14 +194,12 @@ impl SyntaxError {
             | Self::MissingClosingMarker { line }
             | Self::MultipleGuideBlocks { line }
             | Self::InvalidListFormat { line }
-            | Self::DirectoryMissingSlash { line, .. }
             | Self::InvalidSpecialDirectory { line, .. }
             | Self::InconsistentIndentation { line, .. }
             | Self::InvalidIndentationLevel { line }
             | Self::BlankLineInGuide { line }
             | Self::InvalidPathFormat { line, .. }
             | Self::InvalidWildcardSyntax { line, .. }
-            | Self::InvalidCommentFormat { line }
             | Self::AdjacentPlaceholders { line }
             | Self::PlaceholderWithChildren { line } => Some(*line),
             Self::EmptyGuideBlock => None,

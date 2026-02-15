@@ -38,9 +38,12 @@ A "navigation guide" looks like this:
 
 The main rules are:
 
-- directories must end with a `/`
+- each entry must be a list item (start with `-`)
 - nesting is indicated by indentation
-- comments are optional, and must be separated from the path by a `#` character
+- a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a file/symlink-style path
+- comments are optional; the first `#` starts the comment portion
+- if an entry has no `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
+- literal `#` characters in paths are not currently supported
 - blank lines are not allowed within the guide block
 - no special paths (`.`, `..`, `./`, `../`)
 - no ordering requirement is imposed

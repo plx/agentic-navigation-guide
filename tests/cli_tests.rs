@@ -259,6 +259,101 @@ fn test_check_command_invalid_syntax() {
 }
 
 #[test]
+fn test_check_command_accepts_path_without_trailing_slash() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Navigation guide syntax is valid"));
+}
+
+#[test]
+fn test_verify_command_path_without_trailing_slash_type_mismatch() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::create_dir(dir_path.join("src")).unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "expected file but found directory",
+        ))
+        .stderr(predicate::str::contains("src"));
+}
+
+#[test]
+fn test_check_command_unhashed_suffix_is_path_text() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src/ source code
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Navigation guide syntax is valid"));
+}
+
+#[test]
+fn test_verify_command_unhashed_suffix_is_not_comment() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::create_dir(dir_path.join("src")).unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src/ source code
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("src/ source code"));
+}
+
+#[test]
 fn test_check_command_multiple_guide_blocks_error() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
