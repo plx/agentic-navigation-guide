@@ -339,7 +339,7 @@ impl Verifier {
         if unmentioned_count == 0 {
             // Only require unmentioned items if the placeholder has no comment.
             // Placeholders with comments can represent future items that don't yet exist.
-            if item.comment().is_none() {
+            if !Self::placeholder_has_meaningful_comment(item) {
                 return Err(SemanticError::PlaceholderNoUnmentionedItems {
                     line: item.line_number,
                     parent: parent_path.to_string_lossy().to_string(),
@@ -350,6 +350,12 @@ impl Verifier {
         }
 
         Ok(())
+    }
+
+    fn placeholder_has_meaningful_comment(item: &NavigationGuideLine) -> bool {
+        item.comment()
+            .map(|comment| !comment.trim().is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -576,6 +582,83 @@ mod tests {
         };
 
         // Should succeed because placeholder has a comment (represents future items)
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_placeholder_with_whitespace_comment_no_items_fails() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create only one file
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder {
+                        comment: Some("   \t   ".to_string()),
+                    },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PlaceholderNoUnmentionedItems { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_verify_placeholder_with_non_empty_comment_remains_relaxed() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create only one file
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder {
+                        comment: Some("  future files  ".to_string()),
+                    },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
         let result = verifier.verify(&guide);
         assert!(result.is_ok());
     }

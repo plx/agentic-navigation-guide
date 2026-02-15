@@ -208,7 +208,14 @@ impl Parser {
     ) -> Result<(String, Option<String>)> {
         let (raw_path, raw_comment) = Self::split_path_comment(content);
         let path = raw_path.trim().to_string();
-        let comment = raw_comment.map(|value| value.trim().to_string());
+        let comment = raw_comment.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
 
         // Validate path
         if path.is_empty() {
@@ -751,6 +758,21 @@ mod tests {
         assert_eq!(guide.items.len(), 1);
         assert_eq!(guide.items[0].path(), "docs/issue#123.md");
         assert_eq!(guide.items[0].comment(), Some("ticket"));
+    }
+
+    #[test]
+    fn test_parse_whitespace_only_comment_normalizes_to_none() {
+        let content = r#"<agentic-navigation-guide>
+- src/ #    
+- ... # 	
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 2);
+        assert_eq!(guide.items[0].comment(), None);
+        assert_eq!(guide.items[1].comment(), None);
     }
 
     #[test]

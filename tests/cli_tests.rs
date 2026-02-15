@@ -817,6 +817,71 @@ fn test_verify_placeholder_no_comment_fails() {
 }
 
 #[test]
+fn test_verify_placeholder_whitespace_only_comment_fails() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::create_dir_all(dir_path.join("plans/phases")).unwrap();
+    fs::write(
+        dir_path.join("plans/phases/phase-01-project-scaffolding.md"),
+        "# Phase 01",
+    )
+    .unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- plans/
+  - phases/
+    - phase-01-project-scaffolding.md
+    - ... #    
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("placeholder"));
+}
+
+#[test]
+fn test_verify_placeholder_non_empty_comment_remains_relaxed() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::create_dir_all(dir_path.join("plans/phases")).unwrap();
+    fs::write(
+        dir_path.join("plans/phases/phase-01-project-scaffolding.md"),
+        "# Phase 01",
+    )
+    .unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- plans/
+  - phases/
+    - phase-01-project-scaffolding.md
+    - ... # future phases
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_verify_placeholder_mixed_scenarios() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
