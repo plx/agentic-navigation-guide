@@ -45,11 +45,17 @@ The main rules are:
 - if an entry has no `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
 - literal `#` characters in paths are not currently supported
 - blank lines are not allowed within the guide block
-- no special paths (`.`, `..`, `./`, `../`)
+- paths are validated structurally (must be relative, cannot contain empty components like `//`, and cannot contain `.` or `..` components)
 - no ordering requirement is imposed
 - placeholder entries (`...`) can be used to indicate unlisted items (see below)
 
 Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries—the guide *must* be accurate*.
+
+### UTF-8 Scope
+
+- UTF-8 paths are supported, including non-ASCII names.
+- Non-UTF-8 filesystem names are explicitly out of scope.
+- Commands that enumerate filesystem entries (for example `dump`, or placeholder checks during `verify`) will return an error if they encounter non-UTF-8 names.
 
 ### Placeholder Entries
 

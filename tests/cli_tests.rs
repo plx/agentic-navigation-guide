@@ -150,7 +150,7 @@ fn test_verify_command_missing_file() {
 }
 
 #[test]
-fn test_verify_command_rejects_path_outside_root_boundary() {
+fn test_verify_command_rejects_parent_path_component() {
     let temp_dir = TempDir::new().unwrap();
     let workspace_root = temp_dir.path().join("project");
     fs::create_dir(&workspace_root).unwrap();
@@ -171,7 +171,7 @@ fn test_verify_command_rejects_path_outside_root_boundary() {
         .arg(&workspace_root)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("outside root boundary"))
+        .stderr(predicate::str::contains("invalid special directory"))
         .stderr(predicate::str::contains("../outside.txt"));
 }
 
@@ -550,27 +550,47 @@ fn test_type_mismatch_file_vs_directory() {
 }
 
 #[test]
-fn test_invalid_path_characters() {
+fn test_check_accepts_utf8_and_symbolic_paths() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
 
-    // Guide with invalid characters in path
     let guide_content = r#"<agentic-navigation-guide>
-- src|invalid/
-- file//double_slash.txt
+- src/
+  - naïve-文件.rs
+- docs/Guía rápida.md
+- data|set@v2(β).json
 </agentic-navigation-guide>"#;
 
     let guide_path = dir_path.join("GUIDE.md");
     fs::write(&guide_path, guide_content).unwrap();
 
-    // Check should fail
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_invalid_path_structure() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- src/./invalid.rs
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
     let mut cmd = get_command();
     cmd.arg("check")
         .arg("--guide")
         .arg(&guide_path)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid path format"));
+        .stderr(predicate::str::contains("invalid special directory"));
 }
 
 #[test]

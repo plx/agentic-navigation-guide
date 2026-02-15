@@ -312,11 +312,27 @@ impl Verifier {
 
         // Count unmentioned items
         let mut unmentioned_count = 0;
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if !mentioned_names.contains(name) {
-                    unmentioned_count += 1;
+        for entry_result in entries {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(SemanticError::PermissionDenied {
+                        line: item.line_number,
+                        path: parent_path.to_string_lossy().to_string(),
+                    }
+                    .into());
                 }
+                Err(e) => return Err(e.into()),
+            };
+
+            let name = entry.file_name();
+            let name = name.to_str().ok_or_else(|| SemanticError::NonUtf8Path {
+                line: item.line_number,
+                path: entry.path(),
+            })?;
+
+            if !mentioned_names.contains(name) {
+                unmentioned_count += 1;
             }
         }
 
@@ -340,6 +356,8 @@ impl Verifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
     use tempfile::TempDir;
 
     #[test]
@@ -395,8 +413,8 @@ mod tests {
         let result = verifier.verify(&guide);
         assert!(matches!(
             result,
-            Err(crate::errors::AppError::Semantic(
-                SemanticError::PathEscapesRoot { .. }
+            Err(crate::errors::AppError::Syntax(
+                crate::errors::SyntaxError::InvalidSpecialDirectory { .. }
             ))
         ));
     }
@@ -887,5 +905,85 @@ mod tests {
         // Should succeed - placeholder without comment is ok when unmentioned items exist
         let result = verifier.verify(&guide);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_placeholder_with_utf8_unmentioned_items() {
+        let temp_dir = TempDir::new().unwrap();
+
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+        std::fs::write(temp_dir.path().join("naïve-文件.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder { comment: None },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_placeholder_rejects_non_utf8_items() {
+        use std::ffi::OsStr;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+        let non_utf8_name = OsStr::from_bytes(b"bad-\xFF-file");
+        if std::fs::write(temp_dir.path().join(non_utf8_name), "").is_err() {
+            // Some Unix filesystems (notably on macOS) reject invalid UTF-8 names at creation time.
+            return;
+        }
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder { comment: None },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::NonUtf8Path { .. }
+            ))
+        ));
     }
 }

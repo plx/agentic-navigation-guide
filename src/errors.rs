@@ -33,6 +33,10 @@ pub enum AppError {
     #[error("filesystem walk error: {0}")]
     WalkDir(#[from] walkdir::Error),
 
+    /// Unsupported non-UTF-8 filesystem path/name
+    #[error("non-UTF-8 filesystem names are not supported: {path}")]
+    NonUtf8Path { path: PathBuf },
+
     /// Other errors
     #[error("{0}")]
     Other(String),
@@ -184,6 +188,10 @@ pub enum SemanticError {
         root: PathBuf,
         resolved: PathBuf,
     },
+
+    /// Verification encountered a non-UTF-8 filesystem entry while enumerating directory contents
+    #[error("line {line}: non-UTF-8 filesystem names are unsupported while enumerating '{path}'")]
+    NonUtf8Path { line: usize, path: PathBuf },
 }
 
 impl SyntaxError {
@@ -217,7 +225,8 @@ impl SemanticError {
             | Self::SymlinkTargetMismatch { line, .. }
             | Self::PermissionDenied { line, .. }
             | Self::PlaceholderNoUnmentionedItems { line, .. }
-            | Self::PathEscapesRoot { line, .. } => *line,
+            | Self::PathEscapesRoot { line, .. }
+            | Self::NonUtf8Path { line, .. } => *line,
         }
     }
 }

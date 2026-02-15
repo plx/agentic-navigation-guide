@@ -3,6 +3,7 @@
 use crate::errors::{Result, SyntaxError};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::HashSet;
+use std::path::{Component, Path};
 
 /// Validator for navigation guide syntax
 pub struct Validator;
@@ -39,8 +40,8 @@ impl Validator {
                 // They will have additional validation in validate_placeholders
             }
             _ => {
-                // Validate path characters for non-placeholder items
-                self.validate_path_characters(item)?;
+                // Validate path structure for non-placeholder items
+                self.validate_path_structure(item)?;
             }
         }
 
@@ -82,8 +83,8 @@ impl Validator {
         Ok(())
     }
 
-    /// Validate path characters
-    fn validate_path_characters(&self, item: &NavigationGuideLine) -> Result<()> {
+    /// Validate path structure without restricting character classes.
+    fn validate_path_structure(&self, item: &NavigationGuideLine) -> Result<()> {
         let path = item.path();
 
         // Check for empty path
@@ -95,29 +96,29 @@ impl Validator {
             .into());
         }
 
-        // Check for invalid characters
-        // Allow alphanumeric, dash, underscore, dot, and forward slash
-        for ch in path.chars() {
-            if !ch.is_alphanumeric()
-                && !matches!(
-                    ch,
-                    '-' | '_'
-                        | '.'
-                        | '/'
-                        | ' '
-                        | '('
-                        | ')'
-                        | '['
-                        | ']'
-                        | '{'
-                        | '}'
-                        | '@'
-                        | '+'
-                        | '~'
-                        | ','
-                )
-            {
+        let path_obj = Path::new(path);
+
+        // Paths must be relative.
+        if path_obj.is_absolute() {
+            return Err(SyntaxError::InvalidPathFormat {
+                line: item.line_number,
+                path: path.to_string(),
+            }
+            .into());
+        }
+
+        // Validate raw slash-separated components so we preserve `.` / `..` and empty components.
+        for component in path.split('/') {
+            if component.is_empty() {
                 return Err(SyntaxError::InvalidPathFormat {
+                    line: item.line_number,
+                    path: path.to_string(),
+                }
+                .into());
+            }
+
+            if component == "." || component == ".." {
+                return Err(SyntaxError::InvalidSpecialDirectory {
                     line: item.line_number,
                     path: path.to_string(),
                 }
@@ -125,22 +126,15 @@ impl Validator {
             }
         }
 
-        // Check for double slashes
-        if path.contains("//") {
-            return Err(SyntaxError::InvalidPathFormat {
-                line: item.line_number,
-                path: path.to_string(),
+        // Reject rooted/prefixed paths on the current platform.
+        for component in path_obj.components() {
+            if matches!(component, Component::RootDir | Component::Prefix(_)) {
+                return Err(SyntaxError::InvalidPathFormat {
+                    line: item.line_number,
+                    path: path.to_string(),
+                }
+                .into());
             }
-            .into());
-        }
-
-        // Check for paths starting or ending with slash (should have been handled in parsing)
-        if path.starts_with('/') || path.ends_with('/') {
-            return Err(SyntaxError::InvalidPathFormat {
-                line: item.line_number,
-                path: path.to_string(),
-            }
-            .into());
         }
 
         Ok(())
@@ -290,25 +284,20 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_invalid_path_characters() {
+    fn test_validate_allows_utf8_and_unrestricted_characters() {
         let mut guide = NavigationGuide::new();
         guide.items.push(NavigationGuideLine {
             line_number: 1,
             indent_level: 0,
             item: FilesystemItem::File {
-                path: "file|with|pipes.txt".to_string(),
+                path: "目录/résumé|draft(1).txt".to_string(),
                 comment: None,
             },
         });
 
         let validator = Validator::new();
         let result = validator.validate_syntax(&guide);
-        assert!(matches!(
-            result,
-            Err(crate::errors::AppError::Syntax(
-                SyntaxError::InvalidPathFormat { .. }
-            ))
-        ));
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -329,6 +318,50 @@ mod tests {
             result,
             Err(crate::errors::AppError::Syntax(
                 SyntaxError::InvalidPathFormat { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_dot_components() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "src/./main.rs".to_string(),
+                comment: None,
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidSpecialDirectory { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_parent_components() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "src/../main.rs".to_string(),
+                comment: None,
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidSpecialDirectory { .. }
             ))
         ));
     }

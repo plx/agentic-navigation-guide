@@ -1,6 +1,6 @@
 //! Directory dumping functionality for generating navigation guides
 
-use crate::errors::Result;
+use crate::errors::{AppError, Result};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
@@ -62,7 +62,7 @@ impl Dumper {
         let entries = self.collect_entries()?;
 
         // Build the tree structure
-        let tree = self.build_tree(entries);
+        let tree = self.build_tree(entries)?;
 
         // Format as markdown
         self.format_tree(&tree, &mut output, 0);
@@ -126,7 +126,7 @@ impl Dumper {
     }
 
     /// Build a tree structure from flat entries
-    fn build_tree(&self, entries: Vec<DirEntry>) -> TreeNode {
+    fn build_tree(&self, entries: Vec<DirEntry>) -> Result<TreeNode> {
         let mut root = TreeNode {
             name: String::new(),
             is_dir: true,
@@ -140,23 +140,30 @@ impl Dumper {
                 .unwrap_or(path)
                 .to_path_buf();
 
-            self.insert_into_tree(&mut root, &relative_path, entry.file_type().is_dir());
+            self.ensure_utf8_relative_path(&relative_path)?;
+            self.insert_into_tree(&mut root, &relative_path, entry.file_type().is_dir())?;
         }
 
-        root
+        Ok(root)
     }
 
     /// Insert a path into the tree structure
-    fn insert_into_tree(&self, node: &mut TreeNode, path: &Path, is_dir: bool) {
+    fn insert_into_tree(&self, node: &mut TreeNode, path: &Path, is_dir: bool) -> Result<()> {
         let components: Vec<_> = path.components().collect();
 
         if components.is_empty() {
-            return;
+            return Ok(());
         }
 
         if components.len() == 1 {
             // Leaf node
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| AppError::NonUtf8Path {
+                    path: self.root_path.join(path),
+                })?
+                .to_string();
             node.children.push(TreeNode {
                 name,
                 is_dir,
@@ -164,7 +171,13 @@ impl Dumper {
             });
         } else {
             // Find or create intermediate directory
-            let first = components[0].as_os_str().to_string_lossy().to_string();
+            let first = components[0]
+                .as_os_str()
+                .to_str()
+                .ok_or_else(|| AppError::NonUtf8Path {
+                    path: self.root_path.join(path),
+                })?
+                .to_string();
             let rest = components[1..].iter().collect::<PathBuf>();
 
             let child = if let Some(existing) = node
@@ -182,8 +195,22 @@ impl Dumper {
                 node.children.last_mut().unwrap()
             };
 
-            self.insert_into_tree(child, &rest, is_dir);
+            self.insert_into_tree(child, &rest, is_dir)?;
         }
+
+        Ok(())
+    }
+
+    fn ensure_utf8_relative_path(&self, relative_path: &Path) -> Result<()> {
+        for component in relative_path.components() {
+            if component.as_os_str().to_str().is_none() {
+                return Err(AppError::NonUtf8Path {
+                    path: self.root_path.join(relative_path),
+                });
+            }
+        }
+
+        Ok(())
     }
 
     /// Format the tree as markdown
@@ -216,6 +243,8 @@ struct TreeNode {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
     use tempfile::TempDir;
 
     #[test]
@@ -251,5 +280,43 @@ mod tests {
         assert!(output.contains("- a/"));
         assert!(output.contains("  - b/"));
         assert!(!output.contains("deep.txt"));
+    }
+
+    #[test]
+    fn test_dump_supports_utf8_names() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        fs::create_dir(root.join("数据")).unwrap();
+        fs::write(root.join("数据/résumé-🧭.md"), "").unwrap();
+
+        let dumper = Dumper::new(root);
+        let output = dumper.dump().unwrap();
+
+        assert!(output.contains("- 数据/"));
+        assert!(output.contains("  - résumé-🧭.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dump_rejects_non_utf8_names() {
+        use std::ffi::OsStr;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        let non_utf8_name = OsStr::from_bytes(b"bad-\xFF-name");
+        if fs::write(root.join(non_utf8_name), "").is_err() {
+            // Some Unix filesystems (notably on macOS) reject invalid UTF-8 names at creation time.
+            return;
+        }
+
+        let dumper = Dumper::new(root);
+        let result = dumper.dump();
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::NonUtf8Path { .. })
+        ));
     }
 }
