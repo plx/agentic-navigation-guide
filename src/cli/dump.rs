@@ -39,9 +39,10 @@ impl DumpArgs {
     /// Execute the dump command
     pub fn execute(self, _config: &Config) -> Result<()> {
         // Determine root path
-        let root_path = self
-            .root
-            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+        let root_path = match self.root {
+            Some(root) => root,
+            None => std::env::current_dir()?,
+        };
 
         log::debug!("Dumping directory: {}", root_path.display());
 

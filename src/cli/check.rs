@@ -1,6 +1,6 @@
 //! Check subcommand implementation
 
-use agentic_navigation_guide::errors::{ErrorFormatter, Result};
+use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use agentic_navigation_guide::validator::Validator;
@@ -40,18 +40,14 @@ impl CheckArgs {
         }
 
         // Determine guide path
-        let guide_path = self
-            .guide
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
-                    .ok()
-                    .map(|name| std::env::current_dir().unwrap().join(name))
-            })
-            .unwrap_or_else(|| {
-                std::env::current_dir()
-                    .unwrap()
-                    .join("AGENTIC_NAVIGATION_GUIDE.md")
-            });
+        let current_dir = std::env::current_dir()?;
+        let guide_path = match self.guide {
+            Some(path) => path,
+            None => match std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME") {
+                Ok(name) => current_dir.join(name),
+                Err(_) => current_dir.join("AGENTIC_NAVIGATION_GUIDE.md"),
+            },
+        };
 
         log::debug!("Checking navigation guide: {}", guide_path.display());
 
@@ -60,7 +56,8 @@ impl CheckArgs {
             Ok(content) => content,
             Err(e) => {
                 eprintln!("Error reading file {}: {}", guide_path.display(), e);
-                return Err(e.into());
+                let err: AppError = e.into();
+                return Err(err.reported());
             }
         };
 
@@ -76,7 +73,7 @@ impl CheckArgs {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
                 }
-                return Err(e);
+                return Err(e.reported());
             }
         };
 
@@ -137,7 +134,7 @@ impl CheckArgs {
                     let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
                     eprintln!("{formatted}");
                 }
-                Err(e)
+                Err(e.reported())
             }
         }
     }

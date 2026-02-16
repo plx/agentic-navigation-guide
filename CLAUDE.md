@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTIC_NAVIGATION_GUIDE.md
 
+## Documentation Alignment
+
+- Source-of-truth precedence: implementation + tests first, `README.md` for user-facing contract, `Specification.md` for original intent/history.
+- If user-facing behavior changes, update `README.md` in the same change.
+- If divergence is intentional, record it in `README.md` under "Known Intentional Divergences" with date and rationale.
+
 ## Commands
 
 ### Build and Check

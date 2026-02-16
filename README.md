@@ -15,6 +15,27 @@ This crate provides a CLI tool to assist with both:
 
 The validation can be done in a stand-alone way, and also has special support for being used as a "post-tool-use-hook" by Claude Code.
 
+## Docs and Implementation Alignment Policy
+
+### Source-of-Truth Precedence
+
+1. Current implementation (`src/` plus tests) is authoritative for realized runtime behavior.
+2. `README.md` is authoritative for the current user-facing contract and should match implementation.
+3. `Specification.md` captures original intent and historical context, and is not guaranteed to be fully current.
+
+If `README.md` and implementation are incoherent or contradictory, treat that as a defect and resolve both in the same change when possible.
+
+### Update Process for Behavior Changes
+
+When user-facing behavior changes, update user-facing docs in the same change. This includes:
+- CLI commands, flags, defaults, and environment-variable behavior
+- output format, error messaging, and exit-code behavior
+- syntax and validation behavior for navigation guides
+
+### Known Intentional Divergences
+
+- None currently recorded. If one is introduced intentionally, add a dated bullet with rationale.
+
 ## Navigation Guide Format
 
 A "navigation guide" looks like this:
@@ -38,15 +59,24 @@ A "navigation guide" looks like this:
 
 The main rules are:
 
-- directories must end with a `/`
+- each entry must be a list item (start with `-`)
 - nesting is indicated by indentation
-- comments are optional, and must be separated from the path by a `#` character
+- a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a file/symlink-style path
+- comments are optional; the first unescaped `#` starts the comment portion
+- use `\#` to include a literal `#` character in a path
+- if an entry has no unescaped `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
 - blank lines are not allowed within the guide block
-- no special paths (`.`, `..`, `./`, `../`)
+- paths are validated structurally (must be relative, cannot contain empty components like `//`, and cannot contain `.` or `..` components)
 - no ordering requirement is imposed
 - placeholder entries (`...`) can be used to indicate unlisted items (see below)
 
 Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries—the guide *must* be accurate*.
+
+### UTF-8 Scope
+
+- UTF-8 paths are supported, including non-ASCII names.
+- Non-UTF-8 filesystem names are explicitly out of scope.
+- Commands that enumerate filesystem entries (for example `dump`, or placeholder checks during `verify`) will return an error if they encounter non-UTF-8 names.
 
 ### Placeholder Entries
 
@@ -113,7 +143,7 @@ Choice lists follow these rules:
 
 - Whitespace inside the brackets is ignored unless it appears inside a quoted string.
 - An empty string may be included by leaving an empty slot (e.g. `[, .local]`).
-- Use a backslash to escape individual characters (e.g. `\,` for a literal comma, `\ ` for a literal space, `\[` for a literal
+- Use a backslash to escape individual characters (e.g. `\,` for a literal comma, `\ ` for a literal space, `\#` for a literal `#`, `\[` for a literal
   `[` character).
 - Surround complex values with double quotes to preserve punctuation or embedded brackets. Within quotes, escape `"` to include
   a literal quote character.
@@ -280,6 +310,7 @@ Each guide is verified relative to its parent directory, allowing you to maintai
 
 - **Automatic Discovery**: Finds all guide files matching the specified name throughout the directory tree
 - **Relative Verification**: Each guide is verified against its parent directory as the root
+- **Root Boundary Enforcement**: Paths that resolve outside the guide root (including symlink escapes) are rejected
 - **Custom Names**: Support for uniform custom guide filenames (e.g., `--guide-name GUIDE.md`)
 - **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
 - **Aggregated Results**: Shows summary of all verified guides with pass/fail counts

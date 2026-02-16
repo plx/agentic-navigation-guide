@@ -2,6 +2,7 @@
 
 use crate::errors::{Result, SemanticError};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Verifier for navigation guides against filesystem
@@ -22,6 +23,7 @@ impl Verifier {
     pub fn verify(&self, guide: &NavigationGuide) -> Result<()> {
         // First validate syntax (should already be done, but double-check)
         crate::validator::Validator::new().validate_syntax(guide)?;
+        let canonical_root_path = self.canonicalize_root_path()?;
 
         // Collect mentioned root-level names for placeholder verification
         let mut mentioned_names = std::collections::HashSet::new();
@@ -36,7 +38,7 @@ impl Verifier {
             if item.is_placeholder() {
                 self.verify_placeholder_with_context(item, &self.root_path, &mentioned_names)?;
             } else {
-                self.verify_item(item, &self.root_path)?;
+                self.verify_item(item, &self.root_path, &canonical_root_path)?;
             }
         }
 
@@ -44,13 +46,37 @@ impl Verifier {
     }
 
     /// Verify a single item against the filesystem
-    fn verify_item(&self, item: &NavigationGuideLine, parent_path: &Path) -> Result<()> {
+    fn verify_item(
+        &self,
+        item: &NavigationGuideLine,
+        parent_path: &Path,
+        canonical_root_path: &Path,
+    ) -> Result<()> {
         // Handle placeholders specially
         if item.is_placeholder() {
             return self.verify_placeholder(item, parent_path);
         }
 
         let item_path = parent_path.join(item.path());
+        // For symlink entries, validate containment against the symlink path itself rather than
+        // following the final target; this keeps verification scoped to guide-relative structure.
+        let follow_final_component = !matches!(item.item, FilesystemItem::Symlink { .. });
+        let resolved_path = self.resolve_for_containment(
+            &item_path,
+            follow_final_component,
+            item.line_number,
+            item.path(),
+        )?;
+
+        if !resolved_path.starts_with(canonical_root_path) {
+            return Err(SemanticError::PathEscapesRoot {
+                line: item.line_number,
+                path: item.path().to_string(),
+                root: canonical_root_path.to_path_buf(),
+                resolved: resolved_path,
+            }
+            .into());
+        }
 
         // Check if the item exists
         if !item_path.exists() {
@@ -92,7 +118,7 @@ impl Verifier {
                     if child.is_placeholder() {
                         self.verify_placeholder_with_context(child, &item_path, &mentioned_names)?;
                     } else {
-                        self.verify_item(child, &item_path)?;
+                        self.verify_item(child, &item_path, canonical_root_path)?;
                     }
                 }
             }
@@ -163,6 +189,92 @@ impl Verifier {
         Ok(())
     }
 
+    /// Canonicalize root path once before verification
+    fn canonicalize_root_path(&self) -> Result<PathBuf> {
+        Ok(std::fs::canonicalize(&self.root_path)?)
+    }
+
+    /// Resolve candidate path for containment checks.
+    ///
+    /// When `follow_final_component` is false, containment checks are performed on the path
+    /// itself without resolving the final component as a symlink target.
+    fn resolve_for_containment(
+        &self,
+        candidate_path: &Path,
+        follow_final_component: bool,
+        line: usize,
+        guide_path: &str,
+    ) -> Result<PathBuf> {
+        let mut missing_suffix: Vec<OsString> = Vec::new();
+
+        let mut probe_path = if follow_final_component {
+            candidate_path.to_path_buf()
+        } else {
+            let file_name = candidate_path
+                .file_name()
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("path '{}' has no terminal component", guide_path),
+                    )
+                })?
+                .to_os_string();
+            let parent = candidate_path.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("path '{}' has no parent component", guide_path),
+                )
+            })?;
+
+            missing_suffix.push(file_name);
+            parent.to_path_buf()
+        };
+
+        loop {
+            match std::fs::symlink_metadata(&probe_path) {
+                Ok(_) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    let missing_component = match probe_path.file_name() {
+                        Some(component) => component.to_os_string(),
+                        None => return Err(e.into()),
+                    };
+                    missing_suffix.push(missing_component);
+                    probe_path = match probe_path.parent() {
+                        Some(parent) if parent != probe_path => parent.to_path_buf(),
+                        None => return Err(e.into()),
+                        _ => return Err(e.into()),
+                    };
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(SemanticError::PermissionDenied {
+                        line,
+                        path: guide_path.to_string(),
+                    }
+                    .into());
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        let mut resolved_path = match std::fs::canonicalize(&probe_path) {
+            Ok(path) => path,
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Err(SemanticError::PermissionDenied {
+                    line,
+                    path: guide_path.to_string(),
+                }
+                .into());
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        for component in missing_suffix.iter().rev() {
+            resolved_path.push(component);
+        }
+
+        Ok(resolved_path)
+    }
+
     /// Get a human-readable string for the item type
     fn get_item_type_string(&self, item: &NavigationGuideLine) -> String {
         match &item.item {
@@ -203,18 +315,34 @@ impl Verifier {
 
         // Count unmentioned items
         let mut unmentioned_count = 0;
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if !mentioned_names.contains(name) {
-                    unmentioned_count += 1;
+        for entry_result in entries {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(SemanticError::PermissionDenied {
+                        line: item.line_number,
+                        path: parent_path.to_string_lossy().to_string(),
+                    }
+                    .into());
                 }
+                Err(e) => return Err(e.into()),
+            };
+
+            let name = entry.file_name();
+            let name = name.to_str().ok_or_else(|| SemanticError::NonUtf8Path {
+                line: item.line_number,
+                path: entry.path(),
+            })?;
+
+            if !mentioned_names.contains(name) {
+                unmentioned_count += 1;
             }
         }
 
         if unmentioned_count == 0 {
             // Only require unmentioned items if the placeholder has no comment.
             // Placeholders with comments can represent future items that don't yet exist.
-            if item.comment().is_none() {
+            if !Self::placeholder_has_meaningful_comment(item) {
                 return Err(SemanticError::PlaceholderNoUnmentionedItems {
                     line: item.line_number,
                     parent: parent_path.to_string_lossy().to_string(),
@@ -226,11 +354,19 @@ impl Verifier {
 
         Ok(())
     }
+
+    fn placeholder_has_meaningful_comment(item: &NavigationGuideLine) -> bool {
+        item.comment()
+            .map(|comment| !comment.trim().is_empty())
+            .unwrap_or(false)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
     use tempfile::TempDir;
 
     #[test]
@@ -259,6 +395,223 @@ mod tests {
                 SemanticError::ItemNotFound { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn test_verify_rejects_path_outside_root_boundary() {
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        std::fs::create_dir(&root_dir).unwrap();
+        std::fs::write(temp_dir.path().join("outside.txt"), "").unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: "../outside.txt".to_string(),
+                    comment: None,
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                crate::errors::SyntaxError::InvalidSpecialDirectory { .. }
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_verify_rejects_directory_symlink_traversal_outside_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir(&root_dir).unwrap();
+        std::fs::create_dir(&outside_dir).unwrap();
+        std::fs::write(outside_dir.join("secret.txt"), "").unwrap();
+        symlink(&outside_dir, root_dir.join("linked")).unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::Directory {
+                    path: "linked".to_string(),
+                    comment: None,
+                    children: vec![NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::File {
+                            path: "secret.txt".to_string(),
+                            comment: None,
+                        },
+                    }],
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PathEscapesRoot { .. }
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_verify_rejects_file_symlink_traversal_outside_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        let outside_file = temp_dir.path().join("outside.txt");
+        std::fs::create_dir(&root_dir).unwrap();
+        std::fs::write(&outside_file, "secret").unwrap();
+        symlink(&outside_file, root_dir.join("linked.txt")).unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: "linked.txt".to_string(),
+                    comment: None,
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PathEscapesRoot { .. }
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_verify_rejects_missing_path_within_symlink_outside_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir(&root_dir).unwrap();
+        std::fs::create_dir(&outside_dir).unwrap();
+        symlink(&outside_dir, root_dir.join("linked")).unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: "linked/missing.txt".to_string(),
+                    comment: None,
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PathEscapesRoot { .. }
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_verify_handles_circular_symlink_without_panicking() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        std::fs::create_dir(&root_dir).unwrap();
+        symlink("loop", root_dir.join("loop")).unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: "loop/file.txt".to_string(),
+                    comment: None,
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(result, Err(crate::errors::AppError::Io(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_verify_allows_directory_symlink_traversal_within_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root_dir = temp_dir.path().join("project");
+        let real_dir = root_dir.join("real");
+        std::fs::create_dir(&root_dir).unwrap();
+        std::fs::create_dir(&real_dir).unwrap();
+        std::fs::write(real_dir.join("inside.txt"), "").unwrap();
+        symlink(&real_dir, root_dir.join("alias")).unwrap();
+
+        let verifier = Verifier::new(&root_dir);
+        let guide = NavigationGuide {
+            items: vec![NavigationGuideLine {
+                line_number: 1,
+                indent_level: 0,
+                item: FilesystemItem::Directory {
+                    path: "alias".to_string(),
+                    comment: None,
+                    children: vec![NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::File {
+                            path: "inside.txt".to_string(),
+                            comment: None,
+                        },
+                    }],
+                },
+            }],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -333,6 +686,83 @@ mod tests {
         };
 
         // Should succeed because placeholder has a comment (represents future items)
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_placeholder_with_whitespace_comment_no_items_fails() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create only one file
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder {
+                        comment: Some("   \t   ".to_string()),
+                    },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PlaceholderNoUnmentionedItems { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_verify_placeholder_with_non_empty_comment_remains_relaxed() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create only one file
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder {
+                        comment: Some("  future files  ".to_string()),
+                    },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
         let result = verifier.verify(&guide);
         assert!(result.is_ok());
     }
@@ -662,5 +1092,85 @@ mod tests {
         // Should succeed - placeholder without comment is ok when unmentioned items exist
         let result = verifier.verify(&guide);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_placeholder_with_utf8_unmentioned_items() {
+        let temp_dir = TempDir::new().unwrap();
+
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+        std::fs::write(temp_dir.path().join("naïve-文件.rs"), "").unwrap();
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder { comment: None },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(result.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_placeholder_rejects_non_utf8_items() {
+        use std::ffi::OsStr;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+        let non_utf8_name = OsStr::from_bytes(b"bad-\xFF-file");
+        if std::fs::write(temp_dir.path().join(non_utf8_name), "").is_err() {
+            // Some Unix filesystems (notably on macOS) reject invalid UTF-8 names at creation time.
+            return;
+        }
+
+        let verifier = Verifier::new(temp_dir.path());
+
+        let guide = NavigationGuide {
+            items: vec![
+                NavigationGuideLine {
+                    line_number: 1,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                },
+                NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::Placeholder { comment: None },
+                },
+            ],
+            prologue: None,
+            epilogue: None,
+            ignore: false,
+        };
+
+        let result = verifier.verify(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::NonUtf8Path { .. }
+            ))
+        ));
     }
 }

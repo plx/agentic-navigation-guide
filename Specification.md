@@ -1,6 +1,7 @@
 # Agentic Navigation Guide
 
 This is a specification for the crate we'll be writing.
+It documents original design intent; for current realized behavior, use `README.md` and implementation as canonical unless they are incoherent or contradictory.
 
 ## Background: The Problem
 

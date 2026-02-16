@@ -128,9 +128,10 @@ impl Default for NavigationGuide {
 }
 
 /// Execution mode for the CLI tool
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ExecutionMode {
     /// Default execution mode
+    #[default]
     Default,
     /// Running as a post-tool-use hook
     PostToolUse,
@@ -140,27 +141,16 @@ pub enum ExecutionMode {
     GitHubActions,
 }
 
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        Self::Default
-    }
-}
-
 /// Log level for output verbosity
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LogLevel {
     /// Minimal output
     Quiet,
     /// Normal output
+    #[default]
     Default,
     /// Verbose output
     Verbose,
-}
-
-impl Default for LogLevel {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 /// Configuration for the CLI tool

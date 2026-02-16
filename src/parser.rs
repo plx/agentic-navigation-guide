@@ -8,8 +8,6 @@ use regex::Regex;
 pub struct Parser {
     /// Regular expression for detecting list items
     list_item_regex: Regex,
-    /// Regular expression for parsing path and comment
-    path_comment_regex: Regex,
 }
 
 impl Parser {
@@ -17,7 +15,6 @@ impl Parser {
     pub fn new() -> Self {
         Self {
             list_item_regex: Regex::new(r"^(\s*)-\s+(.+)$").unwrap(),
-            path_comment_regex: Regex::new(r"^([^#]+?)(?:\s*#\s*(.*))?$").unwrap(),
         }
     }
 
@@ -49,13 +46,14 @@ impl Parser {
         let mut end_idx = None;
         let mut ignore = false;
 
-        // Find the opening and closing markers
+        // Find and validate opening/closing markers across the full document.
+        // We require exactly one opening marker and exactly one closing marker.
         for (idx, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
 
             // Check for opening tag with or without attributes
             if trimmed.starts_with("<agentic-navigation-guide") && trimmed.ends_with(">") {
-                if start_idx.is_some() {
+                if start_idx.is_some() || end_idx.is_some() {
                     return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
                 }
                 start_idx = Some(idx);
@@ -63,8 +61,18 @@ impl Parser {
                 // Parse ignore attribute if present
                 ignore = self.parse_ignore_attribute(trimmed);
             } else if trimmed == "</agentic-navigation-guide>" {
-                end_idx = Some(idx);
-                break;
+                if start_idx.is_some() {
+                    if end_idx.is_some() {
+                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
+                    }
+                    end_idx = Some(idx);
+                } else if end_idx.is_none() {
+                    // Preserve missing opening marker behavior while still tracking
+                    // a stray closing marker for follow-up marker conflict detection.
+                    end_idx = Some(idx);
+                } else {
+                    return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
+                }
             }
         }
 
@@ -96,10 +104,97 @@ impl Parser {
     /// Parse the ignore attribute from the opening tag
     /// Supports both `ignore=true` and `ignore="true"` formats
     fn parse_ignore_attribute(&self, tag: &str) -> bool {
-        // Check for ignore=true or ignore="true"
-        if tag.contains("ignore=true") || tag.contains("ignore=\"true\"") {
-            return true;
+        const OPENING_TAG_PREFIX: &str = "<agentic-navigation-guide";
+
+        let Some(without_prefix) = tag.strip_prefix(OPENING_TAG_PREFIX) else {
+            return false;
+        };
+        let Some(attributes) = without_prefix.strip_suffix('>') else {
+            return false;
+        };
+
+        Self::has_ignore_true_attribute(attributes)
+    }
+
+    /// Check whether an opening tag's attributes contain `ignore=true` or `ignore="true"`.
+    fn has_ignore_true_attribute(attributes: &str) -> bool {
+        let bytes = attributes.as_bytes();
+        let mut idx = 0;
+
+        while idx < bytes.len() {
+            // Skip leading whitespace before each attribute.
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            if idx >= bytes.len() {
+                break;
+            }
+
+            // Parse attribute key until whitespace or '='.
+            let key_start = idx;
+            while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() && bytes[idx] != b'=' {
+                idx += 1;
+            }
+            let key = &attributes[key_start..idx];
+
+            // Skip whitespace between key and '='.
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+
+            // Missing '=' means this token is not a key/value attribute.
+            if idx >= bytes.len() || bytes[idx] != b'=' {
+                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                    idx += 1;
+                }
+                continue;
+            }
+            idx += 1; // consume '='
+
+            // Skip whitespace between '=' and value.
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            if idx >= bytes.len() {
+                break;
+            }
+
+            let value = if bytes[idx] == b'"' {
+                // Quoted value, preserving exact inner content for strict matching.
+                idx += 1; // consume opening quote
+                let value_start = idx;
+                while idx < bytes.len() && bytes[idx] != b'"' {
+                    idx += 1;
+                }
+                if idx >= bytes.len() {
+                    break; // Unterminated quote: ignore the malformed trailing attribute.
+                }
+
+                let quoted_value = &attributes[value_start..idx];
+                idx += 1; // consume closing quote
+
+                // Enforce token boundary after a quoted value.
+                if idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                    while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                        idx += 1;
+                    }
+                    continue;
+                }
+
+                quoted_value
+            } else {
+                let value_start = idx;
+                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                    idx += 1;
+                }
+                &attributes[value_start..idx]
+            };
+
+            if key == "ignore" && value == "true" {
+                return true;
+            }
         }
+
         false
     }
 
@@ -198,38 +293,61 @@ impl Parser {
         content: &str,
         line_number: usize,
     ) -> Result<(String, Option<String>)> {
-        if let Some(captures) = self.path_comment_regex.captures(content) {
-            let path = captures.get(1).unwrap().as_str().trim().to_string();
-            let comment = captures.get(2).map(|m| m.as_str().trim().to_string());
-
-            // Validate path
-            if path.is_empty() {
-                return Err(SyntaxError::InvalidPathFormat {
-                    line: line_number,
-                    path: String::new(),
-                }
-                .into());
+        let (raw_path, raw_comment) = Self::split_path_comment(content);
+        let path = raw_path.trim().to_string();
+        let comment = raw_comment.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
             }
+        });
 
-            // Check for special directories (but allow "..." placeholder)
-            if path == "..." {
-                // Allowed as placeholder
-            } else if path == "." || path == ".." || path == "./" || path == "../" {
-                return Err(SyntaxError::InvalidSpecialDirectory {
-                    line: line_number,
-                    path,
-                }
-                .into());
-            }
-
-            Ok((path, comment))
-        } else {
-            Err(SyntaxError::InvalidPathFormat {
+        // Validate path
+        if path.is_empty() {
+            return Err(SyntaxError::InvalidPathFormat {
                 line: line_number,
-                path: content.to_string(),
+                path: String::new(),
             }
-            .into())
+            .into());
         }
+
+        // Check for special directories (but allow "..." placeholder)
+        if path == "..." {
+            // Allowed as placeholder
+        } else if path == "." || path == ".." || path == "./" || path == "../" {
+            return Err(SyntaxError::InvalidSpecialDirectory {
+                line: line_number,
+                path,
+            }
+            .into());
+        }
+
+        Ok((path, comment))
+    }
+
+    /// Split a list item value into path and optional comment at the first unescaped `#`.
+    fn split_path_comment(content: &str) -> (&str, Option<&str>) {
+        let mut escaped = false;
+
+        for (idx, ch) in content.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            if ch == '#' {
+                return (&content[..idx], Some(&content[idx + 1..]));
+            }
+        }
+
+        (content, None)
     }
 
     /// Process escape sequences in a string, converting escaped characters to their literal forms.
@@ -240,6 +358,7 @@ impl Parser {
     /// - `\\` → `\`
     /// - `\[` → `[`
     /// - `\]` → `]`
+    /// - `\#` → `#`
     ///
     /// # Arguments
     /// * `s` - The string containing escape sequences
@@ -629,6 +748,64 @@ mod tests {
     }
 
     #[test]
+    fn test_multiple_guide_blocks_second_block_after_first_close() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide>
+
+<agentic-navigation-guide>
+- docs/
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MultipleGuideBlocks { line: 5 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_multiple_guide_blocks_second_opening_before_first_close() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+<agentic-navigation-guide>
+- docs/
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MultipleGuideBlocks { line: 3 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_multiple_guide_blocks_extra_closing_marker() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide>
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MultipleGuideBlocks { line: 4 }
+            ))
+        ));
+    }
+
+    #[test]
     fn test_parse_with_comments() {
         let content = r#"<agentic-navigation-guide>
 - src/ # source code
@@ -640,6 +817,49 @@ mod tests {
         assert_eq!(guide.items.len(), 2);
         assert_eq!(guide.items[0].comment(), Some("source code"));
         assert_eq!(guide.items[1].comment(), Some("project manifest"));
+    }
+
+    #[test]
+    fn test_parse_with_escaped_hash_in_path() {
+        let content = r#"<agentic-navigation-guide>
+- docs/issue\#123.md # ticket
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "docs/issue#123.md");
+        assert_eq!(guide.items[0].comment(), Some("ticket"));
+    }
+
+    #[test]
+    fn test_parse_comment_uses_first_unescaped_hash() {
+        let content = r#"<agentic-navigation-guide>
+- docs/issue\#123.md#ticket
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "docs/issue#123.md");
+        assert_eq!(guide.items[0].comment(), Some("ticket"));
+    }
+
+    #[test]
+    fn test_parse_whitespace_only_comment_normalizes_to_none() {
+        let content = r#"<agentic-navigation-guide>
+- src/ #    
+- ... # 	
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+
+        assert_eq!(guide.items.len(), 2);
+        assert_eq!(guide.items[0].comment(), None);
+        assert_eq!(guide.items[1].comment(), None);
     }
 
     #[test]
@@ -760,6 +980,97 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_ignore_attribute_with_mixed_attributes() {
+        let content = r#"<agentic-navigation-guide foo=bar ignore="true" notignore=true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_does_not_match_partial_key() {
+        let content = r#"<agentic-navigation-guide notignore=true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_requires_true_value() {
+        let content = r#"<agentic-navigation-guide ignore=false>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_with_unterminated_quote_does_not_enable_ignore() {
+        let content = r#"<agentic-navigation-guide ignore="true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_with_spaces_around_equals() {
+        let content = r#"<agentic-navigation-guide ignore = "true">
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_duplicate_keys_true_wins() {
+        let content = r#"<agentic-navigation-guide ignore=false ignore=true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_malformed_quoted_value_does_not_enable_ignore() {
+        let content = r#"<agentic-navigation-guide ignore="tr"ue">
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
     fn test_parse_wildcard_expands_multiple_files() {
         let content = r#"<agentic-navigation-guide>
 - FooCoordinator[.h, .cpp] # Coordinates foo interactions
@@ -779,6 +1090,22 @@ mod tests {
             guide.items[1].comment(),
             Some("Coordinates foo interactions")
         );
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_long_choice_list() {
+        let choices: Vec<String> = (0..128).map(|idx| format!(".v{idx}")).collect();
+        let content = format!(
+            "<agentic-navigation-guide>\n- config[{}].toml\n</agentic-navigation-guide>",
+            choices.join(", ")
+        );
+
+        let parser = Parser::new();
+        let guide = parser.parse(&content).unwrap();
+
+        assert_eq!(guide.items.len(), 128);
+        assert_eq!(guide.items[0].path(), "config.v0.toml");
+        assert_eq!(guide.items[127].path(), "config.v127.toml");
     }
 
     #[test]
@@ -948,5 +1275,17 @@ mod tests {
         assert_eq!(guide.items.len(), 1);
         // Note: Escaped quotes inside a quoted string are processed
         assert_eq!(guide.items[0].path(), r#"filea "b" c.txt"#);
+    }
+
+    #[test]
+    fn test_split_path_comment_ignores_escaped_hashes() {
+        assert_eq!(
+            Parser::split_path_comment(r#"docs/issue\#123.md#ticket"#),
+            (r#"docs/issue\#123.md"#, Some("ticket"))
+        );
+        assert_eq!(
+            Parser::split_path_comment(r#"docs/issue\#123.md"#),
+            (r#"docs/issue\#123.md"#, None)
+        );
     }
 }

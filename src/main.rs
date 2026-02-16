@@ -1,5 +1,6 @@
 //! Main entry point for the agentic navigation guide CLI
 
+use agentic_navigation_guide::errors::ErrorFormatter;
 use clap::Parser;
 
 mod cli;
@@ -26,8 +27,11 @@ fn main() {
     // Handle the result and exit with appropriate code
     match result {
         Ok(()) => std::process::exit(0),
-        Err(_e) => {
-            // Error already printed by command execution
+        Err(e) => {
+            if !e.is_reported() {
+                let formatted = ErrorFormatter::format_with_context(e.root_cause(), None);
+                eprintln!("{formatted}");
+            }
             let exit_code = cli::get_exit_code(&config, true);
             std::process::exit(exit_code);
         }

@@ -9,6 +9,10 @@ pub type Result<T> = std::result::Result<T, AppError>;
 /// Top-level application error type
 #[derive(Debug, Error)]
 pub enum AppError {
+    /// Error was already printed to stderr in a command-specific format
+    #[error("{0}")]
+    Reported(Box<AppError>),
+
     /// Syntax error in the navigation guide
     #[error("syntax error: {0}")]
     Syntax(#[from] SyntaxError),
@@ -29,9 +33,37 @@ pub enum AppError {
     #[error("filesystem walk error: {0}")]
     WalkDir(#[from] walkdir::Error),
 
+    /// Unsupported non-UTF-8 filesystem path/name
+    #[error("non-UTF-8 filesystem names are not supported: {path}")]
+    NonUtf8Path { path: PathBuf },
+
     /// Other errors
     #[error("{0}")]
     Other(String),
+}
+
+impl AppError {
+    /// Mark this error as already reported to stderr.
+    pub fn reported(self) -> Self {
+        if matches!(self, Self::Reported(_)) {
+            self
+        } else {
+            Self::Reported(Box::new(self))
+        }
+    }
+
+    /// Returns true when this error has already been printed to stderr.
+    pub fn is_reported(&self) -> bool {
+        matches!(self, Self::Reported(_))
+    }
+
+    /// Returns the underlying error with any reporting wrapper removed.
+    pub fn root_cause(&self) -> &Self {
+        match self {
+            Self::Reported(inner) => inner.root_cause(),
+            _ => self,
+        }
+    }
 }
 
 /// Syntax errors in navigation guide format
@@ -56,10 +88,6 @@ pub enum SyntaxError {
     /// Invalid list format
     #[error("line {line}: invalid list format - must start with '-'")]
     InvalidListFormat { line: usize },
-
-    /// Directory missing trailing slash
-    #[error("line {line}: directory '{path}' must end with '/'")]
-    DirectoryMissingSlash { line: usize, path: String },
 
     /// Invalid special directory
     #[error("line {line}: invalid special directory '{path}' (. and .. are not allowed)")]
@@ -93,10 +121,6 @@ pub enum SyntaxError {
         message: String,
     },
 
-    /// Invalid comment format
-    #[error("line {line}: invalid comment format - comments must be separated by '#'")]
-    InvalidCommentFormat { line: usize },
-
     /// Adjacent placeholders
     #[error("line {line}: placeholder entries (...) cannot be adjacent to each other")]
     AdjacentPlaceholders { line: usize },
@@ -127,14 +151,6 @@ pub enum SemanticError {
         path: String,
     },
 
-    /// Invalid nesting - item not actually child of parent
-    #[error("line {line}: '{child}' is not a child of '{parent}'")]
-    InvalidNesting {
-        line: usize,
-        child: String,
-        parent: String,
-    },
-
     /// Symlink target mismatch
     #[error("line {line}: symlink '{path}' points to '{actual}' but guide specifies '{expected}'")]
     SymlinkTargetMismatch {
@@ -153,6 +169,21 @@ pub enum SemanticError {
         "line {line}: placeholder (...) must refer to at least one unlisted item in '{parent}'"
     )]
     PlaceholderNoUnmentionedItems { line: usize, parent: String },
+
+    /// Path resolves outside the configured verification root
+    #[error(
+        "line {line}: '{path}' resolves outside root boundary '{root}' (resolved: {resolved})"
+    )]
+    PathEscapesRoot {
+        line: usize,
+        path: String,
+        root: PathBuf,
+        resolved: PathBuf,
+    },
+
+    /// Verification encountered a non-UTF-8 filesystem entry while enumerating directory contents
+    #[error("line {line}: non-UTF-8 filesystem names are unsupported while enumerating '{path}'")]
+    NonUtf8Path { line: usize, path: PathBuf },
 }
 
 impl SyntaxError {
@@ -163,14 +194,12 @@ impl SyntaxError {
             | Self::MissingClosingMarker { line }
             | Self::MultipleGuideBlocks { line }
             | Self::InvalidListFormat { line }
-            | Self::DirectoryMissingSlash { line, .. }
             | Self::InvalidSpecialDirectory { line, .. }
             | Self::InconsistentIndentation { line, .. }
             | Self::InvalidIndentationLevel { line }
             | Self::BlankLineInGuide { line }
             | Self::InvalidPathFormat { line, .. }
             | Self::InvalidWildcardSyntax { line, .. }
-            | Self::InvalidCommentFormat { line }
             | Self::AdjacentPlaceholders { line }
             | Self::PlaceholderWithChildren { line } => Some(*line),
             Self::EmptyGuideBlock => None,
@@ -184,10 +213,11 @@ impl SemanticError {
         match self {
             Self::ItemNotFound { line, .. }
             | Self::TypeMismatch { line, .. }
-            | Self::InvalidNesting { line, .. }
             | Self::SymlinkTargetMismatch { line, .. }
             | Self::PermissionDenied { line, .. }
-            | Self::PlaceholderNoUnmentionedItems { line, .. } => *line,
+            | Self::PlaceholderNoUnmentionedItems { line, .. }
+            | Self::PathEscapesRoot { line, .. }
+            | Self::NonUtf8Path { line, .. } => *line,
         }
     }
 }
@@ -198,7 +228,7 @@ pub struct ErrorFormatter;
 impl ErrorFormatter {
     /// Format an error with line context if available
     pub fn format_with_context(error: &AppError, file_content: Option<&str>) -> String {
-        match error {
+        match error.root_cause() {
             AppError::Syntax(e) => {
                 if let Some(line_num) = e.line_number() {
                     Self::format_with_line_context(e.to_string(), line_num, file_content)

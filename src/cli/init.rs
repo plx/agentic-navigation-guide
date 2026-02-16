@@ -44,15 +44,16 @@ impl InitArgs {
         // Check if output file already exists
         if self.output.exists() {
             return Err(AppError::Other(format!(
-                "File already exists: {}. Use --force to overwrite.",
+                "File already exists: {}. Choose a different --output path or remove the existing file.",
                 self.output.display()
             )));
         }
 
         // Determine root path
-        let root_path = self
-            .root
-            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+        let root_path = match self.root {
+            Some(root) => root,
+            None => std::env::current_dir()?,
+        };
 
         log::info!("Initializing navigation guide for: {}", root_path.display());
 
