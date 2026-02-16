@@ -1032,6 +1032,45 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_ignore_attribute_with_spaces_around_equals() {
+        let content = r#"<agentic-navigation-guide ignore = "true">
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_duplicate_keys_true_wins() {
+        let content = r#"<agentic-navigation-guide ignore=false ignore=true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ignore_attribute_malformed_quoted_value_does_not_enable_ignore() {
+        let content = r#"<agentic-navigation-guide ignore="tr"ue">
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
     fn test_parse_wildcard_expands_multiple_files() {
         let content = r#"<agentic-navigation-guide>
 - FooCoordinator[.h, .cpp] # Coordinates foo interactions

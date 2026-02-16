@@ -238,8 +238,9 @@ impl Verifier {
                     };
                     missing_suffix.push(missing_component);
                     probe_path = match probe_path.parent() {
-                        Some(parent) => parent.to_path_buf(),
+                        Some(parent) if parent != probe_path => parent.to_path_buf(),
                         None => return Err(e.into()),
+                        _ => return Err(e.into()),
                     };
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
