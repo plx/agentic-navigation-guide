@@ -58,6 +58,8 @@ impl Verifier {
         }
 
         let item_path = parent_path.join(item.path());
+        // For symlink entries, validate containment against the symlink path itself rather than
+        // following the final target; this keeps verification scoped to guide-relative structure.
         let follow_final_component = !matches!(item.item, FilesystemItem::Symlink { .. });
         let resolved_path = self.resolve_for_containment(
             &item_path,

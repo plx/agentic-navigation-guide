@@ -310,6 +310,7 @@ Each guide is verified relative to its parent directory, allowing you to maintai
 
 - **Automatic Discovery**: Finds all guide files matching the specified name throughout the directory tree
 - **Relative Verification**: Each guide is verified against its parent directory as the root
+- **Root Boundary Enforcement**: Paths that resolve outside the guide root (including symlink escapes) are rejected
 - **Custom Names**: Support for uniform custom guide filenames (e.g., `--guide-name GUIDE.md`)
 - **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
 - **Aggregated Results**: Shows summary of all verified guides with pass/fail counts

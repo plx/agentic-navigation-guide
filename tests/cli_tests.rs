@@ -487,7 +487,8 @@ fn test_init_command_existing_output_file_reports_error() {
         .arg(dir_path)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("File already exists"));
+        .stderr(predicate::str::contains("File already exists"))
+        .stderr(predicate::str::contains("--force").not());
 }
 
 #[test]

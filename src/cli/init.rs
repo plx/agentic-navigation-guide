@@ -44,7 +44,7 @@ impl InitArgs {
         // Check if output file already exists
         if self.output.exists() {
             return Err(AppError::Other(format!(
-                "File already exists: {}. Use --force to overwrite.",
+                "File already exists: {}. Choose a different --output path or remove the existing file.",
                 self.output.display()
             )));
         }
