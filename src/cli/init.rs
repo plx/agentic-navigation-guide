@@ -50,9 +50,10 @@ impl InitArgs {
         }
 
         // Determine root path
-        let root_path = self
-            .root
-            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+        let root_path = match self.root {
+            Some(root) => root,
+            None => std::env::current_dir()?,
+        };
 
         log::info!("Initializing navigation guide for: {}", root_path.display());
 

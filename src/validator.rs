@@ -126,10 +126,18 @@ impl Validator {
             }
         }
 
-        // Reject rooted/prefixed paths on the current platform.
+        // Reject rooted/prefixed paths and platform-native `.` / `..` components.
         for component in path_obj.components() {
             if matches!(component, Component::RootDir | Component::Prefix(_)) {
                 return Err(SyntaxError::InvalidPathFormat {
+                    line: item.line_number,
+                    path: path.to_string(),
+                }
+                .into());
+            }
+
+            if matches!(component, Component::CurDir | Component::ParentDir) {
+                return Err(SyntaxError::InvalidSpecialDirectory {
                     line: item.line_number,
                     path: path.to_string(),
                 }
@@ -198,11 +206,13 @@ impl Validator {
                 }
 
                 // Placeholders cannot have children (this should be enforced by parser)
-                if items[i].children().is_some() && !items[i].children().unwrap().is_empty() {
-                    return Err(SyntaxError::PlaceholderWithChildren {
-                        line: items[i].line_number,
+                if let Some(children) = items[i].children() {
+                    if !children.is_empty() {
+                        return Err(SyntaxError::PlaceholderWithChildren {
+                            line: items[i].line_number,
+                        }
+                        .into());
                     }
-                    .into());
                 }
             }
         }
@@ -352,6 +362,52 @@ mod tests {
             indent_level: 0,
             item: FilesystemItem::File {
                 path: "src/../main.rs".to_string(),
+                comment: None,
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidSpecialDirectory { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_dot_components_with_platform_separator() {
+        let sep = std::path::MAIN_SEPARATOR;
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: format!("src{sep}.{sep}main.rs"),
+                comment: None,
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidSpecialDirectory { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_parent_components_with_platform_separator() {
+        let sep = std::path::MAIN_SEPARATOR;
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: format!("src{sep}..{sep}main.rs"),
                 comment: None,
             },
         });

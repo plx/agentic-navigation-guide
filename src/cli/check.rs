@@ -40,18 +40,14 @@ impl CheckArgs {
         }
 
         // Determine guide path
-        let guide_path = self
-            .guide
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
-                    .ok()
-                    .map(|name| std::env::current_dir().unwrap().join(name))
-            })
-            .unwrap_or_else(|| {
-                std::env::current_dir()
-                    .unwrap()
-                    .join("AGENTIC_NAVIGATION_GUIDE.md")
-            });
+        let current_dir = std::env::current_dir()?;
+        let guide_path = match self.guide {
+            Some(path) => path,
+            None => match std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME") {
+                Ok(name) => current_dir.join(name),
+                Err(_) => current_dir.join("AGENTIC_NAVIGATION_GUIDE.md"),
+            },
+        };
 
         log::debug!("Checking navigation guide: {}", guide_path.display());
 

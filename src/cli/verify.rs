@@ -75,24 +75,17 @@ impl VerifyArgs {
 
         config.original_root_path = self.root.as_ref().map(|p| p.display().to_string());
 
-        // Determine guide path
-        let guide_path = self
-            .guide
-            .or_else(|| {
-                std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME")
-                    .ok()
-                    .map(|name| std::env::current_dir().unwrap().join(name))
-            })
-            .unwrap_or_else(|| {
-                std::env::current_dir()
-                    .unwrap()
-                    .join("AGENTIC_NAVIGATION_GUIDE.md")
-            });
+        // Determine guide/root paths
+        let current_dir = std::env::current_dir()?;
+        let guide_path = match self.guide {
+            Some(path) => path,
+            None => match std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME") {
+                Ok(name) => current_dir.join(name),
+                Err(_) => current_dir.join("AGENTIC_NAVIGATION_GUIDE.md"),
+            },
+        };
 
-        // Determine root path
-        let root_path = self
-            .root
-            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+        let root_path = self.root.unwrap_or_else(|| current_dir.clone());
 
         log::debug!(
             "Verifying navigation guide: {} against root: {}",
@@ -234,9 +227,10 @@ impl VerifyArgs {
         use agentic_navigation_guide::recursive;
 
         // Determine the root path for recursive search
-        let search_root = self
-            .root
-            .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+        let search_root = match self.root {
+            Some(root) => root,
+            None => std::env::current_dir()?,
+        };
 
         // Determine the guide name to search for
         let guide_name = self

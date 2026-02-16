@@ -1019,6 +1019,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_ignore_attribute_with_unterminated_quote_does_not_enable_ignore() {
+        let content = r#"<agentic-navigation-guide ignore="true>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert!(!guide.ignore);
+        assert_eq!(guide.items.len(), 1);
+    }
+
+    #[test]
     fn test_parse_wildcard_expands_multiple_files() {
         let content = r#"<agentic-navigation-guide>
 - FooCoordinator[.h, .cpp] # Coordinates foo interactions
@@ -1038,6 +1051,22 @@ mod tests {
             guide.items[1].comment(),
             Some("Coordinates foo interactions")
         );
+    }
+
+    #[test]
+    fn test_parse_wildcard_with_long_choice_list() {
+        let choices: Vec<String> = (0..128).map(|idx| format!(".v{idx}")).collect();
+        let content = format!(
+            "<agentic-navigation-guide>\n- config[{}].toml\n</agentic-navigation-guide>",
+            choices.join(", ")
+        );
+
+        let parser = Parser::new();
+        let guide = parser.parse(&content).unwrap();
+
+        assert_eq!(guide.items.len(), 128);
+        assert_eq!(guide.items[0].path(), "config.v0.toml");
+        assert_eq!(guide.items[127].path(), "config.v127.toml");
     }
 
     #[test]
