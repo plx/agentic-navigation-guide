@@ -107,8 +107,9 @@ impl Validator {
             .into());
         }
 
-        // Validate raw slash-separated components so we preserve `.` / `..` and empty components.
-        for component in path.split('/') {
+        // Validate raw separator-delimited components so we preserve `.` / `..` and empty components.
+        // Treat both `/` and `\` as separators to make validation platform-agnostic.
+        for component in path.split(['/', '\\']) {
             if component.is_empty() {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
@@ -377,14 +378,13 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_rejects_dot_components_with_platform_separator() {
-        let sep = std::path::MAIN_SEPARATOR;
+    fn test_validate_rejects_dot_components_with_backslash_separator() {
         let mut guide = NavigationGuide::new();
         guide.items.push(NavigationGuideLine {
             line_number: 1,
             indent_level: 0,
             item: FilesystemItem::File {
-                path: format!("src{sep}.{sep}main.rs"),
+                path: "src\\.\\main.rs".to_string(),
                 comment: None,
             },
         });
@@ -400,14 +400,13 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_rejects_parent_components_with_platform_separator() {
-        let sep = std::path::MAIN_SEPARATOR;
+    fn test_validate_rejects_parent_components_with_backslash_separator() {
         let mut guide = NavigationGuide::new();
         guide.items.push(NavigationGuideLine {
             line_number: 1,
             indent_level: 0,
             item: FilesystemItem::File {
-                path: format!("src{sep}..{sep}main.rs"),
+                path: "src\\..\\main.rs".to_string(),
                 comment: None,
             },
         });
