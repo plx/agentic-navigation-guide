@@ -151,14 +151,6 @@ pub enum SemanticError {
         path: String,
     },
 
-    /// Invalid nesting - item not actually child of parent
-    #[error("line {line}: '{child}' is not a child of '{parent}'")]
-    InvalidNesting {
-        line: usize,
-        child: String,
-        parent: String,
-    },
-
     /// Symlink target mismatch
     #[error("line {line}: symlink '{path}' points to '{actual}' but guide specifies '{expected}'")]
     SymlinkTargetMismatch {
@@ -221,7 +213,6 @@ impl SemanticError {
         match self {
             Self::ItemNotFound { line, .. }
             | Self::TypeMismatch { line, .. }
-            | Self::InvalidNesting { line, .. }
             | Self::SymlinkTargetMismatch { line, .. }
             | Self::PermissionDenied { line, .. }
             | Self::PlaceholderNoUnmentionedItems { line, .. }

@@ -251,9 +251,9 @@ impl Validator {
                         }
                         .into());
                     }
-                    // Recursively check children
-                    self.validate_nesting(children)?;
                 }
+                // Recursively validate this item's subtree once.
+                self.validate_nesting(children)?;
             }
         }
         Ok(())
