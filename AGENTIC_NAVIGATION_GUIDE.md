@@ -17,5 +17,31 @@
 - Cargo.toml
 - README.md
 - Specification.md # original project specification document
+- plugins/
+  - agentic-navigation-guide/ # Claude Code plugin for navigation guide maintenance
+    - .claude-plugin/
+      - plugin.json
+    - agents/
+      - nav-guide-evaluator.md # Haiku agent for fast file/dir decisions
+      - nav-guide-worker.md # Sonnet agent for guide authoring and repair
+    - skills/
+      - nav-guide-reference/ # Reference docs (non-user-invocable)
+      - should-include-file/ # File inclusion decision
+      - should-include-dir/ # Directory inclusion decision
+      - describe-file/ # Generate terse file description
+      - describe-dir/ # Generate terse directory description
+      - audit-description/ # Verify file description accuracy
+      - audit-dir-description/ # Verify directory description accuracy
+      - evaluate-structure/ # Flat vs nested guide strategy
+      - navigation-guide-repair/ # Fix guide from problem description
+      - guide-search/ # Find relevant files from guide
+      - generate-guide/ # Create initial navigation guide
+      - audit-guide/ # Audit existing guide for staleness
+    - hooks/
+      - hooks.json # PostToolUse and Stop hook config
+    - bin/
+      - verify-guide.sh # Hook helper script
+- .claude-plugin/
+  - marketplace.json # Plugin marketplace catalog
 - ... # Additional project files (tests, examples, etc.)
 </agentic-navigation-guide>
