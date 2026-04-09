@@ -2,11 +2,22 @@
 
 use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
-use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
+use agentic_navigation_guide::types::{
+    Config, ExecutionMode, FilesystemItem, LogLevel, NavigationGuideLine,
+};
 use agentic_navigation_guide::validator::Validator;
 use agentic_navigation_guide::verifier::Verifier;
-use clap::Args;
+use clap::{Args, ValueEnum};
 use std::path::{Path, PathBuf};
+
+/// Output format for the verify command
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    /// Default human-readable output
+    Default,
+    /// Print parsed paths one per line (directories end with /)
+    Paths,
+}
 
 /// Arguments for the verify subcommand
 #[derive(Args, Debug)]
@@ -24,8 +35,12 @@ pub struct VerifyArgs {
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
 
+    /// Output format (default: human-readable, paths: one parsed path per line)
+    #[arg(long, value_enum, default_value = "default")]
+    pub format: OutputFormat,
+
     /// Recursively find and verify all navigation guides
-    #[arg(long, conflicts_with = "guide")]
+    #[arg(long, conflicts_with_all = ["guide", "format"])]
     pub recursive: bool,
 
     /// Name of the navigation guide file to search for (only used with --recursive)
@@ -128,6 +143,15 @@ impl VerifyArgs {
                 return Err(e.reported());
             }
         };
+
+        // If --format paths was requested, emit parsed paths and exit early
+        if self.format == OutputFormat::Paths {
+            let paths = collect_paths(&guide.items, "");
+            for path in paths {
+                println!("{path}");
+            }
+            return Ok(());
+        }
 
         // Check if the guide should be ignored
         if guide.ignore {
@@ -375,4 +399,28 @@ fn format_github_actions_error(
     }
 
     output
+}
+
+/// Recursively collect full paths from parsed guide items.
+///
+/// Directories are emitted with a trailing `/`. Placeholders are skipped.
+fn collect_paths(items: &[NavigationGuideLine], prefix: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for item in items {
+        match &item.item {
+            FilesystemItem::Directory { path, children, .. } => {
+                let full = format!("{prefix}{path}/");
+                paths.push(full.clone());
+                paths.extend(collect_paths(children, &full));
+            }
+            FilesystemItem::File { path, .. } => {
+                paths.push(format!("{prefix}{path}"));
+            }
+            FilesystemItem::Symlink { path, .. } => {
+                paths.push(format!("{prefix}{path}"));
+            }
+            FilesystemItem::Placeholder { .. } => {}
+        }
+    }
+    paths
 }

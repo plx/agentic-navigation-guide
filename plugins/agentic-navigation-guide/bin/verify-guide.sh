@@ -144,16 +144,21 @@ if [[ "$BROAD" == "true" ]]; then
     exit 0
   fi
 
-  # Extract paths from both guide and dump, compare for new items
-  # Guide paths: lines matching "- <path>" pattern (POSIX-portable, no grep -P)
-  GUIDE_PATHS="$(sed -n 's/^[[:space:]]*- \([^[:space:]#][^[:space:]#]*\).*/\1/p' "$GUIDE_PATH" | sort)"
-  DUMP_PATHS="$(echo "$DUMP_OUTPUT" | sed -n 's/^[[:space:]]*- \([^[:space:]#][^[:space:]#]*\).*/\1/p' | sort)"
+  # Extract paths from both guide and dump using the CLI's parser (handles
+  # spaces in paths, escaped # characters, and other edge cases correctly).
+  GUIDE_PATHS="$($ANG_BIN verify --format paths --guide "$GUIDE_PATH" 2>/dev/null | sort)" || true
+
+  # Write dump output to a temp file so the CLI can parse it
+  DUMP_TMPFILE="$(mktemp)"
+  trap 'rm -f "$DUMP_TMPFILE"' EXIT
+  echo "$DUMP_OUTPUT" > "$DUMP_TMPFILE"
+  DUMP_PATHS="$($ANG_BIN verify --format paths --guide "$DUMP_TMPFILE" 2>/dev/null | sort)" || true
 
   # Find paths in dump but not in guide (potential additions)
   NEW_PATHS="$(comm -23 <(echo "$DUMP_PATHS") <(echo "$GUIDE_PATHS"))" || true
 
-  # Filter out placeholder markers and common noise
-  NEW_PATHS="$(echo "$NEW_PATHS" | grep -v '^\.\.\.$' | grep -v '^[[:space:]]*$')" || true
+  # Filter out blank lines (--format paths already omits placeholders)
+  NEW_PATHS="$(echo "$NEW_PATHS" | grep -v '^[[:space:]]*$')" || true
 
   if [[ -n "$NEW_PATHS" ]]; then
     COUNT="$(echo "$NEW_PATHS" | wc -l | tr -d ' ')"
