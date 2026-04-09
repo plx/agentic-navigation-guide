@@ -64,15 +64,15 @@ fi
 # Locate the agentic-navigation-guide binary
 # ---------------------------------------------------------------------------
 
-ANG_BIN=""
+ANG_BIN=()
 if command -v agentic-navigation-guide &>/dev/null; then
-  ANG_BIN="agentic-navigation-guide"
+  ANG_BIN=(agentic-navigation-guide)
 elif [[ -f "$GUIDE_ROOT/Cargo.toml" ]] && command -v cargo &>/dev/null; then
   # Development fallback: build and run from source
-  ANG_BIN="cargo run --quiet --release --manifest-path $GUIDE_ROOT/Cargo.toml --"
+  ANG_BIN=(cargo run --quiet --release --manifest-path "${GUIDE_ROOT}/Cargo.toml" --)
 fi
 
-if [[ -z "$ANG_BIN" ]]; then
+if [[ ${#ANG_BIN[@]} -eq 0 ]]; then
   # Can't find the tool — exit silently rather than block the user
   exit 0
 fi
@@ -83,7 +83,7 @@ fi
 
 VERIFY_OUTPUT=""
 VERIFY_EXIT=0
-VERIFY_OUTPUT="$($ANG_BIN verify --guide "$GUIDE_PATH" --root "$GUIDE_ROOT" 2>&1)" || VERIFY_EXIT=$?
+VERIFY_OUTPUT="$("${ANG_BIN[@]}" verify --guide "$GUIDE_PATH" --root "$GUIDE_ROOT" 2>&1)" || VERIFY_EXIT=$?
 
 if [[ $VERIFY_EXIT -eq 0 ]]; then
   # Guide is valid
@@ -111,9 +111,9 @@ else
     PROBLEMS="${PROBLEMS:0:197}..."
   fi
 
-  RELATIVE_GUIDE="${GUIDE_PATH#$CWD/}"
+  RELATIVE_GUIDE="${GUIDE_PATH#"$CWD"/}"
   if [[ "$RELATIVE_GUIDE" == "$GUIDE_PATH" ]]; then
-    RELATIVE_GUIDE="${GUIDE_PATH#$GUIDE_ROOT/}"
+    RELATIVE_GUIDE="${GUIDE_PATH#"$GUIDE_ROOT"/}"
   fi
 
   cat >&2 <<EOF
@@ -135,7 +135,7 @@ fi
 if [[ "$BROAD" == "true" ]]; then
   # Get current filesystem listing (depth 2)
   DUMP_OUTPUT=""
-  DUMP_OUTPUT="$($ANG_BIN dump --depth 2 --root "$GUIDE_ROOT" \
+  DUMP_OUTPUT="$("${ANG_BIN[@]}" dump --depth 2 --root "$GUIDE_ROOT" \
     --exclude .git --exclude node_modules --exclude target \
     --exclude build --exclude dist --exclude __pycache__ \
     --exclude .venv 2>/dev/null)" || true
@@ -146,13 +146,13 @@ if [[ "$BROAD" == "true" ]]; then
 
   # Extract paths from both guide and dump using the CLI's parser (handles
   # spaces in paths, escaped # characters, and other edge cases correctly).
-  GUIDE_PATHS="$($ANG_BIN verify --format paths --guide "$GUIDE_PATH" 2>/dev/null | sort)" || true
+  GUIDE_PATHS="$("${ANG_BIN[@]}" verify --format paths --guide "$GUIDE_PATH" 2>/dev/null | sort)" || true
 
   # Write dump output to a temp file so the CLI can parse it
   DUMP_TMPFILE="$(mktemp)"
   trap 'rm -f "$DUMP_TMPFILE"' EXIT
   echo "$DUMP_OUTPUT" > "$DUMP_TMPFILE"
-  DUMP_PATHS="$($ANG_BIN verify --format paths --guide "$DUMP_TMPFILE" 2>/dev/null | sort)" || true
+  DUMP_PATHS="$("${ANG_BIN[@]}" verify --format paths --guide "$DUMP_TMPFILE" 2>/dev/null | sort)" || true
 
   # Find paths in dump but not in guide (potential additions)
   NEW_PATHS="$(comm -23 <(echo "$DUMP_PATHS") <(echo "$GUIDE_PATHS"))" || true
@@ -163,9 +163,9 @@ if [[ "$BROAD" == "true" ]]; then
   if [[ -n "$NEW_PATHS" ]]; then
     COUNT="$(echo "$NEW_PATHS" | wc -l | tr -d ' ')"
 
-    RELATIVE_GUIDE="${GUIDE_PATH#$CWD/}"
+    RELATIVE_GUIDE="${GUIDE_PATH#"$CWD"/}"
     if [[ "$RELATIVE_GUIDE" == "$GUIDE_PATH" ]]; then
-      RELATIVE_GUIDE="${GUIDE_PATH#$GUIDE_ROOT/}"
+      RELATIVE_GUIDE="${GUIDE_PATH#"$GUIDE_ROOT"/}"
     fi
 
     cat >&2 <<EOF
