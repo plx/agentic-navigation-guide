@@ -16,7 +16,7 @@ Audit an existing agentic navigation guide for accuracy and completeness.
 
 ### Phase 1: Structural Validation
 
-1. Run `agentic-navigation-guide verify` against the guide file.
+1. Run `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` against the guide file, substituting the actual guide path and its parent directory.
 2. If there are structural errors (missing files, wrong types), collect them as the first set of issues.
 
 ### Phase 2: Description Audit
@@ -59,7 +59,7 @@ X structural issues, Y stale descriptions, Z suggested additions
    - Structural issues: remove entries for deleted files, add entries for missing ones
    - Stale descriptions: update descriptions in place
    - Additions: add new entries at appropriate positions
-10. Re-run `agentic-navigation-guide verify` to confirm all fixes are valid.
+10. Re-run `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` to confirm all fixes are valid.
 
 ## Guidelines
 

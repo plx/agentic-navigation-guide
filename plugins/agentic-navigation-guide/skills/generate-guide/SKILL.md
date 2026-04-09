@@ -62,7 +62,7 @@ Generate an agentic navigation guide for a project.
 
 11. Write to `AGENTIC_NAVIGATION_GUIDE.md` (or the nested guide location).
 
-12. Run `agentic-navigation-guide verify` to validate. Fix any errors.
+12. Run `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` to validate, substituting the actual output path from step 11 and its parent directory. Fix any errors.
 
 13. Report a summary: how many items included, strategy chosen, and any notable exclusions.
 

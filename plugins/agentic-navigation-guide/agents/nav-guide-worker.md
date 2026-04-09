@@ -65,10 +65,10 @@ When generating a guide:
 2. Evaluate whether flat or nested guides are appropriate
 3. For each candidate item, decide include/exclude based on navigational value
 4. Write terse, accurate descriptions
-5. Validate with `agentic-navigation-guide verify`
+5. Validate with `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>`
 
 When auditing a guide:
-1. Run `agentic-navigation-guide verify` for structural validity
+1. Run `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` for structural validity
 2. Check each description against current file contents
 3. Look for missing high-value items
 4. Report issues with specific line references
@@ -76,4 +76,6 @@ When auditing a guide:
 When repairing a guide:
 1. Understand what changed (file added, removed, renamed, moved)
 2. Make the minimal edit to restore validity
-3. Run `agentic-navigation-guide verify` to confirm the fix
+3. Run `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` to confirm the fix
+
+**Important:** Always pass explicit `--guide` and `--root` flags to `verify`. Never rely on CLI defaults — the agent's working directory may not match the guide's location, especially in monorepos or with non-default guide filenames.

@@ -22,7 +22,7 @@ Repair a navigation guide to bring it back in sync with the filesystem.
    - **Renamed/moved**: Remove old entry, add new entry preserving the description
    - **Type change** (file became directory or vice versa): Update the trailing `/`
 4. Preserve existing formatting, indentation, and comment style
-5. Run `agentic-navigation-guide verify` to confirm the fix
+5. Run `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` to confirm the fix, substituting the guide path from above and its parent directory
 6. If verification fails, diagnose and fix remaining issues
 
 ## Important

@@ -40,7 +40,7 @@ For the full format specification, see `format-reference.md` in this skill direc
 |---------|---------|
 | `agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md` | Generate a starting-point guide from current directory |
 | `agentic-navigation-guide check` | Validate guide syntax (no filesystem check) |
-| `agentic-navigation-guide verify` | Validate guide against actual filesystem |
+| `agentic-navigation-guide verify --guide <guide-path> --root <guide-parent-directory>` | Validate guide against actual filesystem |
 | `agentic-navigation-guide dump` | Dump directory tree in guide format |
 
 ### Common Flags
@@ -66,7 +66,7 @@ agentic-navigation-guide verify --github-actions-check
 
 1. `agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md` — scaffold initial guide
 2. Hand-edit to add descriptions and remove noise
-3. `agentic-navigation-guide verify` — check for errors
+3. `agentic-navigation-guide verify --guide AGENTIC_NAVIGATION_GUIDE.md --root .` — check for errors
 4. Commit and reference from `CLAUDE.md` with `@AGENTIC_NAVIGATION_GUIDE.md`
 
 For advanced usage (environment variables, execution modes, recursive verification, choice expansions), see `advanced-usage.md` in this skill directory.
