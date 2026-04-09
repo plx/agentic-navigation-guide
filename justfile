@@ -65,27 +65,33 @@ have-claude-tackle-next-issue-with-labels *labels:
     The full issue body is appended below. Read the issue, review the codebase,
     perform any necessary experiments, and then proceed to address it.
 
-    Before making changes, create a new branch from main (e.g. "fix/issue-__NUMBER__"
-    or something descriptive).
+    Work on the current branch -- do NOT create a new branch or switch branches.
 
     When finished, use the `/codex:rescue` skill to ask Codex to review your work
     for completeness and correctness. If it reports any issues, fix them and ask for
     a re-review, continuing until the review is clean.
 
-    Once the issue is fixed and all review feedback addressed, finish as follows:
+    Once the issue is fixed and all review feedback addressed, you MUST complete
+    all of the following steps before exiting:
 
-    1. Create a commit with a brief message explaining the work and mentioning the
-       issue (e.g. "Fix foo bar (closes #__NUMBER__)"). Use a fuller commit body
-       when the one-line summary is insufficient.
-    2. Push the branch and create a pull request.
-    3. Post a comment on issue #__NUMBER__ explaining the work done (including any
-       modifications in response to review feedback) and containing links to the
-       commit and PR. The comment should start with:
-       "Addressed via [`<short-hash>`](<commit-url>) in [PR #<n>](<pr-url>)"
-    4. Close the issue as completed.
+    1. Stage and commit all changes with a brief message explaining the work and
+       mentioning the issue, e.g. "Fix foo bar (gh issue: #__NUMBER__)". Add a
+       fuller explanation in the commit body when the one-line summary is not
+       sufficiently detailed.
+    2. Push the current branch to the remote.
+    3. If there is no open pull request for this branch, create one.
+    4. Post a comment on issue #__NUMBER__ explaining the work done, including any
+       modifications made in response to review feedback. The comment should start
+       with "Addressed via [`<short-hash>`](<commit-url>) in [PR #<n>](<pr-url>)"
+       where the commit hash links to the commit on GitHub and the PR reference
+       links to the pull request.
+    5. Close issue #__NUMBER__ as completed.
+
+    Do NOT skip the commit, push, or issue-comment steps -- they are required.
 
     Alternatively, if after investigation you discover the issue cannot be fixed
-    (fundamental limitation, requires refactoring beyond intended scope, etc.):
+    at all -- e.g. fundamental limitation, or would require refactoring well beyond
+    the intended scope -- you may instead:
 
     1. Use the `/codex:rescue` skill to get a second opinion confirming infeasibility.
     2. Post a detailed comment on the issue explaining why it cannot be addressed.
@@ -121,12 +127,7 @@ have-claude-tackle-all-issues-with-labels *labels:
     while true; do
         iteration=$((iteration + 1))
 
-        # Return to main between iterations for a clean starting state
         if [[ $iteration -gt 1 ]]; then
-            echo ""
-            echo "=== Returning to main branch ==="
-            git checkout main 2>/dev/null || true
-            git pull --ff-only 2>/dev/null || true
             echo ""
         fi
 
