@@ -128,6 +128,14 @@ pub enum SyntaxError {
     /// Placeholder with children
     #[error("line {line}: placeholder entries (...) cannot have child elements")]
     PlaceholderWithChildren { line: usize },
+
+    /// Duplicate entry within the same scope
+    #[error("line {line}: duplicate entry '{path}' (first appeared at line {first_line})")]
+    DuplicateEntry {
+        line: usize,
+        path: String,
+        first_line: usize,
+    },
 }
 
 /// Semantic errors when verifying against filesystem
@@ -201,7 +209,8 @@ impl SyntaxError {
             | Self::InvalidPathFormat { line, .. }
             | Self::InvalidWildcardSyntax { line, .. }
             | Self::AdjacentPlaceholders { line }
-            | Self::PlaceholderWithChildren { line } => Some(*line),
+            | Self::PlaceholderWithChildren { line }
+            | Self::DuplicateEntry { line, .. } => Some(*line),
             Self::EmptyGuideBlock => None,
         }
     }

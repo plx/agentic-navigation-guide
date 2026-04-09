@@ -51,9 +51,9 @@ Expands into one entry per option. Max one choice list per line.
 - Path with `//` or leading `/`
 - Adjacent placeholders
 - Children under placeholder
+- Duplicate entries within the same scope
 
 **Semantic errors** (caught by `verify`):
 - Path does not exist on filesystem
 - Entry marked as file but is a directory (or vice versa)
 - Uncommented `...` with no unlisted siblings
-- Duplicate entries
