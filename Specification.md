@@ -243,7 +243,7 @@ If `--guide` is not specified, the following defaults are used, in this order of
 
 Internally these can be represented as a 4-way "mode" enum like `default | post-tool-use | pre-commit-hook | github-actions`; the value of this enum can also be controlled by an environment variable (e.g. `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`).
 
-There is a single positional argument: the path to the `AGENTIC_NAVIGATION_GUIDE.md` file (default, if unspecified: the file at the `AGENTIC_NAVIGATION_GUIDE_PATH` environment variable, if set; otherwise, `AGENTIC_NAVIGATION_GUIDE.md` in the current directory).
+There is a single positional argument: the path to the `AGENTIC_NAVIGATION_GUIDE.md` file (default, if unspecified: the file at the `AGENTIC_NAVIGATION_GUIDE_PATH` environment variable, if set; the file named by `AGENTIC_NAVIGATION_GUIDE_NAME` in the current directory, if set; otherwise, `AGENTIC_NAVIGATION_GUIDE.md` in the current directory).
 
 If the file is valid, in default mode (and quiet mode) the command prints nothing to stdout, nothing to stderr, and exits with a 0 exit code.
 

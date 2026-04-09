@@ -1,0 +1,93 @@
+name: Validate Plugin
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'plugins/**'
+      - '.claude-plugin/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'plugins/**'
+      - '.claude-plugin/**'
+
+jobs:
+  validate:
+    name: Validate Plugin Structure
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Validate marketplace.json
+      run: |
+        echo "Checking marketplace.json..."
+        jq . .claude-plugin/marketplace.json > /dev/null
+        echo "✓ marketplace.json is valid JSON"
+
+        # Check required fields
+        jq -e '.name' .claude-plugin/marketplace.json > /dev/null
+        echo "✓ marketplace.json has name"
+        jq -e '.owner.name' .claude-plugin/marketplace.json > /dev/null
+        echo "✓ marketplace.json has owner"
+        jq -e '.plugins | length > 0' .claude-plugin/marketplace.json > /dev/null
+        echo "✓ marketplace.json has plugins"
+
+    - name: Validate plugin.json
+      run: |
+        PLUGIN_DIR="plugins/agentic-navigation-guide"
+        echo "Checking $PLUGIN_DIR/.claude-plugin/plugin.json..."
+        jq . "$PLUGIN_DIR/.claude-plugin/plugin.json" > /dev/null
+        echo "✓ plugin.json is valid JSON"
+
+        jq -e '.name' "$PLUGIN_DIR/.claude-plugin/plugin.json" > /dev/null
+        echo "✓ plugin.json has name"
+        jq -e '.description' "$PLUGIN_DIR/.claude-plugin/plugin.json" > /dev/null
+        echo "✓ plugin.json has description"
+
+    - name: Validate hooks.json
+      run: |
+        HOOKS="plugins/agentic-navigation-guide/hooks/hooks.json"
+        echo "Checking $HOOKS..."
+        jq . "$HOOKS" > /dev/null
+        echo "✓ hooks.json is valid JSON"
+        jq -e '.hooks' "$HOOKS" > /dev/null
+        echo "✓ hooks.json has hooks field"
+
+    - name: Check skill directories
+      run: |
+        SKILLS_DIR="plugins/agentic-navigation-guide/skills"
+        ERRORS=0
+        for skill_dir in "$SKILLS_DIR"/*/; do
+          skill_name="$(basename "$skill_dir")"
+          if [[ ! -f "$skill_dir/SKILL.md" ]]; then
+            echo "✗ Missing SKILL.md in $skill_name"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✓ $skill_name/SKILL.md exists"
+          fi
+        done
+        if [[ $ERRORS -gt 0 ]]; then
+          echo "Found $ERRORS missing SKILL.md files"
+          exit 1
+        fi
+
+    - name: Check agent files
+      run: |
+        AGENTS_DIR="plugins/agentic-navigation-guide/agents"
+        for agent_file in "$AGENTS_DIR"/*.md; do
+          if [[ -f "$agent_file" ]]; then
+            echo "✓ $(basename "$agent_file") exists"
+          fi
+        done
+
+    - name: Check hook script
+      run: |
+        SCRIPT="plugins/agentic-navigation-guide/bin/verify-guide.sh"
+        if [[ ! -x "$SCRIPT" ]]; then
+          echo "✗ $SCRIPT is not executable"
+          exit 1
+        fi
+        echo "✓ verify-guide.sh is executable"
+        bash -n "$SCRIPT"
+        echo "✓ verify-guide.sh passes syntax check"

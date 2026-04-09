@@ -1726,3 +1726,270 @@ fn test_init_vcs_exclusions_with_user_exclusions() {
         "Should NOT contain node_modules (user-excluded)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --format paths tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_verify_format_paths_basic() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create filesystem structure
+    fs::create_dir(dir_path.join("src")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+    fs::write(dir_path.join("README.md"), "").unwrap();
+
+    let guide_content = "\
+<agentic-navigation-guide>
+- src/
+  - main.rs
+- README.md
+</agentic-navigation-guide>";
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    let output = cmd
+        .arg("verify")
+        .arg("--format")
+        .arg("paths")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    assert_eq!(lines, vec!["src/", "src/main.rs", "README.md"]);
+}
+
+#[test]
+fn test_verify_format_paths_with_spaces_in_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create filesystem with space in directory name
+    fs::create_dir(dir_path.join("my project")).unwrap();
+    fs::write(dir_path.join("my project/notes.txt"), "").unwrap();
+
+    let guide_content = "\
+<agentic-navigation-guide>
+- my project/
+  - notes.txt
+</agentic-navigation-guide>";
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    let output = cmd
+        .arg("verify")
+        .arg("--format")
+        .arg("paths")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    assert_eq!(lines, vec!["my project/", "my project/notes.txt"]);
+}
+
+#[test]
+fn test_verify_format_paths_with_escaped_hash() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Create file with hash in name
+    fs::write(dir_path.join("config#backup.txt"), "").unwrap();
+
+    let guide_content = "\
+<agentic-navigation-guide>
+- config\\#backup.txt # a backup config
+</agentic-navigation-guide>";
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    let output = cmd
+        .arg("verify")
+        .arg("--format")
+        .arg("paths")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    // The escaped hash should be resolved to a literal #
+    assert_eq!(lines, vec!["config#backup.txt"]);
+}
+
+#[test]
+fn test_verify_format_paths_skips_placeholders() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::write(dir_path.join("README.md"), "").unwrap();
+    fs::create_dir(dir_path.join("src")).unwrap();
+
+    let guide_content = "\
+<agentic-navigation-guide>
+- README.md
+- ... # other files
+</agentic-navigation-guide>";
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    let output = cmd
+        .arg("verify")
+        .arg("--format")
+        .arg("paths")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    // Placeholder "..." should not appear in output
+    assert_eq!(lines, vec!["README.md"]);
+}
+
+#[test]
+fn test_verify_format_paths_nested_hierarchy() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    fs::create_dir_all(dir_path.join("src/cli")).unwrap();
+    fs::write(dir_path.join("src/main.rs"), "").unwrap();
+    fs::write(dir_path.join("src/cli/mod.rs"), "").unwrap();
+    fs::write(dir_path.join("Cargo.toml"), "").unwrap();
+
+    let guide_content = "\
+<agentic-navigation-guide>
+- src/
+  - main.rs
+  - cli/
+    - mod.rs
+- Cargo.toml
+</agentic-navigation-guide>";
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut cmd = get_command();
+    let output = cmd
+        .arg("verify")
+        .arg("--format")
+        .arg("paths")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(dir_path)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    assert_eq!(
+        lines,
+        vec![
+            "src/",
+            "src/main.rs",
+            "src/cli/",
+            "src/cli/mod.rs",
+            "Cargo.toml"
+        ]
+    );
+}
+
+#[test]
+fn test_env_guide_name_in_non_recursive_verify() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a guide with a custom name
+    fs::write(root.join("file.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+    fs::write(root.join("CUSTOM_GUIDE.md"), guide).unwrap();
+
+    // Non-recursive verify should use the env var as the default guide filename
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_NAME", "CUSTOM_GUIDE.md")
+        .arg("verify")
+        .arg("--root")
+        .arg(root)
+        .current_dir(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_env_guide_name_in_non_recursive_check() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+    fs::write(root.join("CUSTOM_GUIDE.md"), guide).unwrap();
+
+    // Non-recursive check should use the env var as the default guide filename
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_NAME", "CUSTOM_GUIDE.md")
+        .arg("check")
+        .current_dir(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_env_guide_name_in_recursive_verify() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create module with custom guide name
+    fs::create_dir_all(root.join("module-a")).unwrap();
+    fs::write(root.join("module-a/file.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+    fs::write(root.join("module-a/CUSTOM_GUIDE.md"), guide).unwrap();
+
+    // Recursive verify should use the env var as the default guide filename
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_NAME", "CUSTOM_GUIDE.md")
+        .arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 navigation guide(s)"));
+}

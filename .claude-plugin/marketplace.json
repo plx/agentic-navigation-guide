@@ -1,0 +1,23 @@
+{
+  "name": "agentic-navigation-guide-marketplace",
+  "owner": {
+    "name": "plx",
+    "email": "plxgithub@gmail.com"
+  },
+  "metadata": {
+    "description": "Plugin marketplace for the agentic-navigation-guide CLI tool",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "agentic-navigation-guide",
+      "source": "./plugins/agentic-navigation-guide",
+      "description": "Skills, hooks, and agents for maintaining agentic navigation guides",
+      "version": "1.0.0",
+      "author": { "name": "plx" },
+      "repository": "https://github.com/plx/agentic-navigation-guide",
+      "license": "MIT",
+      "keywords": ["navigation", "codebase", "documentation", "file-structure"]
+    }
+  ]
+}

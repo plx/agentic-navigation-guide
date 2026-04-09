@@ -2,7 +2,7 @@
 
 use crate::errors::{Result, SyntaxError};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path};
 
 /// Validator for navigation guide syntax
@@ -28,6 +28,9 @@ impl Validator {
 
         // Validate indentation consistency
         self.validate_indentation(&guide.items)?;
+
+        // Check for duplicate entries within each scope
+        self.validate_no_duplicates(&guide.items)?;
 
         Ok(())
     }
@@ -218,6 +221,32 @@ impl Validator {
             }
         }
 
+        Ok(())
+    }
+
+    /// Check for duplicate entries within the same scope (sibling level)
+    fn validate_no_duplicates(&self, items: &[NavigationGuideLine]) -> Result<()> {
+        let mut seen: HashMap<&str, usize> = HashMap::new();
+        for item in items {
+            if item.is_placeholder() {
+                continue;
+            }
+            let path = item.path();
+            if let Some(&first_line) = seen.get(path) {
+                return Err(SyntaxError::DuplicateEntry {
+                    line: item.line_number,
+                    path: path.to_string(),
+                    first_line,
+                }
+                .into());
+            }
+            seen.insert(path, item.line_number);
+
+            // Recursively check children of directories
+            if let Some(children) = item.children() {
+                self.validate_no_duplicates(children)?;
+            }
+        }
         Ok(())
     }
 
@@ -498,5 +527,287 @@ mod tests {
         let validator = Validator::new();
         let result = validator.validate_syntax(&guide);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_no_duplicates_passes() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "main.rs".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "lib.rs".to_string(),
+                comment: None,
+            },
+        });
+
+        let validator = Validator::new();
+        assert!(validator.validate_syntax(&guide).is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_root_entries() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "main.rs".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "main.rs".to_string(),
+                comment: Some("duplicate".to_string()),
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::DuplicateEntry {
+                    line: 2,
+                    first_line: 1,
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_nested_entries() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![
+                    NavigationGuideLine {
+                        line_number: 2,
+                        indent_level: 1,
+                        item: FilesystemItem::File {
+                            path: "main.rs".to_string(),
+                            comment: None,
+                        },
+                    },
+                    NavigationGuideLine {
+                        line_number: 3,
+                        indent_level: 1,
+                        item: FilesystemItem::File {
+                            path: "main.rs".to_string(),
+                            comment: None,
+                        },
+                    },
+                ],
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::DuplicateEntry {
+                    line: 3,
+                    first_line: 2,
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_same_name_different_scopes_is_not_duplicate() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "main.rs".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![NavigationGuideLine {
+                    line_number: 3,
+                    indent_level: 1,
+                    item: FilesystemItem::File {
+                        path: "main.rs".to_string(),
+                        comment: None,
+                    },
+                }],
+            },
+        });
+
+        let validator = Validator::new();
+        assert!(validator.validate_syntax(&guide).is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_directory_entries() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![],
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![],
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::DuplicateEntry {
+                    line: 2,
+                    first_line: 1,
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_placeholders_are_not_considered_duplicates() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "main.rs".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::Placeholder {
+                comment: Some("other files".to_string()),
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 3,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "lib.rs".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 4,
+            indent_level: 0,
+            item: FilesystemItem::Placeholder {
+                comment: Some("more files".to_string()),
+            },
+        });
+
+        let validator = Validator::new();
+        // Placeholders would fail adjacency check normally, but here they're
+        // separated by a file. This test verifies placeholders are skipped
+        // by duplicate detection.
+        assert!(validator.validate_syntax(&guide).is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_file_vs_directory_same_name() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "src".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "src".to_string(),
+                comment: None,
+                children: vec![],
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::DuplicateEntry {
+                    line: 2,
+                    first_line: 1,
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_entry_reports_correct_path() {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "lib.rs".to_string(),
+                comment: None,
+            },
+        });
+        guide.items.push(NavigationGuideLine {
+            line_number: 2,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: "lib.rs".to_string(),
+                comment: None,
+            },
+        });
+
+        let validator = Validator::new();
+        let result = validator.validate_syntax(&guide);
+        match result {
+            Err(crate::errors::AppError::Syntax(SyntaxError::DuplicateEntry {
+                line,
+                path,
+                first_line,
+            })) => {
+                assert_eq!(line, 2);
+                assert_eq!(first_line, 1);
+                assert_eq!(path, "lib.rs");
+            }
+            other => panic!("expected DuplicateEntry, got: {other:?}"),
+        }
     }
 }

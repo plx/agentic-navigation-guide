@@ -1,0 +1,9 @@
+{
+  "name": "agentic-navigation-guide",
+  "description": "Skills, hooks, and agents for maintaining agentic navigation guides — hand-written partial file listings that help AI assistants navigate codebases",
+  "version": "1.0.0",
+  "author": { "name": "plx", "email": "plxgithub@gmail.com" },
+  "repository": "https://github.com/plx/agentic-navigation-guide",
+  "license": "MIT",
+  "keywords": ["navigation", "codebase", "documentation", "file-structure"]
+}
