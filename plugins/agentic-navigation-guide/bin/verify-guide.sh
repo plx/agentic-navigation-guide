@@ -7,7 +7,7 @@
 # nearest navigation guide, and verifies it.
 #
 # Exit codes:
-#   0 — guide is valid (or no guide exists) — completely silent
+#   0 — guide is valid (or no guide/binary exists) — silent unless binary missing
 #   2 — guide is invalid — stderr contains issues + repair suggestion
 #
 # Usage:
@@ -73,7 +73,8 @@ elif [[ -f "$GUIDE_ROOT/Cargo.toml" ]] && command -v cargo &>/dev/null; then
 fi
 
 if [[ ${#ANG_BIN[@]} -eq 0 ]]; then
-  # Can't find the tool — exit silently rather than block the user
+  # Can't find the tool — warn but don't block the user
+  echo "warning: verify-guide.sh: 'agentic-navigation-guide' binary not found on PATH; skipping verification" >&2
   exit 0
 fi
 
