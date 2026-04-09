@@ -67,14 +67,14 @@ fi
 ANG_BIN=()
 if command -v agentic-navigation-guide &>/dev/null; then
   ANG_BIN=(agentic-navigation-guide)
-elif [[ -f "$GUIDE_ROOT/Cargo.toml" ]] && command -v cargo &>/dev/null; then
-  # Development fallback: build and run from source
-  ANG_BIN=(cargo run --quiet --release --manifest-path "${GUIDE_ROOT}/Cargo.toml" --)
+elif [[ -x "$GUIDE_ROOT/target/release/agentic-navigation-guide" ]]; then
+  # Use pre-built binary from target/release/ if available
+  ANG_BIN=("$GUIDE_ROOT/target/release/agentic-navigation-guide")
 fi
 
 if [[ ${#ANG_BIN[@]} -eq 0 ]]; then
   # Can't find the tool — warn but don't block the user
-  echo "warning: verify-guide.sh: 'agentic-navigation-guide' binary not found on PATH; skipping verification" >&2
+  echo "warning: verify-guide.sh: 'agentic-navigation-guide' binary not found; skipping verification. Run 'cargo build --release' to enable hook verification." >&2
   exit 0
 fi
 

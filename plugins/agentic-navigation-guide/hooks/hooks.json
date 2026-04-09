@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/verify-guide.sh",
-            "timeout": 30
+            "timeout": 120
           }
         ]
       }
@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/verify-guide.sh --broad",
-            "timeout": 30
+            "timeout": 120
           }
         ]
       }
