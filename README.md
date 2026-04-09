@@ -202,7 +202,7 @@ The tool provides the following commands:
 
 If you're adding a navigation guide to your repository, I'd suggest:
 
-- run `agentic-navigation-guide init` to generate a starting point
+- run `agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md` to generate a starting point
 - hand-edit the file to add comments and omit extraneous details
 - run `agentic-navigation-guide verify` to check for errors
 - commit the file to your repository

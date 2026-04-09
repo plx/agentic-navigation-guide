@@ -38,7 +38,7 @@ For the full format specification, see `format-reference.md` in this skill direc
 
 | Command | Purpose |
 |---------|---------|
-| `agentic-navigation-guide init` | Generate a starting-point guide from current directory |
+| `agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md` | Generate a starting-point guide from current directory |
 | `agentic-navigation-guide check` | Validate guide syntax (no filesystem check) |
 | `agentic-navigation-guide verify` | Validate guide against actual filesystem |
 | `agentic-navigation-guide dump` | Dump directory tree in guide format |
@@ -64,7 +64,7 @@ agentic-navigation-guide verify --github-actions-check
 
 ## Typical Workflow
 
-1. `agentic-navigation-guide init` — scaffold initial guide
+1. `agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md` — scaffold initial guide
 2. Hand-edit to add descriptions and remove noise
 3. `agentic-navigation-guide verify` — check for errors
 4. Commit and reference from `CLAUDE.md` with `@AGENTIC_NAVIGATION_GUIDE.md`
