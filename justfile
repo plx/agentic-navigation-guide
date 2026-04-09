@@ -56,8 +56,10 @@ have-claude-tackle-next-issue-with-labels *labels:
     echo "    ${url}"
     echo ""
 
-    # Build prompt for Claude (just strips leading indentation before passing to bash)
-    prompt=$(cat <<'PROMPT_TEMPLATE'
+    # Build prompt for Claude
+    # NOTE: cannot use $(cat <<'DELIM' ... DELIM) because bash's parser matches
+    # parentheses inside the heredoc against the $(...) before the heredoc starts.
+    read -r -d '' prompt <<'PROMPT_TEMPLATE' || true
     You are being asked to resolve GitHub issue #__NUMBER__ at __URL__.
 
     The full issue body is appended below. Read the issue, review the codebase,
@@ -89,14 +91,13 @@ have-claude-tackle-next-issue-with-labels *labels:
     2. Post a detailed comment on the issue explaining why it cannot be addressed.
     3. Close the issue as "not planned".
 
-    This escape hatch should rarely be needed — these issues are expected to be
+    This escape hatch should rarely be needed -- these issues are expected to be
     tractable.
 
     --- ISSUE #__NUMBER__: __TITLE__ ---
 
     __BODY__
     PROMPT_TEMPLATE
-    )
 
     # Substitute placeholders with actual issue data
     prompt="${prompt//__NUMBER__/$number}"
