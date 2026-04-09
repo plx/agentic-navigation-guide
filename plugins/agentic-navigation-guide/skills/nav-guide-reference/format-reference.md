@@ -13,7 +13,7 @@ A navigation guide is a markdown block wrapped in `<agentic-navigation-guide>` t
 - **Path**: Relative path component (no `.`, `..`, `//`, or leading `/`)
 - **Trailing `/`**: Marks the entry as a directory
 - **`#` comment**: Optional description (first unescaped `#` starts it; use `\#` for literal)
-- **Indentation**: 2 spaces per nesting level, consistent throughout
+- **Indentation**: Consistent indent unit per nesting level (2 spaces recommended; tabs, 4 spaces, etc. also accepted)
 
 ## Entry Types
 

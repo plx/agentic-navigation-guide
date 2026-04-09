@@ -56,7 +56,7 @@ Generate an agentic navigation guide for a project.
 
 10. Assemble the guide in proper format:
     - Wrap in `<agentic-navigation-guide>` tags
-    - Use 2-space indentation for nesting
+    - Use consistent indentation for nesting (2 spaces recommended)
     - Add `- ... # Additional project files` at appropriate levels
     - Ensure directories end with `/`
 

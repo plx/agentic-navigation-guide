@@ -29,7 +29,7 @@ Unlike auto-generated file trees, navigation guides are *selective*: they list o
 - Directories end with `/`
 - Comments follow the first unescaped `#`
 - `...` = placeholder for unlisted items (with comment) or omitted existing items (without)
-- 2-space indentation for nesting
+- Consistent indentation for nesting (2 spaces recommended; any consistent unit accepted)
 - No blank lines within the block
 
 For the full format specification, see `format-reference.md` in this skill directory.

@@ -29,7 +29,7 @@ Format rules:
 - Each entry is a list item starting with `- `
 - Directories end with `/`; files do not
 - Optional comment after `#` (first unescaped `#`)
-- Indentation (2 spaces) reflects directory nesting
+- Indentation reflects directory nesting (any consistent unit; 2 spaces recommended)
 - `...` with comment = placeholder for unlisted or future items
 - `...` without comment = must refer to at least one unlisted item in the parent
 - No blank lines within the guide block
