@@ -145,15 +145,15 @@ if [[ "$BROAD" == "true" ]]; then
   fi
 
   # Extract paths from both guide and dump, compare for new items
-  # Guide paths: lines matching "- <path>" pattern
-  GUIDE_PATHS="$(grep -oP '(?<=- )[^\s#]+' "$GUIDE_PATH" 2>/dev/null | sort)" || true
-  DUMP_PATHS="$(echo "$DUMP_OUTPUT" | grep -oP '(?<=- )[^\s#]+' 2>/dev/null | sort)" || true
+  # Guide paths: lines matching "- <path>" pattern (POSIX-portable, no grep -P)
+  GUIDE_PATHS="$(sed -n 's/^[[:space:]]*- \([^[:space:]#][^[:space:]#]*\).*/\1/p' "$GUIDE_PATH" | sort)"
+  DUMP_PATHS="$(echo "$DUMP_OUTPUT" | sed -n 's/^[[:space:]]*- \([^[:space:]#][^[:space:]#]*\).*/\1/p' | sort)"
 
   # Find paths in dump but not in guide (potential additions)
-  NEW_PATHS="$(comm -23 <(echo "$DUMP_PATHS") <(echo "$GUIDE_PATHS") 2>/dev/null)" || true
+  NEW_PATHS="$(comm -23 <(echo "$DUMP_PATHS") <(echo "$GUIDE_PATHS"))" || true
 
   # Filter out placeholder markers and common noise
-  NEW_PATHS="$(echo "$NEW_PATHS" | grep -v '^\.\.\.$' | grep -v '^\s*$')" || true
+  NEW_PATHS="$(echo "$NEW_PATHS" | grep -v '^\.\.\.$' | grep -v '^[[:space:]]*$')" || true
 
   if [[ -n "$NEW_PATHS" ]]; then
     COUNT="$(echo "$NEW_PATHS" | wc -l | tr -d ' ')"
