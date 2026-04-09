@@ -1924,3 +1924,72 @@ fn test_verify_format_paths_nested_hierarchy() {
         ]
     );
 }
+
+#[test]
+fn test_env_guide_name_in_non_recursive_verify() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create a guide with a custom name
+    fs::write(root.join("file.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+    fs::write(root.join("CUSTOM_GUIDE.md"), guide).unwrap();
+
+    // Non-recursive verify should use the env var as the default guide filename
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_NAME", "CUSTOM_GUIDE.md")
+        .arg("verify")
+        .arg("--root")
+        .arg(root)
+        .current_dir(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_env_guide_name_in_non_recursive_check() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+    fs::write(root.join("CUSTOM_GUIDE.md"), guide).unwrap();
+
+    // Non-recursive check should use the env var as the default guide filename
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_NAME", "CUSTOM_GUIDE.md")
+        .arg("check")
+        .current_dir(root)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_env_guide_name_in_recursive_verify() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    // Create module with custom guide name
+    fs::create_dir_all(root.join("module-a")).unwrap();
+    fs::write(root.join("module-a/file.txt"), "").unwrap();
+
+    let guide = r#"<agentic-navigation-guide>
+- file.txt
+</agentic-navigation-guide>"#;
+    fs::write(root.join("module-a/CUSTOM_GUIDE.md"), guide).unwrap();
+
+    // Recursive verify should use the env var as the default guide filename
+    let mut cmd = get_command();
+    cmd.env("AGENTIC_NAVIGATION_GUIDE_NAME", "CUSTOM_GUIDE.md")
+        .arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 navigation guide(s)"));
+}

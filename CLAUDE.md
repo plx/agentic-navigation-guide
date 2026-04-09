@@ -107,4 +107,4 @@ These environment variables are used to configure the `agentic-navigation-guide`
 - `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE`: Set to "post-tool-use", "pre-commit-hook", "github-actions", or "default"
 - `AGENTIC_NAVIGATION_GUIDE_PATH`: Default path to guide file
 - `AGENTIC_NAVIGATION_GUIDE_ROOT`: Default root directory for operations
-- `AGENTIC_NAVIGATION_GUIDE_NAME`: Default guide filename for recursive mode (e.g., "GUIDE.md")
+- `AGENTIC_NAVIGATION_GUIDE_NAME`: Default guide filename when `--guide` is not specified (e.g., "GUIDE.md")

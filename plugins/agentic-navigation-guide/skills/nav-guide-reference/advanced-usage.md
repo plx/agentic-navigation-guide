@@ -8,7 +8,7 @@
 | `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE` | Behavior mode | `post-tool-use`, `pre-commit-hook`, `github-actions`, `default` |
 | `AGENTIC_NAVIGATION_GUIDE_PATH` | Default guide file path | Any file path |
 | `AGENTIC_NAVIGATION_GUIDE_ROOT` | Default root directory | Any directory path |
-| `AGENTIC_NAVIGATION_GUIDE_NAME` | Guide filename for recursive mode | e.g., `GUIDE.md` |
+| `AGENTIC_NAVIGATION_GUIDE_NAME` | Default guide filename when `--guide` is not specified (`check`, `verify`, and `verify --recursive`) | e.g., `GUIDE.md` |
 
 ## Execution Modes
 

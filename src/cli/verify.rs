@@ -44,7 +44,7 @@ pub struct VerifyArgs {
     pub recursive: bool,
 
     /// Name of the navigation guide file to search for (only used with --recursive)
-    #[arg(long, requires = "recursive", env = "AGENTIC_NAVIGATION_GUIDE_NAME")]
+    #[arg(long, requires = "recursive")]
     pub guide_name: Option<String>,
 
     /// Glob patterns to exclude from recursive search (can be specified multiple times)
@@ -259,6 +259,7 @@ impl VerifyArgs {
         // Determine the guide name to search for
         let guide_name = self
             .guide_name
+            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME").ok())
             .unwrap_or_else(|| "AGENTIC_NAVIGATION_GUIDE.md".to_string());
 
         log::debug!(
