@@ -40,13 +40,6 @@ impl CheckArgs {
             config.execution_mode = ExecutionMode::GitHubActions;
         }
 
-        // Store original path for error messages
-        config.original_guide_path = self
-            .guide
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME").ok());
-
         // Determine guide path
         let current_dir = std::env::current_dir()?;
         let guide_path = match self.guide {
@@ -56,6 +49,10 @@ impl CheckArgs {
                 Err(_) => current_dir.join("AGENTIC_NAVIGATION_GUIDE.md"),
             },
         };
+        // `check` has historically reported the resolved guide path in
+        // GitHub Actions diagnostics, including when the filename comes from
+        // AGENTIC_NAVIGATION_GUIDE_NAME.
+        config.original_guide_path = Some(guide_path.display().to_string());
 
         log::debug!("Checking navigation guide: {}", guide_path.display());
 

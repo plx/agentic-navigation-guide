@@ -5,7 +5,7 @@ use agentic_navigation_guide::types::{Config, ExecutionMode};
 
 /// Guide command context for command-specific error text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GuideCommand {
+pub(crate) enum GuideCommand {
     /// `check` command.
     Check,
     /// `verify` command.
@@ -13,7 +13,7 @@ pub enum GuideCommand {
 }
 
 /// Format and print a guide-related command error.
-pub fn report_guide_error(
+pub(crate) fn report_guide_error(
     error: &AppError,
     config: &Config,
     file_content: Option<&str>,
@@ -80,6 +80,8 @@ fn format_github_actions_error(
     file_content: Option<&str>,
     command: GuideCommand,
 ) -> String {
+    // Callers set this to match their historical diagnostic path: `check`
+    // reports the resolved guide file, while `verify` preserves user input.
     let display_guide_path = config
         .original_guide_path
         .as_deref()

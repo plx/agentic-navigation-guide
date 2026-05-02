@@ -2,7 +2,7 @@
 
 pub mod check;
 pub mod dump;
-pub mod error_format;
+pub(crate) mod error_format;
 pub mod init;
 pub mod verify;
 

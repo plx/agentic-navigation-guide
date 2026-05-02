@@ -1038,6 +1038,31 @@ fn test_github_actions_mode_syntax_error() {
 }
 
 #[test]
+fn test_check_github_actions_env_guide_name_reports_resolved_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path();
+
+    // Guide with syntax error (indentation)
+    let guide_content = r#"<agentic-navigation-guide>
+- src
+  - main.rs
+</agentic-navigation-guide>"#;
+
+    let guide_path = dir_path.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+    let expected_location = format!("{}:3:", guide_path.display());
+
+    let mut cmd = get_command();
+    cmd.current_dir(dir_path)
+        .env("AGENTIC_NAVIGATION_GUIDE_NAME", "GUIDE.md")
+        .arg("check")
+        .arg("--github-actions-check")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(expected_location));
+}
+
+#[test]
 fn test_github_actions_mode_quiet() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();

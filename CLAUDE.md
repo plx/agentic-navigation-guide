@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Source-of-truth precedence: implementation + tests first, `README.md` for user-facing contract.
 - If user-facing behavior changes, update `README.md` in the same change.
+- If an intentional implementation/README divergence is unavoidable, record it in `README.md` with the date and rationale.
 
 ## Commands
 
