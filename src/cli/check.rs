@@ -40,6 +40,13 @@ impl CheckArgs {
             config.execution_mode = ExecutionMode::GitHubActions;
         }
 
+        // Store original path for error messages
+        config.original_guide_path = self
+            .guide
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME").ok());
+
         // Determine guide path
         let current_dir = std::env::current_dir()?;
         let guide_path = match self.guide {
@@ -67,7 +74,7 @@ impl CheckArgs {
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                report_guide_error(&e, &guide_path, config, Some(&content), GuideCommand::Check);
+                report_guide_error(&e, config, Some(&content), GuideCommand::Check);
                 return Err(e.reported());
             }
         };
@@ -122,7 +129,7 @@ impl CheckArgs {
                 Ok(())
             }
             Err(e) => {
-                report_guide_error(&e, &guide_path, config, Some(&content), GuideCommand::Check);
+                report_guide_error(&e, config, Some(&content), GuideCommand::Check);
                 Err(e.reported())
             }
         }

@@ -2,7 +2,6 @@
 
 use agentic_navigation_guide::errors::{AppError, ErrorFormatter};
 use agentic_navigation_guide::types::{Config, ExecutionMode};
-use std::path::Path;
 
 /// Guide command context for command-specific error text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,18 +15,16 @@ pub enum GuideCommand {
 /// Format and print a guide-related command error.
 pub fn report_guide_error(
     error: &AppError,
-    guide_path: &Path,
     config: &Config,
     file_content: Option<&str>,
     command: GuideCommand,
 ) {
-    let formatted = format_guide_error(error, guide_path, config, file_content, command);
+    let formatted = format_guide_error(error, config, file_content, command);
     eprintln!("{formatted}");
 }
 
 fn format_guide_error(
     error: &AppError,
-    guide_path: &Path,
     config: &Config,
     file_content: Option<&str>,
     command: GuideCommand,
@@ -37,7 +34,7 @@ fn format_guide_error(
             format_verify_post_tool_use_error(error, config, file_content)
         }
         (_, ExecutionMode::GitHubActions) => {
-            format_github_actions_error(error, guide_path, config, file_content, command)
+            format_github_actions_error(error, config, file_content, command)
         }
         _ => ErrorFormatter::format_with_context(error, file_content),
     }
@@ -79,12 +76,14 @@ fn format_verify_post_tool_use_error(
 
 fn format_github_actions_error(
     error: &AppError,
-    guide_path: &Path,
     config: &Config,
     file_content: Option<&str>,
     command: GuideCommand,
 ) -> String {
-    let display_guide_path = display_guide_path(guide_path, config, command);
+    let display_guide_path = config
+        .original_guide_path
+        .as_deref()
+        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
     let mut output = String::new();
 
     output.push_str(match command {
@@ -106,17 +105,6 @@ fn format_github_actions_error(
     }
 
     output
-}
-
-fn display_guide_path(guide_path: &Path, config: &Config, command: GuideCommand) -> String {
-    match command {
-        GuideCommand::Check => guide_path.display().to_string(),
-        GuideCommand::Verify => config
-            .original_guide_path
-            .as_deref()
-            .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md")
-            .to_string(),
-    }
 }
 
 fn error_line_number(error: &AppError) -> Option<usize> {

@@ -109,13 +109,7 @@ impl VerifyArgs {
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                report_guide_error(
-                    &e,
-                    &guide_path,
-                    config,
-                    Some(&content),
-                    GuideCommand::Verify,
-                );
+                report_guide_error(&e, config, Some(&content), GuideCommand::Verify);
                 return Err(e.reported());
             }
         };
@@ -159,13 +153,7 @@ impl VerifyArgs {
         // First validate syntax
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
-            report_guide_error(
-                &e,
-                &guide_path,
-                config,
-                Some(&content),
-                GuideCommand::Verify,
-            );
+            report_guide_error(&e, config, Some(&content), GuideCommand::Verify);
             return Err(e.reported());
         }
 
@@ -186,13 +174,7 @@ impl VerifyArgs {
                 Ok(())
             }
             Err(e) => {
-                report_guide_error(
-                    &e,
-                    &guide_path,
-                    config,
-                    Some(&content),
-                    GuideCommand::Verify,
-                );
+                report_guide_error(&e, config, Some(&content), GuideCommand::Verify);
                 Err(e.reported())
             }
         }
