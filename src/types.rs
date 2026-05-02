@@ -1,7 +1,7 @@
 //! Core data types for the agentic navigation guide
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Represents a filesystem item type
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,87 +112,11 @@ impl NavigationGuide {
             ignore: false,
         }
     }
-
-    /// Get the full path for an item by traversing up the hierarchy
-    pub fn get_full_path(&self, item: &NavigationGuideLine) -> PathBuf {
-        fn find_path(
-            items: &[NavigationGuideLine],
-            target: &NavigationGuideLine,
-            parent_path: &Path,
-        ) -> Option<PathBuf> {
-            for candidate in items {
-                let candidate_path = parent_path.join(candidate.path());
-
-                if std::ptr::eq(candidate, target) {
-                    return Some(candidate_path);
-                }
-
-                if let Some(children) = candidate.children() {
-                    if let Some(found) = find_path(children, target, &candidate_path) {
-                        return Some(found);
-                    }
-                }
-            }
-
-            None
-        }
-
-        find_path(&self.items, item, Path::new("")).unwrap_or_else(|| PathBuf::from(item.path()))
-    }
 }
 
 impl Default for NavigationGuide {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn get_full_path_returns_nested_item_path() {
-        let guide = NavigationGuide {
-            items: vec![NavigationGuideLine {
-                line_number: 1,
-                indent_level: 0,
-                item: FilesystemItem::Directory {
-                    path: "src".to_string(),
-                    comment: None,
-                    children: vec![NavigationGuideLine {
-                        line_number: 2,
-                        indent_level: 1,
-                        item: FilesystemItem::Directory {
-                            path: "cli".to_string(),
-                            comment: None,
-                            children: vec![NavigationGuideLine {
-                                line_number: 3,
-                                indent_level: 2,
-                                item: FilesystemItem::File {
-                                    path: "verify.rs".to_string(),
-                                    comment: None,
-                                },
-                            }],
-                        },
-                    }],
-                },
-            }],
-            prologue: None,
-            epilogue: None,
-            ignore: false,
-        };
-
-        let src = &guide.items[0];
-        let cli = &src.children().unwrap()[0];
-        let verify = &cli.children().unwrap()[0];
-
-        assert_eq!(guide.get_full_path(src), PathBuf::from("src"));
-        assert_eq!(guide.get_full_path(cli), PathBuf::from("src/cli"));
-        assert_eq!(
-            guide.get_full_path(verify),
-            PathBuf::from("src/cli/verify.rs")
-        );
     }
 }
 
