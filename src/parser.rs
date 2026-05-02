@@ -836,6 +836,78 @@ mod tests {
     }
 
     #[test]
+    fn test_closing_marker_rejects_prefix_lookalike() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide-example>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MissingClosingMarker { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_closing_marker_rejects_attributes() {
+        // Closing tags do not take attributes; anything other than the exact
+        // `</agentic-navigation-guide>` line must not be treated as a close.
+        let content = r#"<agentic-navigation-guide>
+- src/
+</agentic-navigation-guide ignore=true>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MissingClosingMarker { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_closing_marker_lookalike_in_prologue_is_ignored() {
+        let content = r#"Example block:
+</agentic-navigation-guide-example>
+
+<agentic-navigation-guide>
+- src/
+  - main.rs
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "src");
+    }
+
+    #[test]
+    fn test_closing_marker_lookalike_in_epilogue_is_ignored() {
+        let content = r#"<agentic-navigation-guide>
+- src/
+  - main.rs
+</agentic-navigation-guide>
+
+See the example below:
+</agentic-navigation-guide-example>"#;
+
+        let parser = Parser::new();
+        let guide = parser.parse(content).unwrap();
+        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items[0].path(), "src");
+        assert!(guide
+            .epilogue
+            .as_deref()
+            .is_some_and(|e| e.contains("</agentic-navigation-guide-example>")));
+    }
+
+    #[test]
     fn test_parse_with_comments() {
         let content = r#"<agentic-navigation-guide>
 - src/ # source code
