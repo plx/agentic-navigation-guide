@@ -8,9 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Documentation Alignment
 
-- Source-of-truth precedence: implementation + tests first, `README.md` for user-facing contract, `Specification.md` for original intent/history.
+- Source-of-truth precedence: implementation + tests first, `README.md` for user-facing contract.
 - If user-facing behavior changes, update `README.md` in the same change.
-- If divergence is intentional, record it in `README.md` under "Known Intentional Divergences" with date and rationale.
 
 ## Commands
 
@@ -67,9 +66,9 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 1. **Parser** (`src/parser.rs`): Extracts navigation guide blocks from markdown files and parses the hierarchical structure. Uses regex to parse individual lines and builds a tree structure based on indentation levels.
 
-2. **Validator** (`src/validator.rs`): Performs syntax validation on parsed guides, checking for proper formatting, consistent indentation, and valid path formats.
+2. **Validator** (`src/validator.rs`): Performs syntax validation on parsed guides, checking for proper formatting, consistent indentation, valid path structure, and placeholder placement.
 
-3. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist and are of the correct type (file/directory).
+3. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist, have the expected file/directory shape, and stay within the configured root boundary.
 
 4. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
 

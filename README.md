@@ -17,13 +17,7 @@ The validation can be done in a stand-alone way, and also has special support fo
 
 ## Docs and Implementation Alignment Policy
 
-### Source-of-Truth Precedence
-
-1. Current implementation (`src/` plus tests) is authoritative for realized runtime behavior.
-2. `README.md` is authoritative for the current user-facing contract and should match implementation.
-3. `Specification.md` captures original intent and historical context, and is not guaranteed to be fully current.
-
-If `README.md` and implementation are incoherent or contradictory, treat that as a defect and resolve both in the same change when possible.
+The current implementation (`src/` plus tests) and this `README.md` are the maintained sources of truth. If they are incoherent or contradictory, treat that as a defect and resolve both in the same change when possible.
 
 ### Update Process for Behavior Changes
 
@@ -31,10 +25,6 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 - CLI commands, flags, defaults, and environment-variable behavior
 - output format, error messaging, and exit-code behavior
 - syntax and validation behavior for navigation guides
-
-### Known Intentional Divergences
-
-- None currently recorded. If one is introduced intentionally, add a dated bullet with rationale.
 
 ## Navigation Guide Format
 
@@ -70,7 +60,7 @@ The main rules are:
 - no ordering requirement is imposed
 - placeholder entries (`...`) can be used to indicate unlisted items (see below)
 
-Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries—the guide *must* be accurate*.
+Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries; the guide *must* be accurate.
 
 ### UTF-8 Scope
 
@@ -315,12 +305,3 @@ Each guide is verified relative to its parent directory, allowing you to maintai
 - **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
 - **Aggregated Results**: Shows summary of all verified guides with pass/fail counts
 - **Execution Modes**: Works with all execution modes (default, post-tool-use, pre-commit-hook, GitHub Actions)
-
-## Future Roadmap
-
-This is an early preview of the tool, so there are a few rough edges. Potential future steps:
-
-- [ ] support for auto-installing the hook (e.g. auto-editing your settings to include it)
-- [ ] support for auto-generating the hook (e.g. suggested prompts/commands to have your agent write the guide comments)
-- [x] support for nested guides (completed - use `--recursive` flag)
-- [ ] inspecting the post-tool-use-hook json and skipping unnecessary work

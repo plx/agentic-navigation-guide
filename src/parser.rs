@@ -51,8 +51,8 @@ impl Parser {
         for (idx, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
 
-            // Check for opening tag with or without attributes
-            if trimmed.starts_with("<agentic-navigation-guide") && trimmed.ends_with(">") {
+            // Check for opening tag with or without attributes.
+            if Self::is_opening_guide_tag(trimmed) {
                 if start_idx.is_some() || end_idx.is_some() {
                     return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
                 }
@@ -99,6 +99,19 @@ impl Parser {
         let line_offset = start + 1;
 
         Ok((prologue, guide_content, epilogue, line_offset, ignore))
+    }
+
+    /// Return true for the exact opening tag, or the opening tag followed by whitespace and
+    /// attributes. This intentionally rejects lookalikes such as
+    /// `<agentic-navigation-guide-example>`.
+    fn is_opening_guide_tag(line: &str) -> bool {
+        const OPENING_TAG_PREFIX: &str = "<agentic-navigation-guide";
+
+        let Some(rest) = line.strip_prefix(OPENING_TAG_PREFIX) else {
+            return false;
+        };
+
+        rest == ">" || (rest.ends_with('>') && rest.starts_with(char::is_whitespace))
     }
 
     /// Parse the ignore attribute from the opening tag
@@ -801,6 +814,23 @@ mod tests {
             result,
             Err(crate::errors::AppError::Syntax(
                 SyntaxError::MultipleGuideBlocks { line: 4 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_opening_marker_rejects_prefix_lookalike() {
+        let content = r#"<agentic-navigation-guide-example>
+- src/
+</agentic-navigation-guide>"#;
+
+        let parser = Parser::new();
+        let result = parser.parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::MissingOpeningMarker { .. }
             ))
         ));
     }

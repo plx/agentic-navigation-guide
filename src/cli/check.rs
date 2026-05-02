@@ -1,11 +1,12 @@
 //! Check subcommand implementation
 
-use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
+use super::error_format::{report_guide_error, GuideCommand};
+use agentic_navigation_guide::errors::{AppError, Result};
 use agentic_navigation_guide::parser::Parser;
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use agentic_navigation_guide::validator::Validator;
 use clap::Args;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Arguments for the check subcommand
 #[derive(Args, Debug)]
@@ -66,13 +67,7 @@ impl CheckArgs {
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &guide_path, Some(&content));
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                    eprintln!("{formatted}");
-                }
+                report_guide_error(&e, &guide_path, config, Some(&content), GuideCommand::Check);
                 return Err(e.reported());
             }
         };
@@ -127,57 +122,9 @@ impl CheckArgs {
                 Ok(())
             }
             Err(e) => {
-                if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &guide_path, Some(&content));
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                    eprintln!("{formatted}");
-                }
+                report_guide_error(&e, &guide_path, config, Some(&content), GuideCommand::Check);
                 Err(e.reported())
             }
         }
     }
-}
-
-/// Format errors specifically for GitHub Actions mode
-fn format_github_actions_error(
-    error: &agentic_navigation_guide::errors::AppError,
-    guide_path: &Path,
-    file_content: Option<&str>,
-) -> String {
-    use agentic_navigation_guide::errors::AppError;
-
-    let mut output = String::new();
-
-    // Error header with emoji
-    output.push_str("❌ Navigation guide syntax check failed\n\n");
-
-    // Get line number from error
-    let line_num = match error {
-        AppError::Syntax(e) => e.line_number(),
-        AppError::Semantic(e) => Some(e.line_number()),
-        _ => None,
-    };
-
-    // Format error with file:line if available
-    if let Some(line_num) = line_num {
-        let guide_path_str = guide_path.display();
-        output.push_str(&format!("{guide_path_str}:{line_num}: "));
-        output.push_str(&error.to_string());
-        output.push('\n');
-
-        // Show the actual line content if available
-        if let Some(content) = file_content {
-            if let Some(line) = content.lines().nth(line_num.saturating_sub(1)) {
-                let trimmed_line = line.trim_end();
-                output.push_str(&format!("  {trimmed_line}\n"));
-            }
-        }
-    } else {
-        let guide_path_str = guide_path.display();
-        output.push_str(&format!("{guide_path_str}: {error}\n"));
-    }
-
-    output
 }

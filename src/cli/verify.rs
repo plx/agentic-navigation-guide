@@ -1,12 +1,13 @@
 //! Verify subcommand implementation
 
-use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
+use super::error_format::{report_guide_error, GuideCommand};
+use agentic_navigation_guide::errors::{AppError, Result};
 use agentic_navigation_guide::parser::Parser;
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use agentic_navigation_guide::validator::Validator;
 use agentic_navigation_guide::verifier::Verifier;
 use clap::Args;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Arguments for the verify subcommand
 #[derive(Args, Debug)]
@@ -108,23 +109,13 @@ impl VerifyArgs {
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                if config.execution_mode == ExecutionMode::PostToolUse {
-                    let formatted = format_post_tool_use_error(
-                        &e,
-                        &guide_path,
-                        &root_path,
-                        config,
-                        Some(&content),
-                    );
-                    eprintln!("{formatted}");
-                } else if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted =
-                        format_github_actions_error(&e, &guide_path, Some(&content), config);
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                    eprintln!("{formatted}");
-                }
+                report_guide_error(
+                    &e,
+                    &guide_path,
+                    config,
+                    Some(&content),
+                    GuideCommand::Verify,
+                );
                 return Err(e.reported());
             }
         };
@@ -168,18 +159,13 @@ impl VerifyArgs {
         // First validate syntax
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
-            if config.execution_mode == ExecutionMode::PostToolUse {
-                let formatted =
-                    format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
-                eprintln!("{formatted}");
-            } else if config.execution_mode == ExecutionMode::GitHubActions {
-                let formatted =
-                    format_github_actions_error(&e, &guide_path, Some(&content), config);
-                eprintln!("{formatted}");
-            } else {
-                let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                eprintln!("{formatted}");
-            }
+            report_guide_error(
+                &e,
+                &guide_path,
+                config,
+                Some(&content),
+                GuideCommand::Verify,
+            );
             return Err(e.reported());
         }
 
@@ -200,23 +186,13 @@ impl VerifyArgs {
                 Ok(())
             }
             Err(e) => {
-                if config.execution_mode == ExecutionMode::PostToolUse {
-                    let formatted = format_post_tool_use_error(
-                        &e,
-                        &guide_path,
-                        &root_path,
-                        config,
-                        Some(&content),
-                    );
-                    eprintln!("{formatted}");
-                } else if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted =
-                        format_github_actions_error(&e, &guide_path, Some(&content), config);
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
-                    eprintln!("{formatted}");
-                }
+                report_guide_error(
+                    &e,
+                    &guide_path,
+                    config,
+                    Some(&content),
+                    GuideCommand::Verify,
+                );
                 Err(e.reported())
             }
         }
@@ -284,95 +260,4 @@ impl VerifyArgs {
             Err(AppError::Other("Some guides failed verification".to_string()).reported())
         }
     }
-}
-
-/// Format errors specifically for post-tool-use hook mode
-fn format_post_tool_use_error(
-    error: &agentic_navigation_guide::errors::AppError,
-    _guide_path: &Path,
-    _root_path: &Path,
-    config: &Config,
-    file_content: Option<&str>,
-) -> String {
-    use agentic_navigation_guide::errors::AppError;
-
-    // Get display paths - use original if available, otherwise use defaults
-    let display_guide_path = config
-        .original_guide_path
-        .as_deref()
-        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
-
-    let display_root_path = config.original_root_path.as_deref().unwrap_or("./");
-
-    match error {
-        AppError::Syntax(_) => {
-            // Get the basic error message with context
-            let error_detail = ErrorFormatter::format_with_context(error, file_content);
-
-            format!(
-                "The agentic navigation guide at {display_guide_path} has a syntax error:\n\n{error_detail}"
-            )
-        }
-        AppError::Semantic(semantic_error) => {
-            // For semantic errors, just use the error message without line context
-            let error_detail = semantic_error.to_string();
-
-            format!(
-                "The agentic navigation guide has become out-of-date vis-a-vis the current state of the file system.\n\n\
-                - guide: {display_guide_path}\n\
-                - root: {display_root_path}\n\
-                - details:\n  - {error_detail}"
-            )
-        }
-        _ => {
-            // For other errors, use standard formatting
-            ErrorFormatter::format_with_context(error, file_content)
-        }
-    }
-}
-
-/// Format errors specifically for GitHub Actions mode
-fn format_github_actions_error(
-    error: &agentic_navigation_guide::errors::AppError,
-    _guide_path: &Path,
-    file_content: Option<&str>,
-    config: &Config,
-) -> String {
-    use agentic_navigation_guide::errors::AppError;
-
-    let display_guide_path = config
-        .original_guide_path
-        .as_deref()
-        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
-
-    let mut output = String::new();
-
-    // Error header with emoji
-    output.push_str("❌ Navigation guide verification failed\n\n");
-
-    // Get line number from error
-    let line_num = match error {
-        AppError::Syntax(e) => e.line_number(),
-        AppError::Semantic(e) => Some(e.line_number()),
-        _ => None,
-    };
-
-    // Format error with file:line if available
-    if let Some(line_num) = line_num {
-        output.push_str(&format!("{display_guide_path}:{line_num}: "));
-        output.push_str(&error.to_string());
-        output.push('\n');
-
-        // Show the actual line content if available
-        if let Some(content) = file_content {
-            if let Some(line) = content.lines().nth(line_num.saturating_sub(1)) {
-                let trimmed_line = line.trim_end();
-                output.push_str(&format!("  {trimmed_line}\n"));
-            }
-        }
-    } else {
-        output.push_str(&format!("{display_guide_path}: {error}\n"));
-    }
-
-    output
 }

@@ -5,6 +5,7 @@
   - types.rs # Core data types
   - errors.rs # Error handling
   - parser.rs # logic for parsing guide from markdown
+  - recursive.rs # recursive guide discovery and verification
   - validator.rs # logic for validating syntax of guide
   - verifier.rs # logic for verifying guide against file system
   - dumper.rs # file-system-hierarchy "dumping" logic
@@ -12,10 +13,10 @@
     - mod.rs
     - check.rs # check subcommand
     - dump.rs # dump subcommand
+    - error_format.rs # shared CLI error formatting
     - init.rs # init subcommand
     - verify.rs # verify subcommand
 - Cargo.toml
 - README.md
-- Specification.md # original project specification document
 - ... # Additional project files (tests, examples, etc.)
 </agentic-navigation-guide>
