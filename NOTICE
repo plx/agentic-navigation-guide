@@ -1,0 +1,10 @@
+agentic-navigation-guide
+Copyright 2025 plx
+
+This product is licensed under either of the MIT License or the Apache
+License, Version 2.0, at your option. See LICENSE-MIT and LICENSE-APACHE
+for full text.
+
+This product bundles third-party Rust crates at build time. Their
+attributions and license texts are aggregated in THIRD_PARTY_LICENSES.md,
+which is generated deterministically from Cargo.lock by `cargo-about`.

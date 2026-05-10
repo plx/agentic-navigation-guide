@@ -1,0 +1,46 @@
+# Configuration for cargo-about (https://embarkstudios.github.io/cargo-about).
+#
+# This drives the generation of THIRD_PARTY_LICENSES.md. CI regenerates the
+# file from this config and the lockfile, then fails if the working tree
+# diverges from the committed copy. Keep this list aligned with the audit in
+# README.md / the License section.
+
+# Licenses we are willing to ship under. Every transitive runtime dependency
+# must offer at least one license from this list. cargo-about will refuse to
+# generate the report otherwise, which is the failure mode we want.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    "0BSD",
+    "CC0-1.0",
+    "Zlib",
+]
+
+# Build-only crates (proc-macros, build scripts) and dev-deps don't ship in
+# the released binary, so they're excluded from the bundled attribution list.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false
+
+# Treat the workspace's own crate(s) as "private" for the purposes of this
+# report so they don't appear in the third-party listing. The companion
+# `publish = ["crates-io"]` setting in Cargo.toml makes the crate match.
+# See https://embarkstudios.github.io/cargo-about/cli/generate/config.html
+private = { ignore = true, registries = ["crates-io"] }
+
+# Generate the report against every platform we publish for, so the bundled
+# attributions cover Linux/macOS/Windows builds even when the CI runner is
+# Linux-only. Adding a new published target requires adding it here.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
