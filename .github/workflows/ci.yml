@@ -9,13 +9,16 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Third-party actions are pinned to immutable commit SHAs (with the version
+# tag in a trailing comment) so a compromised upstream tag cannot silently
+# swap in malicious code. Bump SHAs intentionally when upgrading.
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
     - name: Run tests
       run: cargo test
 
@@ -23,8 +26,8 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
       with:
         components: rustfmt
     - name: Check formatting
@@ -34,8 +37,8 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
       with:
         components: clippy
     - name: Run clippy
@@ -48,8 +51,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
     - name: Build
       run: cargo build --verbose
     - name: Build release
@@ -59,9 +62,9 @@ jobs:
     name: Third-Party Licenses
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
-    - uses: taiki-e/install-action@v2
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+    - uses: taiki-e/install-action@c070f87102a1c75b3183910f391c1cb887fe13c8  # v2.77.6
       with:
         tool: cargo-about@0.9.0
     - name: Regenerate THIRD_PARTY_LICENSES.md
