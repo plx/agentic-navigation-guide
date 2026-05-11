@@ -19,6 +19,8 @@
 - Specification.md # original project specification document
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
 - about.hbs # handlebars template for THIRD_PARTY_LICENSES.md
+- .cargo/
+  - config.toml # project-local cargo aliases (e.g. `cargo licenses`)
 - THIRD_PARTY_LICENSES.md # generated bundled-dependency attributions (CI-gated)
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
