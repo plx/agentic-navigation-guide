@@ -1,0 +1,7 @@
+# Project-local cargo configuration.
+
+[alias]
+# Regenerate the bundled third-party attribution file. Requires
+# `cargo install --locked cargo-about@0.9.0`. CI runs the same command and
+# fails if the resulting file differs from what is committed.
+licenses = "about generate about.hbs --output-file THIRD_PARTY_LICENSES.md"

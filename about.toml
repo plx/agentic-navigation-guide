@@ -1,0 +1,118 @@
+# Configuration for cargo-about (https://embarkstudios.github.io/cargo-about).
+#
+# This drives the generation of THIRD_PARTY_LICENSES.md. CI regenerates the
+# file from this config and the lockfile, then fails if the working tree
+# diverges from the committed copy. Keep this list aligned with the audit in
+# README.md / the License section.
+
+# Licenses we are willing to ship under. Every transitive runtime dependency
+# must offer at least one license from this list. cargo-about will refuse to
+# generate the report otherwise, which is the failure mode we want.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    "0BSD",
+    "CC0-1.0",
+    "Zlib",
+]
+
+# Build-only crates (proc-macros, build scripts) and dev-deps don't ship in
+# the released binary, so they're excluded from the bundled attribution list.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false
+
+# Treat the workspace's own crate(s) as "private" for the purposes of this
+# report so they don't appear in the third-party listing. The companion
+# `publish = ["crates-io"]` setting in Cargo.toml makes the crate match.
+# See https://embarkstudios.github.io/cargo-about/cli/generate/config.html
+private = { ignore = true, registries = ["crates-io"] }
+
+# Generate the report against every platform we publish for, so the bundled
+# attributions cover Linux/macOS/Windows builds even when the CI runner is
+# Linux-only. Adding a new published target requires adding it here.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
+
+# Clarifications point cargo-about at the in-tree license files for crates
+# whose file layout it can't auto-discover. Without these blocks, cargo-about
+# silently falls back to the SPDX canonical template - which for MIT contains
+# unfilled `Copyright (c) <year> <copyright holders>` placeholders.
+#
+# The windows-* crates ship lowercase `license-mit` / `license-apache-2.0`
+# files that cargo-about's default name patterns miss. Each block re-declares
+# the SPDX expression and pins the license file content by SHA-256 so a
+# tampered registry copy would fail the CI license check rather than silently
+# substitute different text.
+#
+# When bumping any pinned windows-* version, recompute the checksums with:
+#   cargo about clarify license-mit path .
+#   cargo about clarify license-apache-2.0 path .
+# run from the crate's checked-out source directory.
+
+[windows-sys.clarify]
+license = "MIT OR Apache-2.0"
+[[windows-sys.clarify.files]]
+path = 'license-mit'
+checksum = 'c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383'
+license = 'MIT'
+[[windows-sys.clarify.files]]
+path = 'license-apache-2.0'
+checksum = 'c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b'
+license = 'Apache-2.0'
+
+[windows-targets.clarify]
+license = "MIT OR Apache-2.0"
+[[windows-targets.clarify.files]]
+path = 'license-mit'
+checksum = 'c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383'
+license = 'MIT'
+[[windows-targets.clarify.files]]
+path = 'license-apache-2.0'
+checksum = 'c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b'
+license = 'Apache-2.0'
+
+[windows_aarch64_msvc.clarify]
+license = "MIT OR Apache-2.0"
+[[windows_aarch64_msvc.clarify.files]]
+path = 'license-mit'
+checksum = 'c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383'
+license = 'MIT'
+[[windows_aarch64_msvc.clarify.files]]
+path = 'license-apache-2.0'
+checksum = 'c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b'
+license = 'Apache-2.0'
+
+[windows_x86_64_gnu.clarify]
+license = "MIT OR Apache-2.0"
+[[windows_x86_64_gnu.clarify.files]]
+path = 'license-mit'
+checksum = 'c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383'
+license = 'MIT'
+[[windows_x86_64_gnu.clarify.files]]
+path = 'license-apache-2.0'
+checksum = 'c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b'
+license = 'Apache-2.0'
+
+[windows_x86_64_msvc.clarify]
+license = "MIT OR Apache-2.0"
+[[windows_x86_64_msvc.clarify.files]]
+path = 'license-mit'
+checksum = 'c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383'
+license = 'MIT'
+[[windows_x86_64_msvc.clarify.files]]
+path = 'license-apache-2.0'
+checksum = 'c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b'
+license = 'Apache-2.0'
+

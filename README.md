@@ -3,7 +3,7 @@
 [![CI](https://github.com/plx/agentic-navigation-guide/workflows/CI/badge.svg)](https://github.com/plx/agentic-navigation-guide/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/agentic-navigation-guide.svg)](https://crates.io/crates/agentic-navigation-guide)
 [![Documentation](https://docs.rs/agentic-navigation-guide/badge.svg)](https://docs.rs/agentic-navigation-guide)
-[![License](https://img.shields.io/crates/l/agentic-navigation-guide.svg)](https://github.com/plx/agentic-navigation-guide/blob/main/LICENSE)
+[![License](https://img.shields.io/crates/l/agentic-navigation-guide.svg)](#license)
 
 Coding assistants often have trouble navigating large repositories (...and often burn a lot of time and tokens trying to locate files).
 One way to mitigate this difficulty is to include (partial) file listings inside the assistant's memory files, but these listings can be challenging to maintain over time. Worse, once they become outdated, their presence is more harmful than helpful.
@@ -324,3 +324,18 @@ This is an early preview of the tool, so there are a few rough edges. Potential 
 - [ ] support for auto-generating the hook (e.g. suggested prompts/commands to have your agent write the guide comments)
 - [x] support for nested guides (completed - use `--recursive` flag)
 - [ ] inspecting the post-tool-use-hook json and skipping unnecessary work
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+Third-party dependencies bundled into release builds carry their own permissive licenses; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full set of attributions. That file is regenerated from the dependency tree by [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) — running `cargo licenses` (a shorthand for `cargo about generate about.hbs --output-file THIRD_PARTY_LICENSES.md`) rewrites it locally, and CI runs the same command on every push and pull request and fails the build if the committed file does not match.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
