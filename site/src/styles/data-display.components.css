@@ -1,0 +1,166 @@
+.mq-code-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--color-semantic-border-subtle);
+  border-radius: var(--radius-8);
+  background: var(--color-semantic-background-panel);
+  color: var(--color-semantic-text-primary);
+  box-shadow: var(--shadow-raised);
+  font-family: var(--typography-families-mono);
+  font-size: var(--typography-scale-code-font-size);
+  line-height: var(--typography-scale-code-line-height);
+}
+
+.mq-code-panel--terminal {
+  border-color: var(--color-semantic-border-inverse);
+  background: var(--color-semantic-background-inverse);
+  color: var(--color-semantic-text-inverse);
+  box-shadow: var(--shadow-terminal);
+}
+
+.mq-code-panel--file-tree {
+  border-color: var(--color-semantic-border-subtle);
+  background: var(--color-semantic-background-panel);
+  color: var(--color-semantic-text-primary);
+}
+
+.mq-code-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-scale-2);
+  padding: var(--space-scale-2) var(--space-scale-3);
+  border-block-end: var(--border-width-hairline) solid var(--color-semantic-border-subtle);
+  background: var(--color-semantic-background-raised);
+}
+
+.mq-code-panel--terminal .mq-code-panel__header {
+  border-color: var(--color-semantic-border-inverse);
+  background: rgba(250, 247, 242, 0.07);
+}
+
+.mq-code-panel__title {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-weight: var(--typography-weights-semibold);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-code-panel__meta {
+  flex: 0 0 auto;
+  color: var(--color-semantic-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mq-code-panel--terminal .mq-code-panel__meta {
+  color: var(--color-palette-neutral-500);
+}
+
+.mq-code-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-scale-3);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mq-code-panel__line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mq-code-panel__line--muted {
+  color: var(--color-semantic-text-muted);
+}
+
+.mq-code-panel--terminal .mq-code-panel__line--muted {
+  color: var(--color-palette-neutral-500);
+}
+
+.mq-code-panel__line--success {
+  color: var(--color-semantic-feedback-success-bg);
+}
+
+.mq-code-panel__line--error {
+  color: var(--color-semantic-feedback-danger-bg);
+}
+
+.mq-code-panel__prompt {
+  color: var(--color-palette-info-300);
+}
+
+.mq-file-tree {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  color: var(--color-semantic-text-primary);
+  font-family: var(--typography-families-mono);
+  font-size: var(--typography-scale-code-font-size);
+  line-height: var(--typography-scale-code-line-height);
+  -webkit-overflow-scrolling: touch;
+}
+
+.mq-file-tree__item {
+  display: block;
+  padding-block: var(--space-scale-1);
+  white-space: pre;
+}
+
+.mq-file-tree__item[data-depth="1"] {
+  padding-inline-start: var(--space-scale-3);
+}
+
+.mq-file-tree__item[data-depth="2"] {
+  padding-inline-start: var(--space-scale-6);
+}
+
+.mq-stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-scale-3);
+  padding: var(--space-scale-2) var(--space-scale-3);
+  border-block-start: var(--border-width-hairline) solid var(--color-semantic-border-subtle);
+  background: var(--color-semantic-background-raised);
+  color: var(--color-semantic-text-secondary);
+}
+
+.mq-stat {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 8ch;
+  gap: var(--space-scale-1);
+}
+
+.mq-stat__value {
+  color: var(--color-semantic-text-primary);
+  font-weight: var(--typography-weights-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.mq-stat__label {
+  color: var(--color-semantic-text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+@media (max-width: 600px) {
+  .mq-code-panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mq-stat {
+    min-width: 6ch;
+  }
+}

@@ -1,0 +1,37 @@
+---
+title: Overview
+description: How agentic-navigation-guide keeps repository route maps accurate for coding agents.
+---
+
+`agentic-navigation-guide` is a Rust CLI for authoring, checking, dumping, and verifying compact repository navigation guides.
+
+Coding assistants can spend unnecessary time searching for files in large repositories. A maintained navigation guide gives them a route map, while this CLI verifies that the map still matches the filesystem.
+
+## Suggested workflow
+
+1. Generate a starting guide with `init` or `dump`.
+2. Edit it by hand so comments identify the useful landmarks.
+3. Keep omissions explicit with placeholder entries.
+4. Run `verify` locally or in CI before guide drift reaches an agent session.
+
+## Install
+
+```sh
+cargo install agentic-navigation-guide
+```
+
+## Minimal example
+
+```md
+<agentic-navigation-guide>
+- src/
+  - main.rs # Main entry point
+  - lib.rs # Core logic
+  - parser.rs # Parse guides from markdown
+- Cargo.toml
+- README.md
+- ... # Additional project files
+</agentic-navigation-guide>
+```
+
+The guide does not have to list everything. It does need to be accurate.

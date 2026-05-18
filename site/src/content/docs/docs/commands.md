@@ -1,0 +1,44 @@
+---
+title: Commands
+description: CLI commands provided by agentic-navigation-guide.
+---
+
+The CLI exposes four main commands.
+
+## `init`
+
+Create a starting `AGENTIC_NAVIGATION_GUIDE.md` from the current repository tree.
+
+```sh
+agentic-navigation-guide init
+```
+
+## `check`
+
+Validate guide syntax without comparing paths against the filesystem.
+
+```sh
+agentic-navigation-guide check
+```
+
+## `verify`
+
+Validate syntax and verify that listed paths match the current filesystem.
+
+```sh
+agentic-navigation-guide verify
+```
+
+For GitHub Actions annotations and CI-friendly output:
+
+```sh
+agentic-navigation-guide verify --github-actions-check
+```
+
+## `dump`
+
+Print the current directory structure in navigation-guide format.
+
+```sh
+agentic-navigation-guide dump
+```

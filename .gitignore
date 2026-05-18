@@ -20,3 +20,9 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
+
+# Static site
+site/node_modules/
+site/dist/
+site/.npm-cache/
+.astro/
