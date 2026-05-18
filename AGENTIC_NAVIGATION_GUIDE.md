@@ -14,6 +14,31 @@
     - dump.rs # dump subcommand
     - init.rs # init subcommand
     - verify.rs # verify subcommand
+- site/ # Astro/Starlight static site for GitHub Pages
+  - astro.config.mjs # Astro and Starlight configuration
+  - package.json # site npm scripts and dependencies
+  - package-lock.json # locked site dependency graph
+  - src/
+    - content.config.ts # Starlight content collection config
+    - pages/
+      - index.astro # custom landing page
+    - content/
+      - docs/
+        - docs/
+          - index.md # documentation landing page
+          - commands.md # CLI command reference
+          - guide-format.md # guide syntax reference
+          - ci.md # CI and hooks guide
+    - styles/
+      - components.css # component stylesheet imports
+      - core-primitives.components.css # primitive component styles
+      - cards-composites.components.css # card and composite component styles
+      - data-display.components.css # badge and code-display styles
+      - navigation-layout.components.css # navigation and layout component styles
+      - landing.css # landing page layout and illustration styles
+      - starlight.css # Starlight theme overrides
+      - tokens.css # design tokens
+  - ... # Local build output and dependencies
 - Cargo.toml
 - README.md
 - Specification.md # original project specification document

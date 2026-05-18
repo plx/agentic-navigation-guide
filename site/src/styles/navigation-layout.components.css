@@ -73,12 +73,6 @@
   outline-offset: var(--border-focus-ring-offset);
 }
 
-.mq-site-nav__link[aria-current="page"] {
-  background: var(--color-semantic-background-panel);
-  color: var(--color-semantic-text-primary);
-  box-shadow: inset 0 -2px 0 var(--color-palette-brand-500);
-}
-
 .mq-site-header__actions {
   display: flex;
   align-items: center;

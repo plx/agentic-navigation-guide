@@ -12,6 +12,11 @@ const sitePath = (path = "") => {
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
   return `${normalizedBase}${normalizedPath}`;
 };
+const navLinks = [
+  { href: "#features", label: "Features" },
+  { href: "#cli", label: "CLI" },
+  { href: sitePath("docs/"), label: "Docs" },
+];
 ---
 
 <!doctype html>
@@ -23,6 +28,12 @@ const sitePath = (path = "") => {
     <meta
       name="description"
       content="agentic-navigation-guide verifies hand-written repo maps against the filesystem, so coding agents do not start from stale navigation instructions."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
     />
   </head>
   <body class="landing-page">
@@ -39,9 +50,7 @@ const sitePath = (path = "") => {
         </a>
 
         <nav class="mq-site-nav" aria-label="Primary">
-          <a class="mq-site-nav__link" href="#features" aria-current="page">Features</a>
-          <a class="mq-site-nav__link" href="#cli">CLI</a>
-          <a class="mq-site-nav__link" href={sitePath("docs/")}>Docs</a>
+          {navLinks.map((link) => <a class="mq-site-nav__link" href={link.href}>{link.label}</a>)}
         </nav>
 
         <div class="mq-site-header__actions">
@@ -57,9 +66,7 @@ const sitePath = (path = "") => {
 
       <div class="mq-mobile-panel" id="landing-mobile-nav" data-open="false">
         <div class="mq-mobile-panel__links">
-          <a class="mq-site-nav__link" href="#features" aria-current="page">Features</a>
-          <a class="mq-site-nav__link" href="#cli">CLI</a>
-          <a class="mq-site-nav__link" href={sitePath("docs/")}>Docs</a>
+          {navLinks.map((link) => <a class="mq-site-nav__link" href={link.href}>{link.label}</a>)}
           <a class="mq-btn mq-btn--primary mq-mobile-panel__action" href="#install">Get started</a>
         </div>
       </div>
@@ -210,7 +217,7 @@ const sitePath = (path = "") => {
           <section class="mq-code-panel mq-code-panel--terminal" aria-labelledby="terminal-title">
             <div class="mq-code-panel__header">
               <span class="mq-code-panel__title" id="terminal-title">terminal</span>
-              <span class="mq-code-panel__meta">agentic-navigation-guide 0.1.4</span>
+              <span class="mq-code-panel__meta">CLI</span>
             </div>
             <div class="mq-code-panel__body">
               <span class="mq-code-panel__line"><span class="mq-code-panel__prompt">$</span> agentic-navigation-guide verify</span>
@@ -252,7 +259,7 @@ const sitePath = (path = "") => {
           </div>
           <div class="cta__actions">
             <a class="mq-btn mq-btn--secondary" href={cratesUrl}>Install with Cargo</a>
-            <a class="mq-btn mq-btn--ghost cta__ghost" href={docsRsUrl}>Open docs.rs</a>
+            <a class="mq-btn mq-btn--ghost cta__ghost" href={docsRsUrl}>Open API docs</a>
           </div>
           <svg class="cta__art" viewBox="0 0 260 120" aria-hidden="true">
             <path class="mq-route-line" d="M24 94c40-28 70-16 98-42 36-34 64-20 112-38"></path>
@@ -274,7 +281,7 @@ const sitePath = (path = "") => {
             <h3>Project</h3>
             <a class="mq-footer__link" href={githubUrl}>GitHub</a>
             <a class="mq-footer__link" href={cratesUrl}>crates.io</a>
-            <a class="mq-footer__link" href={docsRsUrl}>docs.rs</a>
+            <a class="mq-footer__link" href={docsRsUrl}>API docs</a>
           </nav>
           <nav class="mq-footer__links" aria-label="Documentation links">
             <h3>Docs</h3>

@@ -5,6 +5,9 @@ description: Using agentic-navigation-guide in automation.
 
 Use `verify` in CI to prevent stale navigation guides from merging.
 
+This example pins third-party actions to immutable commit SHAs. Update them
+intentionally when upgrading those actions.
+
 ```yaml
 name: Verify Navigation Guide
 
@@ -18,8 +21,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
       - run: cargo install agentic-navigation-guide
       - run: agentic-navigation-guide verify --github-actions-check
 ```
