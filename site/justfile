@@ -1,0 +1,49 @@
+set shell := ["bash", "-cu"]
+
+install:
+    if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+dev:
+    npm run dev -- --host 127.0.0.1
+
+build:
+    npm run build
+
+check:
+    npm run check
+
+format:
+    npm run format
+
+format-check:
+    npm run format:check
+
+spell:
+    npm run spellcheck
+
+lint:
+    npm run lint
+
+test:
+    npm run test
+
+test-headed:
+    npm run test:headed
+
+test-report:
+    npm run test:report
+
+install-browsers:
+    npx playwright install chromium
+
+validate:
+    npm run validate
+
+preview:
+    npm run preview -- --host 127.0.0.1
+
+render:
+    npm run build
+
+clean:
+    rm -rf dist .astro

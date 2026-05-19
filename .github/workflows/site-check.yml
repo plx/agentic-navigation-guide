@@ -1,0 +1,47 @@
+name: Site checks
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/site-check.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "site/**"
+      - ".github/workflows/site-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    name: Validate agentic-navigation-guide site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+      - name: Check formatting
+        run: npm run format:check
+      - name: Spellcheck content
+        run: npm run spellcheck
+      - name: Typecheck Astro content
+        run: npm run check
+      - name: Build site
+        run: npm run build
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run validation tests
+        run: npm run test

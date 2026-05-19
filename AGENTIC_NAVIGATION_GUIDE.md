@@ -15,29 +15,42 @@
     - init.rs # init subcommand
     - verify.rs # verify subcommand
 - site/ # Astro/Starlight static site for GitHub Pages
+  - .gitignore # site-local generated output ignores
+  - .prettierignore # site formatter excludes
+  - README.md # template-generated site usage notes
   - astro.config.mjs # Astro and Starlight configuration
+  - cspell.json # site spellcheck dictionary
+  - justfile # template site task aliases
   - package.json # site npm scripts and dependencies
   - package-lock.json # locked site dependency graph
+  - playwright.config.ts # rendered-site Playwright validation config
+  - tsconfig.json # Astro TypeScript config
+  - public/
+    - .nojekyll # keep GitHub Pages from running Jekyll
+    - favicon.svg # generated site favicon
   - src/
+    - assets/
+      - tool-mark.svg # generated project mark asset
     - content.config.ts # Starlight content collection config
+    - env.d.ts # Astro environment type references
     - pages/
-      - index.astro # custom landing page
+      - index.astro # template-based landing page
+    - scripts/
+      - landing.ts # mobile navigation and copy-button behavior
+    - site.config.mjs # generated project/site data consumed by Astro
     - content/
       - docs/
         - docs/
-          - index.md # documentation landing page
-          - commands.md # CLI command reference
-          - guide-format.md # guide syntax reference
-          - ci.md # CI and hooks guide
+          - index.mdx # documentation landing page
+          - commands.mdx # CLI command reference
+          - guide-format.mdx # guide syntax reference
+          - ci.mdx # CI and hooks guide
     - styles/
-      - components.css # component stylesheet imports
-      - core-primitives.components.css # primitive component styles
-      - cards-composites.components.css # card and composite component styles
-      - data-display.components.css # badge and code-display styles
-      - navigation-layout.components.css # navigation and layout component styles
-      - landing.css # landing page layout and illustration styles
+      - landing.css # template landing layout with project visual styling
       - starlight.css # Starlight theme overrides
-      - tokens.css # design tokens
+      - theme.css # generated theme variables
+  - tests/
+    - site.spec.ts # Playwright, link, viewport, and axe checks
   - ... # Local build output and dependencies
 - Cargo.toml
 - README.md
