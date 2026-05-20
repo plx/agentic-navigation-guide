@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
+import { siteConfig } from "./src/site.config.mjs";
 
-const basePath: string = "/agentic-navigation-guide";
+const basePath: string = siteConfig.site.basePath;
 const normalizedBasePath = basePath === "/" ? "" : basePath;
 const testPort = process.env.SITE_TEST_PORT ?? "4321";
 const localSiteOrigin = `http://127.0.0.1:${testPort}`;

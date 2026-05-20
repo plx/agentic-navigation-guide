@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { siteConfig } from "../src/site.config.mjs";
 
 type DocsPage = {
   title: string;
@@ -9,38 +10,11 @@ type DocsPage = {
 };
 
 const origin = `http://127.0.0.1:${process.env.SITE_TEST_PORT ?? "4321"}`;
-const projectTitle = "agentic-navigation-guide";
-const projectDescription =
-  "agentic-navigation-guide verifies hand-written repo maps against the filesystem, so coding agents do not start from stale navigation instructions.";
-const basePath: string = "/agentic-navigation-guide";
+const projectTitle = siteConfig.project.title;
+const projectDescription = siteConfig.project.description;
+const basePath: string = siteConfig.site.basePath;
 const normalizedBasePath = basePath === "/" ? "" : basePath;
-// prettier-ignore
-const docsPages: DocsPage[] = [
-    {
-      "title": "Overview",
-      "description": "How agentic-navigation-guide keeps repository route maps accurate for coding agents.",
-      "slug": "docs",
-      "href": "docs/"
-    },
-    {
-      "title": "Commands",
-      "description": "CLI commands provided by agentic-navigation-guide.",
-      "slug": "docs/commands",
-      "href": "docs/commands/"
-    },
-    {
-      "title": "Guide Format",
-      "description": "Syntax rules for agentic navigation guide blocks.",
-      "slug": "docs/guide-format",
-      "href": "docs/guide-format/"
-    },
-    {
-      "title": "CI and Hooks",
-      "description": "Using agentic-navigation-guide in automation.",
-      "slug": "docs/ci",
-      "href": "docs/ci/"
-    }
-  ];
+const docsPages: DocsPage[] = siteConfig.docs.pages;
 const pagesToCheck = ["/", ...docsPages.map((page) => page.href)];
 const pagesToAudit = ["/", docsPages[0]?.href].filter(Boolean);
 
