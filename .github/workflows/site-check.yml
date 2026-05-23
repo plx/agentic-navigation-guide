@@ -29,12 +29,7 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm ci
       - name: Check formatting
         run: npm run format:check
       - name: Spellcheck content

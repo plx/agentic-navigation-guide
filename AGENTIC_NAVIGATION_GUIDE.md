@@ -17,6 +17,7 @@
 - site/ # Astro/Starlight static site for GitHub Pages
   - .gitignore # site-local generated output ignores
   - .prettierignore # site formatter excludes
+  - .prettierrc # prettier plugin and parser overrides (Astro)
   - README.md # template-generated site usage notes
   - astro.config.mjs # Astro and Starlight configuration
   - cspell.json # site spellcheck dictionary
