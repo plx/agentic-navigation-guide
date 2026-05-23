@@ -16,7 +16,7 @@ const basePath: string = siteConfig.site.basePath;
 const normalizedBasePath = basePath === "/" ? "" : basePath;
 const docsPages: DocsPage[] = siteConfig.docs.pages;
 const pagesToCheck = ["/", ...docsPages.map((page) => page.href)];
-const pagesToAudit = ["/", docsPages[0]?.href].filter(Boolean);
+const pagesToAudit = pagesToCheck;
 
 function sitePath(path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
@@ -103,6 +103,7 @@ test.describe("rendered site", () => {
         anchors.map((anchor) => ({
           href: anchor.getAttribute("href") ?? "",
           label: anchor.textContent?.trim() ?? "",
+          ariaLabel: anchor.getAttribute("aria-label")?.trim() ?? "",
         })),
       );
 
@@ -120,9 +121,9 @@ test.describe("rendered site", () => {
         }
 
         if (resolved.origin !== origin) {
-          if (!link.label) {
+          if (!link.label && !link.ariaLabel) {
             failures.push(
-              `${pagePath}: external link ${link.href} has no text label`,
+              `${pagePath}: external link ${link.href} has no accessible label`,
             );
           }
           continue;

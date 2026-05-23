@@ -45,7 +45,6 @@ body {
 }
 
 .sl-markdown-content pre {
-  overflow-x: visible;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
