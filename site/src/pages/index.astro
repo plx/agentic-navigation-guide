@@ -1,337 +1,253 @@
 ---
-import "../styles/tokens.css";
-import "../styles/components.css";
+import markUrl from "../assets/tool-mark.svg?url";
+import { siteConfig } from "../site.config.mjs";
+import "../styles/theme.css";
 import "../styles/landing.css";
 
-const base = import.meta.env.BASE_URL;
-const githubUrl = "https://github.com/plx/agentic-navigation-guide";
-const cratesUrl = "https://crates.io/crates/agentic-navigation-guide";
-const docsRsUrl = "https://docs.rs/agentic-navigation-guide";
-const sitePath = (path = "") => {
-  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
-  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
-  return `${normalizedBase}${normalizedPath}`;
-};
-const navLinks = [
-  { href: "#features", label: "Features" },
-  { href: "#cli", label: "CLI" },
-  { href: sitePath("docs/"), label: "Docs" },
-];
+const siteBase = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const sitePath = (path: string = "") =>
+  `${siteBase}${path.replace(/^\/+/, "")}`;
+const isExternal = (href: string) => /^https?:\/\//.test(href);
+const resolveHref = (href: string) =>
+  isExternal(href) || href.startsWith("#") ? href : sitePath(href);
+const externalRel = (href: string) =>
+  isExternal(href) ? "noopener noreferrer" : undefined;
+const externalTarget = (href: string) =>
+  isExternal(href) ? "_blank" : undefined;
+const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={siteConfig.site.language}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agentic Navigation Guide</title>
-    <meta
-      name="description"
-      content="agentic-navigation-guide verifies hand-written repo maps against the filesystem, so coding agents do not start from stale navigation instructions."
-    />
+    <title>{siteConfig.project.title} | {siteConfig.project.tagline}</title>
+    <meta name="description" content={siteConfig.project.description} />
+    <meta property="og:title" content={siteConfig.project.title} />
+    <meta property="og:description" content={siteConfig.project.description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={siteConfig.site.url} />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" href={sitePath("favicon.svg")} type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
       rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
     />
   </head>
   <body class="landing-page">
-    <header class="mq-site-header" data-mq-nav>
-      <div class="mq-site-header__inner">
-        <a class="mq-site-header__brand" href="#top" aria-label="Agentic Navigation Guide home">
-          <span class="mq-site-header__brand-mark" aria-hidden="true">
-            <svg class="mq-map-tile" viewBox="0 0 24 24">
-              <path d="m4 7 5-2 6 2 5-2v12l-5 2-6-2-5 2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
-              <path d="M9 5v12m6-10v12" fill="none" stroke="currentColor" stroke-width="1.8"></path>
-            </svg>
-          </span>
-          <span>agentic-navigation-guide</span>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-site-header>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a
+          class="site-nav__brand"
+          href={sitePath()}
+          aria-label={`${siteConfig.project.title} home`}
+        >
+          <img src={markUrl} alt="" width="36" height="36" />
+          <span>{siteConfig.project.title}</span>
         </a>
 
-        <nav class="mq-site-nav" aria-label="Primary">
-          {navLinks.map((link) => <a class="mq-site-nav__link" href={link.href}>{link.label}</a>)}
-        </nav>
+        <div class="site-nav__links">
+          {
+            siteConfig.landing.nav.map((link) => (
+              <a
+                class="site-nav__link"
+                href={resolveHref(link.href)}
+                target={externalTarget(link.href)}
+                rel={externalRel(link.href)}
+              >
+                {link.label}
+              </a>
+            ))
+          }
+        </div>
 
-        <div class="mq-site-header__actions">
-          <a class="mq-btn mq-btn--secondary mq-btn--sm" href={githubUrl}>GitHub</a>
-          <a class="mq-btn mq-btn--primary mq-btn--sm" href="#install">Get started</a>
-          <button class="mq-menu-toggle" type="button" aria-label="Open menu" aria-controls="landing-mobile-nav" aria-expanded="false">
+        <div class="site-nav__actions">
+          <a
+            class="button button--ghost button--sm"
+            href={resolveHref(docsHref)}>Docs</a
+          >
+          <button
+            class="site-nav__toggle"
+            type="button"
+            aria-label="Open navigation"
+            aria-controls="mobile-nav"
+            aria-expanded="false"
+            data-nav-toggle
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+              <path d="M4 7h16M4 12h16M4 17h16"></path>
             </svg>
           </button>
         </div>
-      </div>
+      </nav>
 
-      <div class="mq-mobile-panel" id="landing-mobile-nav" data-open="false">
-        <div class="mq-mobile-panel__links">
-          {navLinks.map((link) => <a class="mq-site-nav__link" href={link.href}>{link.label}</a>)}
-          <a class="mq-btn mq-btn--primary mq-mobile-panel__action" href="#install">Get started</a>
-        </div>
+      <div class="mobile-nav" id="mobile-nav" data-nav-panel hidden>
+        {
+          siteConfig.landing.nav.map((link) => (
+            <a
+              class="mobile-nav__link"
+              href={resolveHref(link.href)}
+              target={externalTarget(link.href)}
+              rel={externalRel(link.href)}
+              data-nav-link
+            >
+              {link.label}
+            </a>
+          ))
+        }
       </div>
     </header>
 
-    <main id="top">
-      <section class="hero mq-section-shell" aria-labelledby="hero-title">
+    <main id="main">
+      <section class="hero section-shell" aria-labelledby="hero-title">
         <div class="hero__copy">
-          <p class="eyebrow">Developer tooling</p>
-          <h1 id="hero-title">Keep agent navigation guides honest.</h1>
-          <p class="hero__lede">
-            A Rust CLI that checks hand-written repository maps against the filesystem.
-          </p>
-          <div class="hero__badges" aria-label="Project traits">
-            <span class="mq-badge">Rust</span>
-            <span class="mq-badge">CLI</span>
-            <span class="mq-badge mq-badge--success">GitHub Actions</span>
+          <p class="eyebrow">{siteConfig.project.category}</p>
+          <div class="hero__brand-line">
+            <img src={markUrl} alt="" width="64" height="64" />
+            <h1 id="hero-title">{siteConfig.project.title}</h1>
           </div>
+          <p class="hero__lede">{siteConfig.project.tagline}</p>
+          <p class="hero__body">{siteConfig.project.description}</p>
+
+          <div class="badge-row" aria-label="Project highlights">
+            {
+              siteConfig.landing.badges.map((badge) => (
+                <span class="badge">{badge}</span>
+              ))
+            }
+          </div>
+
           <div class="hero__actions" id="install">
-            <a class="mq-btn mq-btn--primary mq-btn--lg" href={cratesUrl}>
-              Install with Cargo
-              <svg class="mq-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12h13m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+            <a
+              class="button button--primary"
+              href={resolveHref(siteConfig.landing.primaryCta.href)}
+            >
+              {siteConfig.landing.primaryCta.label}
+              <svg class="button__icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14M13 6l6 6-6 6"></path>
               </svg>
             </a>
-            <a class="mq-btn mq-btn--secondary mq-btn--lg" href={githubUrl}>View on GitHub</a>
-          </div>
-          <div class="command-strip" data-copy-target="cargo install agentic-navigation-guide">
-            <code>$ cargo install agentic-navigation-guide</code>
-            <button class="copy-button" type="button" aria-label="Copy install command">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="8" y="8" width="10" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect>
-                <path d="M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="2"></path>
-              </svg>
-            </button>
+            <a
+              class="button button--secondary"
+              href={resolveHref(siteConfig.landing.secondaryCta.href)}
+              target={externalTarget(siteConfig.landing.secondaryCta.href)}
+              rel={externalRel(siteConfig.landing.secondaryCta.href)}
+            >
+              {siteConfig.landing.secondaryCta.label}
+            </a>
           </div>
         </div>
 
-        <div class="hero__visual" aria-hidden="true">
-          <svg class="expedition-art" viewBox="0 0 560 380">
-            <path class="contour" d="M310 56c48 28 76 68 110 110 22 28 54 46 90 56"></path>
-            <path class="contour" d="M270 106c48 16 72 44 106 78 32 32 78 42 126 46"></path>
-            <path class="mountain" d="M244 250 340 96l98 154M296 174l44-78 42 78"></path>
-            <path class="route mq-route-line" d="M74 314c72-40 116-18 164-54 52-39 86-64 178-38 40 12 64-8 92-38"></path>
-            <path class="tree" d="M80 260h32m-26-16h20m-14 16v36"></path>
-            <path class="tree" d="M124 278h26m-21-15h16m-8 15v28"></path>
-            <g class="signpost">
-              <path d="M248 88v154"></path>
-              <path d="M204 106h88l16 16-16 16h-88l16-16Z"></path>
-              <path d="M214 154h88l-16 16h-88l-16-16 16-16h88Z"></path>
-            </g>
-            <g class="robot">
-              <rect x="164" y="172" width="72" height="64" rx="10"></rect>
-              <path d="M180 196h4m34 0h4M190 218h22"></path>
-              <path d="M200 172v-22m-16 0h32"></path>
-              <path d="M164 202h-24m96 0h26M180 236v36m36-36v36"></path>
-              <path d="m250 220 72-20 40 32-78 26Z"></path>
-              <path d="M278 220h40M292 240h42"></path>
-            </g>
-          </svg>
-        </div>
-
-        <section class="mq-code-panel mq-code-panel--terminal hero__terminal" aria-labelledby="hero-terminal-title">
-          <div class="mq-code-panel__header">
-            <span class="mq-code-panel__title" id="hero-terminal-title">agentic-navigation-guide verify</span>
-            <span class="mq-code-panel__meta">filesystem check</span>
+        <div class="command-card" id="cli" aria-labelledby="command-card-title">
+          <div class="command-card__header">
+            <div>
+              <p class="eyebrow">Terminal</p>
+              <h2 id="command-card-title">
+                {siteConfig.landing.terminal.title}
+              </h2>
+            </div>
+            <span>{siteConfig.landing.terminal.meta}</span>
           </div>
-          <div class="mq-code-panel__body">
-            <span class="mq-code-panel__line"><span class="mq-code-panel__prompt">$</span> agentic-navigation-guide verify</span>
-            <span class="mq-code-panel__line mq-code-panel__line--success">OK guide syntax valid</span>
-            <span class="mq-code-panel__line mq-code-panel__line--success">OK listed paths exist</span>
-            <span class="mq-code-panel__line mq-code-panel__line--success">OK placeholders valid</span>
-          </div>
-        </section>
-      </section>
-
-      <section class="section mq-section-shell" id="features" aria-labelledby="features-title">
-        <div class="section__header">
-          <p class="eyebrow">Route discipline</p>
-          <h2 id="features-title">Validate the facts a guide depends on.</h2>
-        </div>
-        <div class="mq-card-grid">
-          <article class="mq-card">
-            <div class="mq-card__media">
-              <div class="mq-illustration-frame" aria-hidden="true">
-                <svg viewBox="0 0 160 100">
-                  <path d="m20 70 34-36 28 24 30-18 28 30"></path>
-                  <path class="mq-route-line" d="M24 26c28 20 48 12 62 30 18 22 34 12 52-8"></path>
-                  <circle cx="52" cy="36" r="5"></circle><circle cx="104" cy="48" r="5"></circle>
-                </svg>
-              </div>
-            </div>
-            <p class="mq-card__eyebrow">verify</p>
-            <h3 class="mq-card__title">Check listed paths</h3>
-            <p class="mq-card__body">Verify that guide entries exist and stay inside the project root.</p>
-            <div class="mq-card__footer">
-              <span class="mq-badge mq-badge--success">checked</span>
-              <a class="mq-card__action" href="#cli">See command</a>
-            </div>
-          </article>
-
-          <article class="mq-card">
-            <div class="mq-card__media">
-              <div class="mq-illustration-frame" aria-hidden="true">
-                <svg viewBox="0 0 160 100">
-                  <path d="M30 28h96l14 14-14 14H30l14-14Z"></path>
-                  <path d="M58 42h50M70 70h52"></path>
-                  <path class="mq-route-line" d="M24 78c28-16 50-10 70-24s34-18 50-2"></path>
-                </svg>
-              </div>
-            </div>
-            <p class="mq-card__eyebrow">author</p>
-            <h3 class="mq-card__title">Use intentional omissions</h3>
-            <p class="mq-card__body">Use ... placeholders for files you choose not to list, with validation rules for empty or fully listed directories.</p>
-            <div class="mq-card__footer">
-              <span class="mq-badge">guide.md</span>
-              <a class="mq-card__action" href={sitePath("docs/guide-format/")}>Guide format</a>
-            </div>
-          </article>
-
-          <article class="mq-card">
-            <div class="mq-card__media">
-              <div class="mq-illustration-frame" aria-hidden="true">
-                <svg viewBox="0 0 160 100">
-                  <rect x="36" y="24" width="88" height="52" rx="4"></rect>
-                  <path d="M52 40h8m12 0h36M52 54h8m12 0h30M52 68h8m12 0h42"></path>
-                  <path class="mq-route-line" d="M28 78h104"></path>
-                </svg>
-              </div>
-            </div>
-            <p class="mq-card__eyebrow">ci</p>
-            <h3 class="mq-card__title">Run it in CI</h3>
-            <p class="mq-card__body">Use --github-actions-check for file:line annotations and failing exits when a guide drifts.</p>
-            <div class="mq-card__footer">
-              <span class="mq-badge mq-badge--warning">GitHub Actions</span>
-              <a class="mq-card__action" href={sitePath("docs/ci/")}>CI setup</a>
-            </div>
-          </article>
+          <pre
+            class="command-card__body"><code>{siteConfig.landing.terminal.lines.join("\n")}</code></pre>
+          <button
+            class="copy-button"
+            type="button"
+            data-copy-text={siteConfig.landing.terminal.copy}
+            aria-label={`Copy command: ${siteConfig.landing.terminal.copy}`}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="8" y="8" width="11" height="12" rx="2"></rect>
+              <path d="M5 15V6a2 2 0 0 1 2-2h9"></path>
+            </svg>
+            <span>Copy</span>
+            <span class="sr-only" data-copy-status aria-live="polite"></span>
+          </button>
         </div>
       </section>
 
-      <section class="section section--code mq-section-shell" id="cli" aria-labelledby="cli-title">
-        <div class="section__header">
-          <p class="eyebrow">CLI proof</p>
-          <h2 id="cli-title">One command for local checks and CI.</h2>
-        </div>
-        <div class="code-grid">
-          <section class="mq-code-panel mq-code-panel--terminal" aria-labelledby="terminal-title">
-            <div class="mq-code-panel__header">
-              <span class="mq-code-panel__title" id="terminal-title">terminal</span>
-              <span class="mq-code-panel__meta">CLI</span>
-            </div>
-            <div class="mq-code-panel__body">
-              <span class="mq-code-panel__line"><span class="mq-code-panel__prompt">$</span> agentic-navigation-guide verify</span>
-              <span class="mq-code-panel__line mq-code-panel__line--success">OK guide syntax valid</span>
-              <span class="mq-code-panel__line mq-code-panel__line--success">OK listed paths exist</span>
-              <span class="mq-code-panel__line mq-code-panel__line--success">OK placeholders valid</span>
-              <span class="mq-code-panel__line"><span class="mq-code-panel__prompt">$</span> agentic-navigation-guide verify --github-actions-check</span>
-              <span class="mq-code-panel__line mq-code-panel__line--muted">Emits GitHub Actions annotations on failure</span>
-            </div>
-          </section>
-
-          <section class="mq-code-panel mq-code-panel--file-tree" aria-labelledby="tree-title">
-            <div class="mq-code-panel__header">
-              <span class="mq-code-panel__title" id="tree-title">guide excerpt</span>
-              <span class="mq-code-panel__meta">AGENTIC_NAVIGATION_GUIDE.md</span>
-            </div>
-            <div class="mq-code-panel__body">
-              <div class="mq-file-tree">
-                <span class="mq-file-tree__item">&lt;agentic-navigation-guide&gt;</span>
-                <span class="mq-file-tree__item" data-depth="1">- src/</span>
-                <span class="mq-file-tree__item" data-depth="2">- parser.rs # Parse guides from markdown</span>
-                <span class="mq-file-tree__item" data-depth="2">- verifier.rs # Verify guide against filesystem</span>
-                <span class="mq-file-tree__item" data-depth="2">- cli/</span>
-                <span class="mq-file-tree__item" data-depth="1">- Cargo.toml</span>
-                <span class="mq-file-tree__item" data-depth="1">- README.md</span>
-                <span class="mq-file-tree__item">&lt;/agentic-navigation-guide&gt;</span>
-              </div>
-            </div>
-          </section>
+      <section
+        class="section section--muted"
+        id="features"
+        aria-labelledby="features-title"
+      >
+        <div class="section-shell">
+          <div class="section-heading">
+            <p class="eyebrow">Route discipline</p>
+            <h2 id="features-title">Validate the facts a guide depends on.</h2>
+          </div>
+          <div class="feature-grid">
+            {
+              siteConfig.landing.features.map((feature, index) => (
+                <article class="feature-card">
+                  <span class="feature-card__index" aria-hidden="true">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <p class="feature-card__eyebrow">{feature.eyebrow}</p>
+                  <h3>{feature.title}</h3>
+                  <p>{feature.body}</p>
+                  <a class="text-link" href={resolveHref(feature.href)}>
+                    Learn more
+                  </a>
+                </article>
+              ))
+            }
+          </div>
         </div>
       </section>
 
-      <section class="mq-section-shell" id="docs" aria-label="Final call to action">
-        <div class="mq-cta-band cta">
-          <div class="mq-cta-band__content">
-            <p class="eyebrow eyebrow--inverse">Verify the guide</p>
-            <h2>Install the CLI. Verify the guide.</h2>
-            <p>Use it locally, in hooks, or in GitHub Actions before stale guidance reaches an agent session.</p>
-          </div>
-          <div class="cta__actions">
-            <a class="mq-btn mq-btn--secondary" href={cratesUrl}>Install with Cargo</a>
-            <a class="mq-btn mq-btn--ghost cta__ghost" href={docsRsUrl}>Open API docs</a>
-          </div>
-          <svg class="cta__art" viewBox="0 0 260 120" aria-hidden="true">
-            <path class="mq-route-line" d="M24 94c40-28 70-16 98-42 36-34 64-20 112-38"></path>
-            <path d="M52 82 94 32l44 50m-18-22 18-28 48 60"></path>
-            <path d="M198 76h34m-28-16h22m-11 16v24"></path>
-          </svg>
+      <section
+        class="section section-shell docs-preview"
+        aria-labelledby="docs-title"
+      >
+        <div class="section-heading">
+          <p class="eyebrow">Documentation</p>
+          <h2 id="docs-title">Install the CLI. Verify the guide.</h2>
+        </div>
+        <div class="docs-grid">
+          {
+            siteConfig.docs.pages.map((page) => (
+              <article class="doc-card">
+                <h3>{page.title}</h3>
+                <p>{page.description}</p>
+                <a class="text-link" href={resolveHref(page.href)}>
+                  Open page
+                </a>
+              </article>
+            ))
+          }
         </div>
       </section>
     </main>
 
-    <footer class="mq-footer">
-      <div class="mq-section-shell">
-        <div class="mq-footer__inner">
-          <div class="mq-footer__brand">
-            <strong>agentic-navigation-guide</strong>
-            <p>Verify hand-written navigation guides against the filesystem.</p>
-          </div>
-          <nav class="mq-footer__links" aria-label="Project links">
-            <h3>Project</h3>
-            <a class="mq-footer__link" href={githubUrl}>GitHub</a>
-            <a class="mq-footer__link" href={cratesUrl}>crates.io</a>
-            <a class="mq-footer__link" href={docsRsUrl}>API docs</a>
-          </nav>
-          <nav class="mq-footer__links" aria-label="Documentation links">
-            <h3>Docs</h3>
-            <a class="mq-footer__link" href={sitePath("docs/commands/")}>Commands</a>
-            <a class="mq-footer__link" href={sitePath("docs/guide-format/")}>Guide format</a>
-            <a class="mq-footer__link" href={sitePath("docs/ci/")}>CI</a>
-          </nav>
-        </div>
+    <footer class="site-footer">
+      <div class="section-shell site-footer__inner">
+        <p>{siteConfig.project.title} / {siteConfig.project.category}</p>
+        <nav aria-label="Footer">
+          {
+            siteConfig.landing.footerLinks.map((link) => (
+              <a
+                href={resolveHref(link.href)}
+                target={externalTarget(link.href)}
+                rel={externalRel(link.href)}
+              >
+                {link.label}
+              </a>
+            ))
+          }
+        </nav>
       </div>
     </footer>
 
     <script>
-      function initMqNavigation(root = document) {
-        root.querySelectorAll("[data-mq-nav]").forEach((header) => {
-          const toggle = header.querySelector(".mq-menu-toggle");
-          const panelId = toggle?.getAttribute("aria-controls");
-          const panel = panelId ? document.getElementById(panelId) : null;
-          if (!toggle || !panel) return;
-          const setOpen = (open) => {
-            toggle.setAttribute("aria-expanded", String(open));
-            panel.dataset.open = String(open);
-          };
-          toggle.addEventListener("click", () => setOpen(toggle.getAttribute("aria-expanded") !== "true"));
-          panel.querySelectorAll("a, button").forEach((item) => item.addEventListener("click", () => setOpen(false)));
-          window.addEventListener("keydown", (event) => {
-            if (event.key === "Escape") setOpen(false);
-          });
-        });
-      }
-
-      document.querySelectorAll("[data-copy-target]").forEach((strip) => {
-        const button = strip.querySelector(".copy-button");
-        const value = strip.getAttribute("data-copy-target");
-        if (!button || !value) return;
-        button.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-            button.dataset.copied = "true";
-            button.setAttribute("aria-label", "Install command copied");
-            window.setTimeout(() => {
-              button.dataset.copied = "false";
-              button.setAttribute("aria-label", "Copy install command");
-            }, 1400);
-          } catch {
-            button.dataset.copied = "false";
-          }
-        });
-      });
-
-      initMqNavigation();
+      import "../scripts/landing.ts";
     </script>
   </body>
 </html>

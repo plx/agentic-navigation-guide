@@ -1,0 +1,180 @@
+// Canonical project/site configuration for the landing page and docs.
+// Originally scaffolded by static-tool-page-template; this file is now the source of
+// truth — edit it (and the docs content) rather than the stock landing components.
+// prettier-ignore
+export const siteConfig = {
+  "repository": {
+    "owner": "plx",
+    "name": "agentic-navigation-guide",
+    "url": "https://github.com/plx/agentic-navigation-guide",
+    "defaultBranch": "main"
+  },
+  "project": {
+    "name": "agentic-navigation-guide",
+    "title": "agentic-navigation-guide",
+    "packageName": "agentic-navigation-guide-site",
+    "category": "Developer tooling",
+    "tagline": "Keep agent navigation guides honest.",
+    "description": "agentic-navigation-guide verifies hand-written repo maps against the filesystem, so coding agents do not start from stale navigation instructions.",
+    "installCommand": "cargo install agentic-navigation-guide"
+  },
+  "site": {
+    "host": "https://plx.github.io",
+    "basePath": "/agentic-navigation-guide",
+    "url": "https://plx.github.io/agentic-navigation-guide/",
+    "dir": "site",
+    "language": "en"
+  },
+  "theme": {
+    "accent": "#a86a4a",
+    "accent_2": "#3f6b57",
+    "ink": "#1c1c1c",
+    "surface": "#faf7f2",
+    "muted": "#5a6773",
+    "code": "#1a1d1b"
+  },
+  "landing": {
+    "nav": [
+      {
+        "label": "Features",
+        "href": "#features"
+      },
+      {
+        "label": "CLI",
+        "href": "#cli"
+      },
+      {
+        "label": "Docs",
+        "href": "docs/"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/plx/agentic-navigation-guide"
+      }
+    ],
+    "footerLinks": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/plx/agentic-navigation-guide"
+      },
+      {
+        "label": "crates.io",
+        "href": "https://crates.io/crates/agentic-navigation-guide"
+      },
+      {
+        "label": "API docs",
+        "href": "https://docs.rs/agentic-navigation-guide"
+      },
+      {
+        "label": "Commands",
+        "href": "docs/commands/"
+      },
+      {
+        "label": "Guide format",
+        "href": "docs/guide-format/"
+      },
+      {
+        "label": "CI",
+        "href": "docs/ci/"
+      }
+    ],
+    "primaryCta": {
+      "label": "Install with Cargo",
+      "href": "https://crates.io/crates/agentic-navigation-guide"
+    },
+    "secondaryCta": {
+      "label": "View on GitHub",
+      "href": "https://github.com/plx/agentic-navigation-guide"
+    },
+    "badges": [
+      "Rust",
+      "CLI",
+      "GitHub Actions"
+    ],
+    "features": [
+      {
+        "eyebrow": "verify",
+        "title": "Check listed paths",
+        "body": "Verify that guide entries exist and stay inside the project root.",
+        "href": "#cli"
+      },
+      {
+        "eyebrow": "author",
+        "title": "Use intentional omissions",
+        "body": "Use ... placeholders for files you choose not to list, with validation rules for empty or fully listed directories.",
+        "href": "docs/guide-format/"
+      },
+      {
+        "eyebrow": "ci",
+        "title": "Run it in CI",
+        "body": "Use --github-actions-check for file:line annotations and failing exits when a guide drifts.",
+        "href": "docs/ci/"
+      }
+    ],
+    "terminal": {
+      "title": "agentic-navigation-guide verify",
+      "meta": "filesystem check",
+      "copy": "cargo install agentic-navigation-guide",
+      "lines": [
+        "$ cargo install agentic-navigation-guide",
+        "$ agentic-navigation-guide verify",
+        "OK guide syntax valid",
+        "OK listed paths exist",
+        "OK placeholders valid",
+        "$ agentic-navigation-guide verify --github-actions-check",
+        "Emits GitHub Actions annotations on failure"
+      ]
+    }
+  },
+  "docs": {
+    "sidebar": [
+      {
+        "label": "Guide",
+        "items": [
+          {
+            "label": "Overview",
+            "slug": "docs"
+          },
+          {
+            "label": "Commands",
+            "slug": "docs/commands"
+          },
+          {
+            "label": "Guide Format",
+            "slug": "docs/guide-format"
+          },
+          {
+            "label": "CI and Hooks",
+            "slug": "docs/ci"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      {
+        "title": "Overview",
+        "description": "How agentic-navigation-guide keeps repository route maps accurate for coding agents.",
+        "slug": "docs",
+        "href": "docs/"
+      },
+      {
+        "title": "Commands",
+        "description": "CLI commands provided by agentic-navigation-guide.",
+        "slug": "docs/commands",
+        "href": "docs/commands/"
+      },
+      {
+        "title": "Guide Format",
+        "description": "Syntax rules for agentic navigation guide blocks.",
+        "slug": "docs/guide-format",
+        "href": "docs/guide-format/"
+      },
+      {
+        "title": "CI and Hooks",
+        "description": "Using agentic-navigation-guide in automation.",
+        "slug": "docs/ci",
+        "href": "docs/ci/"
+      }
+    ]
+  }
+};

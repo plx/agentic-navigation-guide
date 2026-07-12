@@ -4,13 +4,34 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "astro": "astro",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "check": "astro check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "spellcheck": "cspell . --no-progress",
+    "lint": "npm run format:check && npm run check && npm run spellcheck",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:report": "playwright show-report",
+    "validate": "npm run lint && npm run build && npm run test"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.39.2",
     "astro": "^6.3.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@astrojs/check": "^0.9.0",
+    "@playwright/test": "^1.57.0",
+    "cspell": "^9.2.0",
+    "prettier": "^3.6.0",
+    "prettier-plugin-astro": "^0.14.1",
+    "typescript": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }
