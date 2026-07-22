@@ -29,6 +29,12 @@ export default defineConfig({
     url: localSiteUrl,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // Astro 7 auto-detects AI-agent shells (Claude Code, Cursor, etc. via `am-i-vibing`)
+    // and daemonizes `astro dev` into a detached background process, which makes
+    // Playwright's webServer supervisor report "exited early". Setting this marker keeps
+    // the dev server in the foreground everywhere. CI and plain local shells already run
+    // in the foreground, so this only affects runs launched from inside an agent.
+    env: { ASTRO_DEV_BACKGROUND: "1" },
   },
   projects: [
     {
