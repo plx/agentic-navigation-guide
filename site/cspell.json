@@ -14,6 +14,7 @@
     "codegen",
     "Commands",
     "crates",
+    "daemonizes",
     "Developer",
     "docsrs",
     "filesystem",
@@ -41,6 +42,7 @@
     "starlight",
     "Starlight",
     "tooling",
+    "vibing",
     "worktree",
     "worktrees"
   ],
