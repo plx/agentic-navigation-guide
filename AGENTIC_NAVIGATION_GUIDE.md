@@ -64,5 +64,15 @@
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
 - LICENSE-APACHE
+- justfile # Repository task aliases, including production-readiness work selection
+- scripts/
+  - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
+- tests/
+  - test_get_next_production_readiness_issue.py # Offline selector regression suite
+- audits/ # Production-readiness records
+  - 2026-07-25-production-readiness-audit.md # Due-diligence findings
+  - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
+  - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
+  - production-readiness-reassessment-playbook.md # Reassessment procedure
 - ... # Additional project files (tests, examples, etc.)
 </agentic-navigation-guide>

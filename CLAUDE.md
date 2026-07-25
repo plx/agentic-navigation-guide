@@ -35,6 +35,20 @@ cargo test -- --nocapture  # Run tests showing println! output
 cargo test <test_name>     # Run specific test by name
 ```
 
+### Production-Readiness Remediation
+
+```bash
+# Print the next actionable production-readiness issue from live GitHub state
+just get-next-production-readiness-issue
+
+# Emit the selection as JSON or temporarily skip one or more issues
+just get-next-production-readiness-issue --json
+just get-next-production-readiness-issue --exclude 34 --exclude 35
+
+# Run the selector's offline regression suite
+just test-production-readiness-selector
+```
+
 ### Running the CLI Tool
 ```bash
 # Dump directory structure
