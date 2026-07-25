@@ -8,7 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Documentation Alignment
 
-- Source-of-truth precedence: implementation + tests first, `README.md` for user-facing contract, `Specification.md` for original intent/history.
+- `docs/v0.2-contract.md` is the normative v0.2 guide-language and
+  filesystem-representation target.
+- Implementation plus tests define realized `0.1.4` behavior while explicitly
+  owned v0.2 conformance rows remain pending.
+- `README.md` is the concise released-behavior entry point.
+- `Specification.md` is non-normative original intent/history.
 - If user-facing behavior changes, update `README.md` in the same change.
 - If divergence is intentional, record it in `README.md` under "Known Intentional Divergences" with date and rationale.
 

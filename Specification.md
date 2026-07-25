@@ -1,7 +1,14 @@
 # Agentic Navigation Guide
 
-This is a specification for the crate we'll be writing.
-It documents original design intent; for current realized behavior, use `README.md` and implementation as canonical unless they are incoherent or contradictory.
+> **Historical, non-normative design notes.** The normative v0.2 guide
+> language and filesystem-representation target is
+> [`docs/v0.2-contract.md`](docs/v0.2-contract.md). Issue
+> [#68](https://github.com/plx/agentic-navigation-guide/issues/68) owns the
+> complete rule-by-rule classification and final disposition of this file.
+
+This document records original design intent. For currently released behavior,
+use `README.md` and the implementation; for the approved v0.2 target, use the
+normative contract linked above.
 
 ## Background: The Problem
 
