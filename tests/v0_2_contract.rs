@@ -1,10 +1,31 @@
-use agentic_navigation_guide::{Dumper, FilesystemItem, Parser, Validator, Verifier};
+use agentic_navigation_guide::types::Config;
+use agentic_navigation_guide::{
+    Dumper, FilesystemItem, GuideLocation, Parser, Validator, Verifier,
+};
 use std::collections::{BTreeMap, BTreeSet};
+use std::env::VarError;
 use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
 const ALLOWED_PENDING_OWNERS: &[u32] = &[37, 38, 39, 40, 41, 42, 43, 44, 50];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConformanceRequest {
+    Current,
+    All,
+    Owner(u32),
+}
+
+impl ConformanceRequest {
+    fn requires_normative(self, pending_issue: Option<u32>) -> bool {
+        match self {
+            Self::Current => false,
+            Self::All => true,
+            Self::Owner(issue) => pending_issue == Some(issue),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ItemKind {
@@ -77,6 +98,13 @@ enum OperationKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LibraryIgnoredObservation {
+    DistinctIgnored,
+    SuccessWithoutOutcome,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExpectedOperationResult {
     Rejected,
     GeneratedInvalid,
@@ -87,7 +115,7 @@ enum ExpectedOperationResult {
     CliIgnoredAllowedWithRecursiveFalseSuccess,
     CliIgnoredDenied,
     CliOptionUnknown,
-    LibraryIgnored,
+    LibraryOutcomes([LibraryIgnoredObservation; 2]),
     CapabilityRejected,
     CapabilityGeneratedPaths(&'static [&'static str]),
     CapabilityGeneratedItems(&'static [ExpectedItem]),
@@ -113,7 +141,10 @@ mod fixtures {
 }
 
 mod operation_fixtures {
-    use super::{ExpectedItem, ExpectedOperationResult, ItemKind, OperationCase, OperationKind};
+    use super::{
+        ExpectedItem, ExpectedOperationResult, ItemKind, LibraryIgnoredObservation, OperationCase,
+        OperationKind,
+    };
 
     include!("fixtures/v0_2_operations.rs");
 }
@@ -144,15 +175,9 @@ enum ObservedOperationResult {
     CliIgnoredAllowedWithRecursiveFalseSuccess,
     CliIgnoredDenied,
     CliOptionUnknown,
-    // Constructed when #36/#39 expose an observable ignored library result.
-    #[allow(dead_code)]
-    LibraryIgnored,
-    LibrarySuccess,
+    LibraryOutcomes([LibraryIgnoredObservation; 2]),
     CapabilityUnavailable,
-    Identity {
-        host_aliases: bool,
-        verified: bool,
-    },
+    Identity { host_aliases: bool, verified: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,25 +289,45 @@ fn matches_expected(observed: &ObservedResult, expected: ExpectedResult) -> bool
     }
 }
 
-fn requested_conformance_owner() -> Option<String> {
-    std::env::var("GUIDE_FORMAT_REQUIRE_CONFORMANCE")
-        .ok()
-        .filter(|value| !value.is_empty())
+fn conformance_request() -> ConformanceRequest {
+    match std::env::var("GUIDE_FORMAT_REQUIRE_CONFORMANCE") {
+        Ok(value) => parse_conformance_request(&value),
+        Err(VarError::NotPresent) => ConformanceRequest::Current,
+        Err(VarError::NotUnicode(_)) => {
+            panic!("GUIDE_FORMAT_REQUIRE_CONFORMANCE must contain valid Unicode")
+        }
+    }
+}
+
+fn parse_conformance_request(value: &str) -> ConformanceRequest {
+    match value {
+        "" => ConformanceRequest::Current,
+        "all" => ConformanceRequest::All,
+        owner => {
+            let issue = owner
+                .parse::<u32>()
+                .unwrap_or_else(|_| panic!("invalid conformance owner '{owner}'"));
+            assert!(
+                ALLOWED_PENDING_OWNERS.contains(&issue),
+                "conformance owner #{issue} is not in the contract handoff"
+            );
+            assert!(
+                fixtures::CASES
+                    .iter()
+                    .any(|case| case.pending_issue == Some(issue))
+                    || operation_fixtures::CASES
+                        .iter()
+                        .any(|case| case.pending_issue == Some(issue)),
+                "conformance owner #{issue} has no pending rows"
+            );
+            ConformanceRequest::Owner(issue)
+        }
+    }
 }
 
 #[test]
 fn contract_cases() {
-    let requested = requested_conformance_owner();
-
-    if let Some(owner) = requested.as_deref().filter(|owner| *owner != "all") {
-        let issue = owner
-            .parse::<u32>()
-            .unwrap_or_else(|_| panic!("invalid conformance owner '{owner}'"));
-        assert!(
-            ALLOWED_PENDING_OWNERS.contains(&issue),
-            "conformance owner #{issue} is not in the contract handoff"
-        );
-    }
+    let request = conformance_request();
 
     let mut pending_rows = 0;
 
@@ -291,13 +336,7 @@ fn contract_cases() {
             pending_rows += 1;
         }
 
-        let require_normative = match requested.as_deref() {
-            None => false,
-            Some("all") => true,
-            Some(owner) => case
-                .pending_issue
-                .is_some_and(|issue| issue.to_string() == owner),
-        };
+        let require_normative = request.requires_normative(case.pending_issue);
 
         let expected = if require_normative {
             case.normative
@@ -330,7 +369,7 @@ fn contract_cases() {
         }
     }
 
-    if requested.as_deref() == Some("all") {
+    if request == ConformanceRequest::All {
         assert_eq!(
             pending_rows, 0,
             "all-mode requires every pending contract row to be activated"
@@ -340,7 +379,7 @@ fn contract_cases() {
 
 #[test]
 fn operation_cases() {
-    let requested = requested_conformance_owner();
+    let request = conformance_request();
     let mut pending_rows = 0;
 
     for case in operation_fixtures::CASES {
@@ -348,13 +387,7 @@ fn operation_cases() {
             pending_rows += 1;
         }
 
-        let require_normative = match requested.as_deref() {
-            None => false,
-            Some("all") => true,
-            Some(owner) => case
-                .pending_issue
-                .is_some_and(|issue| issue.to_string() == owner),
-        };
+        let require_normative = request.requires_normative(case.pending_issue);
         let expected = if require_normative {
             case.normative
         } else {
@@ -384,7 +417,7 @@ fn operation_cases() {
         }
     }
 
-    if requested.as_deref() == Some("all") {
+    if request == ConformanceRequest::All {
         assert_eq!(
             pending_rows, 0,
             "all-mode requires every pending operation row to be activated"
@@ -569,6 +602,59 @@ fn marker_line_endings_are_platform_independent() {
 }
 
 #[test]
+fn conformance_request_rejects_unknown_owners() {
+    assert_eq!(
+        parse_conformance_request("39"),
+        ConformanceRequest::Owner(39)
+    );
+    assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
+
+    for invalid in ["ALL", "owner", "36", "99"] {
+        assert!(
+            std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
+            "invalid conformance request '{invalid}' was accepted"
+        );
+    }
+}
+
+#[test]
+fn library_ignored_gate_requires_distinct_results_from_every_facade() {
+    let normative = ExpectedOperationResult::LibraryOutcomes([
+        LibraryIgnoredObservation::DistinctIgnored,
+        LibraryIgnoredObservation::DistinctIgnored,
+    ]);
+
+    assert_eq!(
+        observe_single_library_ignored(Ok(())),
+        LibraryIgnoredObservation::SuccessWithoutOutcome
+    );
+    assert!(matches_expected_operation(
+        &ObservedOperationResult::LibraryOutcomes([
+            LibraryIgnoredObservation::DistinctIgnored,
+            LibraryIgnoredObservation::DistinctIgnored,
+        ]),
+        normative,
+    ));
+    assert!(!matches_expected_operation(
+        &ObservedOperationResult::LibraryOutcomes([
+            LibraryIgnoredObservation::SuccessWithoutOutcome,
+            LibraryIgnoredObservation::DistinctIgnored,
+        ]),
+        normative,
+    ));
+    assert!(!matches_expected_operation(
+        &ObservedOperationResult::LibraryOutcomes([
+            LibraryIgnoredObservation::Rejected,
+            LibraryIgnoredObservation::Rejected,
+        ]),
+        ExpectedOperationResult::LibraryOutcomes([
+            LibraryIgnoredObservation::Rejected,
+            LibraryIgnoredObservation::DistinctIgnored,
+        ]),
+    ));
+}
+
+#[test]
 fn marker_outer_horizontal_whitespace_is_insignificant() {
     let source = "\t<agentic-navigation-guide>\t\n- Cargo.toml\n\t</agentic-navigation-guide>\t";
 
@@ -600,7 +686,6 @@ fn matches_expected_operation(
         )
         | (ObservedOperationResult::CliIgnoredDenied, ExpectedOperationResult::CliIgnoredDenied)
         | (ObservedOperationResult::CliOptionUnknown, ExpectedOperationResult::CliOptionUnknown)
-        | (ObservedOperationResult::LibraryIgnored, ExpectedOperationResult::LibraryIgnored)
         | (ObservedOperationResult::Rejected, ExpectedOperationResult::CapabilityRejected)
         | (ObservedOperationResult::Verified, ExpectedOperationResult::CapabilityVerified)
         | (
@@ -641,6 +726,10 @@ fn matches_expected_operation(
             ObservedOperationResult::GeneratedItems(actual),
             ExpectedOperationResult::GeneratedItems(expected),
         ) => exact_items_match(actual, expected),
+        (
+            ObservedOperationResult::LibraryOutcomes(actual),
+            ExpectedOperationResult::LibraryOutcomes(expected),
+        ) => *actual == expected,
         (
             ObservedOperationResult::GeneratedPaths(actual),
             ExpectedOperationResult::CapabilityGeneratedPaths(expected),
@@ -793,17 +882,61 @@ fn run_operation(kind: OperationKind) -> ObservedOperationResult {
         }
         OperationKind::CliIgnoredDefaultMatrix => observe_ignored_cli_matrix(false),
         OperationKind::CliIgnoredDeniedMatrix => observe_ignored_cli_matrix(true),
-        OperationKind::LibraryIgnored => {
-            let temp = TempDir::new().expect("temporary ignored library root");
-            let source = "<agentic-navigation-guide ignore=true>\n- missing.txt\n</agentic-navigation-guide>";
-            let guide = Parser::new().parse(source).expect("ignored library guide");
-            match agentic_navigation_guide::verify_guide(&guide, temp.path()) {
-                Ok(()) => ObservedOperationResult::LibrarySuccess,
-                Err(_) => ObservedOperationResult::Rejected,
-            }
-        }
+        OperationKind::LibraryIgnored => observe_ignored_library_matrix(),
         OperationKind::DumpZeroIndent => observe_dump_cli_number("--indent", "0", true),
         OperationKind::DumpExcessiveDepth => observe_dump_cli_number("--depth", "257", false),
+    }
+}
+
+fn observe_ignored_library_matrix() -> ObservedOperationResult {
+    let temp = TempDir::new().expect("temporary ignored library root");
+    let source =
+        "<agentic-navigation-guide ignore=true>\n- missing.txt\n</agentic-navigation-guide>";
+    let guide_path = temp.path().join("AGENTIC_NAVIGATION_GUIDE.md");
+    fs::write(&guide_path, source).expect("write ignored library guide");
+    let guide = Parser::new().parse(source).expect("ignored library guide");
+
+    let single =
+        observe_single_library_ignored(agentic_navigation_guide::verify_guide(&guide, temp.path()));
+    let location = GuideLocation {
+        guide_path,
+        root_path: temp.path().to_path_buf(),
+    };
+    let recursive = observe_recursive_library_ignored(agentic_navigation_guide::verify_guides(
+        &[location],
+        &Config::default(),
+    ));
+
+    ObservedOperationResult::LibraryOutcomes([single, recursive])
+}
+
+fn observe_single_library_ignored(
+    result: agentic_navigation_guide::Result<()>,
+) -> LibraryIgnoredObservation {
+    // #36/#39 update this adapter when the selected single-guide facade grows
+    // a typed outcome. Inferring ignored from the input flag would let an
+    // indistinguishable Ok(()) falsely satisfy the public-API contract.
+    match result {
+        Ok(()) => LibraryIgnoredObservation::SuccessWithoutOutcome,
+        Err(_) => LibraryIgnoredObservation::Rejected,
+    }
+}
+
+fn observe_recursive_library_ignored(
+    result: agentic_navigation_guide::Result<
+        Vec<agentic_navigation_guide::GuideVerificationResult>,
+    >,
+) -> LibraryIgnoredObservation {
+    match result {
+        Ok(results)
+            if matches!(
+                results.as_slice(),
+                [result] if result.success && result.ignored && result.error.is_none()
+            ) =>
+        {
+            LibraryIgnoredObservation::DistinctIgnored
+        }
+        Ok(_) | Err(_) => LibraryIgnoredObservation::Rejected,
     }
 }
 
@@ -1273,11 +1406,7 @@ fn fixture(id: &str) -> &'static ContractCase {
 }
 
 fn requires_normative_owner(issue: u32) -> bool {
-    match requested_conformance_owner().as_deref() {
-        Some("all") => true,
-        Some(owner) => owner == issue.to_string(),
-        None => false,
-    }
+    conformance_request().requires_normative(Some(issue))
 }
 
 fn assert_exact_nested_tree(observed: &ObservedResult, deepest_depth: usize) {

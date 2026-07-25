@@ -286,8 +286,14 @@ pub(super) const CASES: &[OperationCase] = &[
     OperationCase {
         id: "operation-library-ignored",
         kind: OperationKind::LibraryIgnored,
-        normative: ExpectedOperationResult::LibraryIgnored,
-        current: ExpectedOperationResult::Rejected,
+        normative: ExpectedOperationResult::LibraryOutcomes([
+            LibraryIgnoredObservation::DistinctIgnored,
+            LibraryIgnoredObservation::DistinctIgnored,
+        ]),
+        current: ExpectedOperationResult::LibraryOutcomes([
+            LibraryIgnoredObservation::Rejected,
+            LibraryIgnoredObservation::DistinctIgnored,
+        ]),
         pending_issue: Some(39),
     },
     OperationCase {
