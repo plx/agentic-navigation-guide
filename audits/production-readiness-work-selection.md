@@ -28,6 +28,10 @@ pull request; those changes may still be unmerged. The independent audit in
 [`production-readiness-reassessment-playbook.md`](production-readiness-reassessment-playbook.md)
 remains the production-readiness decision procedure.
 
+To delegate the entire one-ticket-at-a-time remediation, review, merge,
+release, and post-release sequence to a persistent Codex goal, use
+[`production-readiness-remediation-goal.md`](production-readiness-remediation-goal.md).
+
 ## Quick start
 
 Prerequisites:

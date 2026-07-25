@@ -71,6 +71,7 @@
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
+  - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
 - ... # Additional project files (tests, examples, etc.)
