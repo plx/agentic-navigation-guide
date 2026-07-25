@@ -64,5 +64,8 @@
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
 - LICENSE-APACHE
+- audits/ # Production-readiness records
+  - 2026-07-25-production-readiness-audit.md # Due-diligence findings
+  - production-readiness-reassessment-playbook.md # Reassessment procedure
 - ... # Additional project files (tests, examples, etc.)
 </agentic-navigation-guide>
