@@ -11,8 +11,13 @@
   load-bearing workplace verification gate**
 - **Remediation target:** a focused `0.2.0` production-readiness hardening
   program
-- **Tracking:** GitHub milestone and epic links will be added after the
-  remediation issue hierarchy is created.
+- **Tracking milestone:** [`v0.2.0 — production-readiness
+  hardening`](https://github.com/plx/agentic-navigation-guide/milestone/2)
+- **Tracking epic:** [#26 — Production readiness and formal `v0.2.0`
+  release](https://github.com/plx/agentic-navigation-guide/issues/26)
+- **Independent reassessment gate:** [#72 — Execute an independent
+  post-remediation production-readiness
+  audit](https://github.com/plx/agentic-navigation-guide/issues/72)
 
 This document records the broad release-readiness review performed before
 turning the repository from a lightly used personal project into a formally
