@@ -18,6 +18,9 @@
 - **Independent reassessment gate:** [#72 — Execute an independent
   post-remediation production-readiness
   audit](https://github.com/plx/agentic-navigation-guide/issues/72)
+- **Audit and planning PR:** [#75 — Document production-readiness audit and
+  remediation
+  program](https://github.com/plx/agentic-navigation-guide/pull/75)
 
 This document records the broad release-readiness review performed before
 turning the repository from a lightly used personal project into a formally
