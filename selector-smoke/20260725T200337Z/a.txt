@@ -1,0 +1,1 @@
+Ephemeral selector smoke fixture A. Never merge.
