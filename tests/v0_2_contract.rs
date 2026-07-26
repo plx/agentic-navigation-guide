@@ -10,7 +10,7 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[37, 38, 39, 40, 41, 42, 43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[38, 39, 40, 41, 42, 43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -1439,15 +1439,10 @@ fn generated_depth_boundary_is_executable() {
     assert_exact_nested_tree(&observe(&at_limit), MAX_LOGICAL_DEPTH);
 
     let over_limit = nested_directory_source(MAX_LOGICAL_DEPTH + 1);
-    let observed = observe(&over_limit);
-    if requires_normative_owner(37) {
-        assert!(
-            matches!(observed, ObservedResult::Reject),
-            "logical depth above {MAX_LOGICAL_DEPTH} must be rejected"
-        );
-    } else {
-        assert_exact_nested_tree(&observed, MAX_LOGICAL_DEPTH + 1);
-    }
+    assert!(
+        matches!(observe(&over_limit), ObservedResult::Reject),
+        "logical depth above {MAX_LOGICAL_DEPTH} must be rejected"
+    );
 }
 
 #[test]
@@ -1485,7 +1480,7 @@ fn conformance_request_rejects_unknown_owners() {
     );
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "99"] {
+    for invalid in ["ALL", "owner", "36", "37", "99"] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"
