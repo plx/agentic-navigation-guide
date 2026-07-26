@@ -63,9 +63,14 @@
     - site.spec.ts # Playwright, link, viewport, and axe checks
   - ... # Local build output and dependencies
 - Cargo.toml
+- CHANGELOG.md # Complete prepared 0.2.0 changes and published-0.1.4 migration
+- LICENSING.md # Fact-only historical license clarification and yank decision
 - README.md
 - docs/ # Maintained user and contract documentation
   - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
+  - release-policy.md # Version/tag identity and compatibility baseline rules
+- release/
+  - identity.toml # Machine-readable prepared version and pinned baseline evidence
 - Specification.md # original project specification document
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
 - about.hbs # handlebars template for THIRD_PARTY_LICENSES.md
@@ -77,17 +82,22 @@
 - LICENSE-APACHE
 - justfile # Repository task aliases, including production-readiness work selection
 - scripts/
+  - check_release_identity.py # Fail-closed version/tag/changelog/baseline checker
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
 - tests/
   - fixtures/
+    - v0_1_4_published_api.tsv # Canonical immutable published API migration baseline
     - v0_2_contract.rs # Machine-readable v0.2 grammar conformance ledger
     - v0_2_operations.rs # Machine-readable v0.2 filesystem and CLI operation ledger
     - v0_2_trust.rs # Machine-readable v0.2 filesystem trust and adversarial fixture ledger
     - v0_2_api.rs # Frozen #36 Rust export disposition ledger
   - issue_54_binary_only_package.rs # Workspace/package binary-only target-shape regression
+  - issue_64_release_identity.rs # Published API and exact package/install identity proof
+  - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
+  - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure

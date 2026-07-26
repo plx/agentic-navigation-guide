@@ -42,6 +42,30 @@ jobs:
     - name: Run selector tests
       run: just test-production-readiness-selector
 
+  release-identity:
+    name: Prepared release identity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - name: Run release-identity checker regressions
+      run: >-
+        PYTHONDONTWRITEBYTECODE=1 python3 -m unittest
+        tests/test_check_release_identity.py -v
+    - name: Assert prepared version and external tag input
+      run: python3 scripts/check_release_identity.py --tag v0.2.0
+    - name: Prove published baseline and exact packaged install identity
+      run: cargo test --locked --test issue_64_release_identity -- --nocapture
+    - name: Require clean package source
+      run: git diff --exit-code
+    - name: Build the prepared package without publishing
+      run: cargo package --locked
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest

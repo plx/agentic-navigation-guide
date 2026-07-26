@@ -25,6 +25,10 @@ documented CLI process or machine contract, or
 remain pinned to unsupported `0.1.4` at their own risk. The complete decision,
 frozen export dispositions, and `0.2.x` compatibility policy are in the
 [normative contract](docs/v0.2-contract.md#supported-product-and-rust-api).
+The [0.2.0 changelog](CHANGELOG.md#020---unreleased) enumerates the exact
+published `0.1.4` removal and user-visible migration, while the
+[release policy](docs/release-policy.md) pins the prepared identity and future
+baseline rule.
 The docs.rs badge above still describes the published `0.1.4` artifact; #66
 owns removing or retargeting it and setting maintained documentation metadata
 before release.
@@ -60,7 +64,8 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 - **2026-07-26 — Current source is binary-only.** #54 removed the source
   library target and made the remaining 128 #54-owned exports
   implementation-only. The frozen 132-row ledger remains historical decision
-  evidence; immutable published `0.1.4` remains #64's migration baseline.
+  evidence; immutable published `0.1.4` is the separately pinned migration
+  baseline in the [0.2.0 changelog](CHANGELOG.md#rust-source-compatibility-complete-removal-of-published-014).
   v0.2 has no Rust facade or in-process shim.
 - **2026-07-26 — The legacy full-path helper is removed without replacement.**
   `NavigationGuide::get_full_path` is removed without replacement in v0.2. It
@@ -68,8 +73,8 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   carried no unambiguous parent context. `NavigationGuideLine::path()` is not a
   substitute. Existing Rust integrations must invoke the installed CLI through
   its documented process or machine contract, or remain pinned to unsupported
-  `0.1.4` at their own risk. #64 will carry this break into the complete
-  `0.2.0` changelog.
+  `0.1.4` at their own risk. The complete break is recorded in the
+  [0.2.0 changelog](CHANGELOG.md#migration-from-014).
 - **2026-07-26 — The unsupported programmatic symlink model is removed without
   replacement.** `FilesystemItem::Symlink` and
   `SemanticError::SymlinkTargetMismatch` are removed without replacement in
@@ -80,7 +85,8 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   file and directory workflows to invoke the installed CLI through its
   documented process or machine contract, or remain pinned to unsupported
   `0.1.4` at their own risk. Link inventory and target matching have no v0.2
-  equivalent. #64 will carry this break into the complete `0.2.0` changelog.
+  equivalent. The complete break is recorded in the
+  [0.2.0 changelog](CHANGELOG.md#migration-from-014).
 - **2026-07-25 — File output is intentionally create-only.** Unlike `0.1.4`,
   v0.2 `dump --output` does not overwrite an existing destination; it shares
   `init`'s create-new policy and has no force mode. This breaking CLI change
@@ -787,6 +793,11 @@ Licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
+
+The immutable published `0.1.x` archives contain contradictory manifest and
+packaged-license information. The exact artifact facts and the maintainer's
+no-yank decision are recorded without a legal conclusion in
+[`LICENSING.md`](LICENSING.md#historical-01x-licensing-metadata-clarification).
 
 Third-party dependencies bundled into release builds carry their own permissive licenses; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full set of attributions. That file is regenerated from the dependency tree by [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) — running `cargo licenses` (a shorthand for `cargo about generate about.hbs --output-file THIRD_PARTY_LICENSES.md`) rewrites it locally, and CI runs the same command on every push and pull request and fails the build if the committed file does not match.
 
