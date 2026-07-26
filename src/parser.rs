@@ -612,6 +612,7 @@ impl Parser {
     /// - `\[` → `[`
     /// - `\]` → `]`
     /// - `\#` → `#`
+    /// - `\ ` → a literal U+0020 space
     ///
     /// # Arguments
     /// * `s` - The string containing escape sequences
