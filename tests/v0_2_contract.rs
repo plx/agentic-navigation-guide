@@ -10,7 +10,7 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[38, 39, 40, 41, 42, 43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[39, 40, 41, 42, 43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -1480,7 +1480,7 @@ fn conformance_request_rejects_unknown_owners() {
     );
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "37", "99"] {
+    for invalid in ["ALL", "owner", "36", "37", "38", "99"] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"

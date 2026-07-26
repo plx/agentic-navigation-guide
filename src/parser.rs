@@ -6,6 +6,16 @@ use regex::Regex;
 
 const MAX_INDENT_SIZE: usize = 16;
 const MAX_LOGICAL_DEPTH: usize = 256;
+const OPENING_MARKER_PREFIX: &str = "<agentic-navigation-guide";
+const CLOSING_MARKER_PREFIX: &str = "</agentic-navigation-guide";
+const CLOSING_MARKER: &str = "</agentic-navigation-guide>";
+
+#[derive(Clone, Copy)]
+enum MarkerLine {
+    Ordinary,
+    Opening { ignore: bool },
+    Closing,
+}
 
 #[derive(Clone, Copy)]
 enum HierarchyEvent {
@@ -65,6 +75,8 @@ impl Parser {
         &self,
         content: &str,
     ) -> Result<(Option<String>, String, Option<String>, usize, bool)> {
+        Self::validate_line_endings(content)?;
+
         let lines: Vec<&str> = content.lines().collect();
         let mut start_idx = None;
         let mut end_idx = None;
@@ -73,30 +85,26 @@ impl Parser {
         // Find and validate opening/closing markers across the full document.
         // We require exactly one opening marker and exactly one closing marker.
         for (idx, line) in lines.iter().enumerate() {
-            let trimmed = line.trim();
-
-            // Check for opening tag with or without attributes
-            if trimmed.starts_with("<agentic-navigation-guide") && trimmed.ends_with(">") {
-                if start_idx.is_some() || end_idx.is_some() {
-                    return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
-                }
-                start_idx = Some(idx);
-
-                // Parse ignore attribute if present
-                ignore = self.parse_ignore_attribute(trimmed);
-            } else if trimmed == "</agentic-navigation-guide>" {
-                if start_idx.is_some() {
-                    if end_idx.is_some() {
+            match Self::classify_marker_line(line, idx + 1)? {
+                MarkerLine::Ordinary => {}
+                MarkerLine::Opening {
+                    ignore: marker_ignore,
+                } => {
+                    if start_idx.is_some() || end_idx.is_some() {
                         return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
                     }
-                    end_idx = Some(idx);
-                } else if end_idx.is_none() {
-                    // Preserve missing opening marker behavior while still tracking
-                    // a stray closing marker for follow-up marker conflict detection.
-                    end_idx = Some(idx);
-                } else {
-                    return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
+                    start_idx = Some(idx);
+                    ignore = marker_ignore;
                 }
+                MarkerLine::Closing => match (start_idx, end_idx) {
+                    (Some(_), None) => end_idx = Some(idx),
+                    (None, None) => {
+                        return Err(SyntaxError::MissingOpeningMarker { line: idx + 1 }.into());
+                    }
+                    _ => {
+                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
+                    }
+                },
             }
         }
 
@@ -125,101 +133,142 @@ impl Parser {
         Ok((prologue, guide_content, epilogue, line_offset, ignore))
     }
 
-    /// Parse the ignore attribute from the opening tag
-    /// Supports both `ignore=true` and `ignore="true"` formats
-    fn parse_ignore_attribute(&self, tag: &str) -> bool {
-        const OPENING_TAG_PREFIX: &str = "<agentic-navigation-guide";
-
-        let Some(without_prefix) = tag.strip_prefix(OPENING_TAG_PREFIX) else {
-            return false;
-        };
-        let Some(attributes) = without_prefix.strip_suffix('>') else {
-            return false;
-        };
-
-        Self::has_ignore_true_attribute(attributes)
-    }
-
-    /// Check whether an opening tag's attributes contain `ignore=true` or `ignore="true"`.
-    fn has_ignore_true_attribute(attributes: &str) -> bool {
-        let bytes = attributes.as_bytes();
+    /// Reject lone carriage returns before line-oriented parsing.
+    fn validate_line_endings(content: &str) -> Result<()> {
+        let bytes = content.as_bytes();
         let mut idx = 0;
+        let mut line = 1;
 
         while idx < bytes.len() {
-            // Skip leading whitespace before each attribute.
-            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
-                idx += 1;
-            }
-            if idx >= bytes.len() {
-                break;
-            }
-
-            // Parse attribute key until whitespace or '='.
-            let key_start = idx;
-            while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() && bytes[idx] != b'=' {
-                idx += 1;
-            }
-            let key = &attributes[key_start..idx];
-
-            // Skip whitespace between key and '='.
-            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
-                idx += 1;
-            }
-
-            // Missing '=' means this token is not a key/value attribute.
-            if idx >= bytes.len() || bytes[idx] != b'=' {
-                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+            match bytes[idx] {
+                b'\r' if bytes.get(idx + 1) == Some(&b'\n') => {
+                    idx += 2;
+                    line += 1;
+                }
+                b'\r' => {
+                    return Err(SyntaxError::MissingOpeningMarker { line }.into());
+                }
+                b'\n' => {
                     idx += 1;
+                    line += 1;
                 }
-                continue;
-            }
-            idx += 1; // consume '='
-
-            // Skip whitespace between '=' and value.
-            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
-                idx += 1;
-            }
-            if idx >= bytes.len() {
-                break;
-            }
-
-            let value = if bytes[idx] == b'"' {
-                // Quoted value, preserving exact inner content for strict matching.
-                idx += 1; // consume opening quote
-                let value_start = idx;
-                while idx < bytes.len() && bytes[idx] != b'"' {
-                    idx += 1;
-                }
-                if idx >= bytes.len() {
-                    break; // Unterminated quote: ignore the malformed trailing attribute.
-                }
-
-                let quoted_value = &attributes[value_start..idx];
-                idx += 1; // consume closing quote
-
-                // Enforce token boundary after a quoted value.
-                if idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
-                    while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
-                        idx += 1;
-                    }
-                    continue;
-                }
-
-                quoted_value
-            } else {
-                let value_start = idx;
-                while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
-                    idx += 1;
-                }
-                &attributes[value_start..idx]
-            };
-
-            if key == "ignore" && value == "true" {
-                return true;
+                _ => idx += 1,
             }
         }
 
-        false
+        Ok(())
+    }
+
+    /// Classify a complete line using the exact v0.2 marker grammar.
+    fn classify_marker_line(line: &str, line_number: usize) -> Result<MarkerLine> {
+        let candidate = Self::trim_outer_wsp(line);
+
+        // A BOM is not outer whitespace and cannot be silently discarded to
+        // turn the remainder of the line into a marker. Reject a run of BOMs
+        // as well as one BOM, including SP/HTAB between them.
+        let mut after_bom = candidate;
+        let mut saw_bom = false;
+        while let Some(remainder) = after_bom.strip_prefix('\u{feff}') {
+            saw_bom = true;
+            after_bom = remainder.trim_start_matches([' ', '\t']);
+        }
+        if saw_bom {
+            if after_bom.starts_with(OPENING_MARKER_PREFIX) {
+                return Err(SyntaxError::MissingOpeningMarker { line: line_number }.into());
+            }
+            if after_bom.starts_with(CLOSING_MARKER_PREFIX) {
+                return Err(SyntaxError::MissingClosingMarker { line: line_number }.into());
+            }
+        }
+
+        if candidate.starts_with(OPENING_MARKER_PREFIX) {
+            return match Self::parse_opening_marker(candidate) {
+                Some(ignore) => Ok(MarkerLine::Opening { ignore }),
+                None => Err(SyntaxError::MissingOpeningMarker { line: line_number }.into()),
+            };
+        }
+
+        if candidate.starts_with(CLOSING_MARKER_PREFIX) {
+            return if candidate == CLOSING_MARKER {
+                Ok(MarkerLine::Closing)
+            } else {
+                Err(SyntaxError::MissingClosingMarker { line: line_number }.into())
+            };
+        }
+
+        Ok(MarkerLine::Ordinary)
+    }
+
+    fn trim_outer_wsp(line: &str) -> &str {
+        line.trim_matches([' ', '\t'])
+    }
+
+    /// Parse the only two permitted opening-marker forms.
+    fn parse_opening_marker(candidate: &str) -> Option<bool> {
+        let suffix = candidate.strip_prefix(OPENING_MARKER_PREFIX)?;
+        if suffix == ">" {
+            return Some(false);
+        }
+
+        let bytes = suffix.as_bytes();
+        let mut idx = 0;
+
+        // Attributed markers require at least one SP or HTAB after the name.
+        if !bytes
+            .get(idx)
+            .is_some_and(|byte| Self::is_marker_wsp(*byte))
+        {
+            return None;
+        }
+        while bytes
+            .get(idx)
+            .is_some_and(|byte| Self::is_marker_wsp(*byte))
+        {
+            idx += 1;
+        }
+
+        if !suffix[idx..].starts_with("ignore") {
+            return None;
+        }
+        idx += "ignore".len();
+
+        while bytes
+            .get(idx)
+            .is_some_and(|byte| Self::is_marker_wsp(*byte))
+        {
+            idx += 1;
+        }
+        if bytes.get(idx) != Some(&b'=') {
+            return None;
+        }
+        idx += 1;
+
+        while bytes
+            .get(idx)
+            .is_some_and(|byte| Self::is_marker_wsp(*byte))
+        {
+            idx += 1;
+        }
+        if suffix[idx..].starts_with("\"true\"") {
+            idx += "\"true\"".len();
+        } else if suffix[idx..].starts_with("true") {
+            idx += "true".len();
+        } else {
+            return None;
+        }
+
+        while bytes
+            .get(idx)
+            .is_some_and(|byte| Self::is_marker_wsp(*byte))
+        {
+            idx += 1;
+        }
+
+        (bytes.get(idx) == Some(&b'>') && idx + 1 == bytes.len()).then_some(true)
+    }
+
+    fn is_marker_wsp(byte: u8) -> bool {
+        matches!(byte, b' ' | b'\t')
     }
 
     /// Parse the guide content into navigation guide lines
@@ -886,6 +935,28 @@ mod tests {
         samples[SAMPLES / 2]
     }
 
+    fn assert_missing_opening_error_on_line(source: &str, expected_line: usize) {
+        match Parser::new().parse(source) {
+            Err(crate::errors::AppError::Syntax(SyntaxError::MissingOpeningMarker { line })) => {
+                assert_eq!(line, expected_line)
+            }
+            other => {
+                panic!("expected an opening-marker error on line {expected_line}, got {other:?}")
+            }
+        }
+    }
+
+    fn assert_missing_closing_error_on_line(source: &str, expected_line: usize) {
+        match Parser::new().parse(source) {
+            Err(crate::errors::AppError::Syntax(SyntaxError::MissingClosingMarker { line })) => {
+                assert_eq!(line, expected_line)
+            }
+            other => {
+                panic!("expected a closing-marker error on line {expected_line}, got {other:?}")
+            }
+        }
+    }
+
     #[test]
     fn test_parse_minimal_guide() {
         let content = r#"<agentic-navigation-guide>
@@ -1260,6 +1331,211 @@ mod tests {
     }
 
     #[test]
+    fn test_rejects_malformed_opening_marker_candidates() {
+        for (name, opening) in [
+            (
+                "concatenated attribute",
+                "<agentic-navigation-guideignore=true>",
+            ),
+            ("prefix typo", "<agentic-navigation-guideTYPO>"),
+            ("plural name", "<agentic-navigation-guides>"),
+            (
+                "unknown attribute",
+                "<agentic-navigation-guide mode=example>",
+            ),
+            (
+                "wrong-case attribute",
+                "<agentic-navigation-guide IGNORE=true>",
+            ),
+            (
+                "duplicate attribute",
+                "<agentic-navigation-guide ignore=true ignore=true>",
+            ),
+            ("false attribute", "<agentic-navigation-guide ignore=false>"),
+            ("wrong-case value", "<agentic-navigation-guide ignore=TRUE>"),
+            (
+                "single quoted attribute",
+                "<agentic-navigation-guide ignore='true'>",
+            ),
+            (
+                "unquoted non-boolean attribute",
+                "<agentic-navigation-guide ignore=yes>",
+            ),
+            ("valueless attribute", "<agentic-navigation-guide ignore=>"),
+            (
+                "whitespace without attribute",
+                "<agentic-navigation-guide \t>",
+            ),
+            (
+                "unterminated quote",
+                "<agentic-navigation-guide ignore=\"true>",
+            ),
+            (
+                "trailing quoted text",
+                "<agentic-navigation-guide ignore=\"true\"extra>",
+            ),
+            (
+                "same-line trailing text",
+                "<agentic-navigation-guide> trailing",
+            ),
+            (
+                "attributed marker without terminator",
+                "<agentic-navigation-guide ignore=true",
+            ),
+            ("incomplete marker", "<agentic-navigation-guide"),
+        ] {
+            let source = format!("{opening}\n- missing.txt\n</agentic-navigation-guide>");
+            match Parser::new().parse(&source) {
+                Err(crate::errors::AppError::Syntax(SyntaxError::MissingOpeningMarker {
+                    line: 1,
+                })) => {}
+                other => panic!("{name} should be rejected, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_rejects_malformed_closing_marker_candidates() {
+        for (name, closing) in [
+            (
+                "closing attribute",
+                "</agentic-navigation-guide ignore=true>",
+            ),
+            ("closing suffix", "</agentic-navigation-guides>"),
+            ("closing typo", "</agentic-navigation-guideTYPO>"),
+            ("incomplete closing marker", "</agentic-navigation-guide"),
+        ] {
+            let source = format!("<agentic-navigation-guide>\n- file.txt\n{closing}");
+            match Parser::new().parse(&source) {
+                Err(crate::errors::AppError::Syntax(SyntaxError::MissingClosingMarker {
+                    line: 3,
+                })) => {}
+                other => panic!("{name} should be rejected, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_marker_substrings_are_markdown_but_candidates_fail_globally() {
+        let source = r#"Prose mentions <agentic-navigation-guideTYPO>.
+<agentic-navigation-guide>
+- file.txt # mentions </agentic-navigation-guideTYPO>
+</agentic-navigation-guide>
+More prose mentions </agentic-navigation-guides>."#;
+        let guide = Parser::new().parse(source).unwrap();
+        assert_eq!(guide.items.len(), 1);
+        assert!(guide
+            .prologue
+            .as_deref()
+            .is_some_and(|text| text.contains("<agentic-navigation-guideTYPO>")));
+        assert!(guide
+            .epilogue
+            .as_deref()
+            .is_some_and(|text| text.contains("</agentic-navigation-guides>")));
+
+        assert_missing_opening_error_on_line(
+            "<agentic-navigation-guideTYPO>\n<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+            1,
+        );
+        assert_missing_closing_error_on_line(
+            "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>\n</agentic-navigation-guideTYPO>",
+            4,
+        );
+    }
+
+    #[test]
+    fn test_rejects_bom_prefixed_marker_before_later_valid_block() {
+        for invalid_prologue in [
+            "\u{feff}<agentic-navigation-guide>",
+            "\u{feff}\u{feff}<agentic-navigation-guide>",
+            "\u{feff} \t\u{feff} <agentic-navigation-guide>",
+        ] {
+            let source = format!(
+                "{invalid_prologue}\n<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>"
+            );
+            assert_missing_opening_error_on_line(&source, 1);
+        }
+
+        assert_missing_closing_error_on_line(
+            "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>\n\u{feff}\u{feff}</agentic-navigation-guide>",
+            4,
+        );
+    }
+
+    #[test]
+    fn test_rejects_non_horizontal_outer_marker_whitespace() {
+        assert_missing_opening_error_on_line(
+            "\u{00a0}<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+            3,
+        );
+        assert_missing_opening_error_on_line(
+            "<agentic-navigation-guide>\u{00a0}\n- file.txt\n</agentic-navigation-guide>",
+            1,
+        );
+    }
+
+    #[test]
+    fn test_rejects_malformed_marker_candidate_inside_ignored_envelope() {
+        assert_missing_opening_error_on_line(
+            "<agentic-navigation-guide ignore=true>\n<agentic-navigation-guideTYPO>\n</agentic-navigation-guide>",
+            2,
+        );
+    }
+
+    #[test]
+    fn test_accepts_every_approved_marker_whitespace_and_quoting_form() {
+        for opening in [
+            "<agentic-navigation-guide>",
+            "<agentic-navigation-guide ignore=true>",
+            "<agentic-navigation-guide ignore=\"true\">",
+            "<agentic-navigation-guide   ignore = true  >",
+            "<agentic-navigation-guide\tignore\t=\t\"true\"\t>",
+        ] {
+            let source = format!(" \t{opening}\t \n- file.txt\n\t</agentic-navigation-guide> ");
+            let guide = Parser::new().parse(&source).unwrap();
+            assert_eq!(guide.ignore, opening != "<agentic-navigation-guide>");
+            assert_eq!(guide.items.len(), 1);
+
+            let crlf = source.replace('\n', "\r\n");
+            let crlf_guide = Parser::new().parse(&crlf).unwrap();
+            assert_eq!(crlf_guide.ignore, guide.ignore);
+            assert_eq!(crlf_guide.items, guide.items);
+        }
+    }
+
+    #[test]
+    fn test_rejects_lone_carriage_return_anywhere_in_document() {
+        for (source, line) in [
+            (
+                "prologue\rsuffix\n<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>",
+                1,
+            ),
+            (
+                "<agentic-navigation-guide>\n- file.txt # before\rafter\n</agentic-navigation-guide>",
+                2,
+            ),
+            (
+                "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide>\nepilogue\rsuffix",
+                4,
+            ),
+            (
+                "<agentic-navigation-guide\r>\n- file.txt\n</agentic-navigation-guide>",
+                1,
+            ),
+            (
+                "<agentic-navigation-guide>\n- file.txt\n</agentic-navigation-guide\r>",
+                3,
+            ),
+            (
+                "<agentic-navigation-guide ignore=true>\nopaque\rbody\n</agentic-navigation-guide>",
+                2,
+            ),
+        ] {
+            assert_missing_opening_error_on_line(source, line);
+        }
+    }
+
+    #[test]
     fn test_parse_with_comments() {
         let content = r#"<agentic-navigation-guide>
 - src/ # source code
@@ -1434,55 +1710,43 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ignore_attribute_with_mixed_attributes() {
+    fn test_parse_ignore_attribute_rejects_mixed_attributes() {
         let content = r#"<agentic-navigation-guide foo=bar ignore="true" notignore=true>
 - src/
   - main.rs
 </agentic-navigation-guide>"#;
 
-        let parser = Parser::new();
-        let guide = parser.parse(content).unwrap();
-        assert!(guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert_missing_opening_error_on_line(content, 1);
     }
 
     #[test]
-    fn test_parse_ignore_attribute_does_not_match_partial_key() {
+    fn test_parse_ignore_attribute_rejects_partial_key() {
         let content = r#"<agentic-navigation-guide notignore=true>
 - src/
   - main.rs
 </agentic-navigation-guide>"#;
 
-        let parser = Parser::new();
-        let guide = parser.parse(content).unwrap();
-        assert!(!guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert_missing_opening_error_on_line(content, 1);
     }
 
     #[test]
-    fn test_parse_ignore_attribute_requires_true_value() {
+    fn test_parse_ignore_attribute_rejects_false_value() {
         let content = r#"<agentic-navigation-guide ignore=false>
 - src/
   - main.rs
 </agentic-navigation-guide>"#;
 
-        let parser = Parser::new();
-        let guide = parser.parse(content).unwrap();
-        assert!(!guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert_missing_opening_error_on_line(content, 1);
     }
 
     #[test]
-    fn test_parse_ignore_attribute_with_unterminated_quote_does_not_enable_ignore() {
+    fn test_parse_ignore_attribute_rejects_unterminated_quote() {
         let content = r#"<agentic-navigation-guide ignore="true>
 - src/
   - main.rs
 </agentic-navigation-guide>"#;
 
-        let parser = Parser::new();
-        let guide = parser.parse(content).unwrap();
-        assert!(!guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert_missing_opening_error_on_line(content, 1);
     }
 
     #[test]
@@ -1499,29 +1763,23 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ignore_attribute_duplicate_keys_true_wins() {
+    fn test_parse_ignore_attribute_rejects_duplicate_keys() {
         let content = r#"<agentic-navigation-guide ignore=false ignore=true>
 - src/
   - main.rs
 </agentic-navigation-guide>"#;
 
-        let parser = Parser::new();
-        let guide = parser.parse(content).unwrap();
-        assert!(guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert_missing_opening_error_on_line(content, 1);
     }
 
     #[test]
-    fn test_parse_ignore_attribute_malformed_quoted_value_does_not_enable_ignore() {
+    fn test_parse_ignore_attribute_rejects_malformed_quoted_value() {
         let content = r#"<agentic-navigation-guide ignore="tr"ue">
 - src/
   - main.rs
 </agentic-navigation-guide>"#;
 
-        let parser = Parser::new();
-        let guide = parser.parse(content).unwrap();
-        assert!(!guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert_missing_opening_error_on_line(content, 1);
     }
 
     #[test]

@@ -211,9 +211,20 @@ This is particularly useful for:
 - **Invalid examples**: Intentionally incorrect guides used to demonstrate error cases
 - **Template files**: Guide templates that may not match the current filesystem
 
-The tool accepts both `ignore=true` and `ignore="true"` formats. In `0.1.4`,
-the body must still pass the parser's list grammar before the ignored result
-is available. After that parse, the tool will:
+The opening marker is exact: it may be bare, or contain exactly one
+`ignore=true` or `ignore="true"` attribute. Spaces or tabs may surround `=`,
+and the attributed form requires at least one space or tab after the marker
+name. Unknown, duplicate, concatenated, false-valued, single-quoted, and
+malformed attributes are rejected. The closing marker accepts no attributes.
+Only spaces and tabs may surround either complete marker on its line.
+
+LF and CRLF line endings are equivalent; a lone carriage return is rejected.
+After permitted outer spaces or tabs are removed, marker-like lines that begin
+with the exact opening or closing prefix are validated everywhere in the
+document, including the prologue, guide body, and epilogue.
+
+In `0.1.4`, the body must still pass the parser's list grammar before the
+ignored result is available. After that parse, the tool will:
 - Skip validator and filesystem verification
 - Emit a warning that the guide was skipped
 - Provide an additional note if the ignored guide is in a standalone `AGENTIC_NAVIGATION_GUIDE.md` file

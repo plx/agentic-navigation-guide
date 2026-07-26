@@ -311,8 +311,8 @@ pub(super) const CASES: &[OperationCase] = &[
         id: "operation-parse-lone-carriage-return",
         kind: OperationKind::ParseLoneCarriageReturn,
         normative: ExpectedOperationResult::Rejected,
-        current: ExpectedOperationResult::GeneratedPaths(&["file.txt"]),
-        pending_issue: Some(38),
+        current: ExpectedOperationResult::Rejected,
+        pending_issue: None,
     },
     OperationCase {
         id: "operation-parse-tab-name",

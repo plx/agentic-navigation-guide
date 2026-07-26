@@ -69,12 +69,16 @@ impl AppError {
 /// Syntax errors in navigation guide format
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SyntaxError {
-    /// Missing opening sentinel marker
-    #[error("line {line}: missing opening <agentic-navigation-guide> marker")]
+    /// Invalid guide document or missing opening sentinel marker
+    #[error(
+        "line {line}: invalid guide document or missing opening <agentic-navigation-guide> marker"
+    )]
     MissingOpeningMarker { line: usize },
 
-    /// Missing closing sentinel marker
-    #[error("line {line}: missing closing </agentic-navigation-guide> marker")]
+    /// Invalid guide document or missing closing sentinel marker
+    #[error(
+        "line {line}: invalid guide document or missing closing </agentic-navigation-guide> marker"
+    )]
     MissingClosingMarker { line: usize },
 
     /// Multiple guide blocks found
