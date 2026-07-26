@@ -13,6 +13,7 @@
     - check.rs # check subcommand
     - dump.rs # dump subcommand
     - init.rs # init subcommand
+    - output.rs # shared exclusive filesystem-output sink
     - verify.rs # verify subcommand
 - site/ # Astro/Starlight static site for GitHub Pages
   - .gitignore # site-local generated output ignores

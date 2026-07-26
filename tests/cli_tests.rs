@@ -1,10 +1,41 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
+use std::path::Path;
+use std::process::Output;
 use tempfile::TempDir;
 
 fn get_command() -> Command {
     Command::cargo_bin("agentic-navigation-guide").unwrap()
+}
+
+#[derive(Clone, Copy, Debug)]
+enum FileOutputCommand {
+    Init,
+    Dump,
+}
+
+const FILE_OUTPUT_COMMANDS: [FileOutputCommand; 2] =
+    [FileOutputCommand::Init, FileOutputCommand::Dump];
+
+fn run_file_output(
+    command: FileOutputCommand,
+    root: &Path,
+    output: &Path,
+    extra_args: &[&str],
+) -> Output {
+    let mut invocation = get_command();
+    invocation
+        .arg(match command {
+            FileOutputCommand::Init => "init",
+            FileOutputCommand::Dump => "dump",
+        })
+        .arg("--root")
+        .arg(root)
+        .arg("--output")
+        .arg(output)
+        .args(extra_args);
+    invocation.output().unwrap()
 }
 
 fn write_concatenated_ignore_bypass(
@@ -623,8 +654,847 @@ fn test_init_command_existing_output_file_reports_error() {
         .arg(dir_path)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("File already exists"))
+        .stderr(predicate::str::contains("already exists"))
         .stderr(predicate::str::contains("--force").not());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_init_rejects_dangling_output_symlink_without_creating_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = TempDir::new().unwrap();
+    let output_parent = TempDir::new().unwrap();
+    let external = TempDir::new().unwrap();
+    fs::write(root.path().join("input.txt"), "input").unwrap();
+
+    let external_target = external.path().join("must-not-be-created.md");
+    let output_link = output_parent.path().join("output-link.md");
+    symlink(&external_target, &output_link).unwrap();
+
+    let output = get_command()
+        .arg("init")
+        .arg("--root")
+        .arg(root.path())
+        .arg("--output")
+        .arg(&output_link)
+        .output()
+        .unwrap();
+
+    assert!(fs::symlink_metadata(&output_link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_link(&output_link).unwrap(), external_target);
+    assert!(
+        !external_target.exists(),
+        "init followed the dangling output symlink and created its external target"
+    );
+    assert!(!output.status.success());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_dump_rejects_dangling_output_symlink_without_creating_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = TempDir::new().unwrap();
+    let output_parent = TempDir::new().unwrap();
+    let external = TempDir::new().unwrap();
+    fs::write(root.path().join("input.txt"), "input").unwrap();
+
+    let external_target = external.path().join("must-not-be-created.md");
+    let output_link = output_parent.path().join("output-link.md");
+    symlink(&external_target, &output_link).unwrap();
+
+    let output = get_command()
+        .arg("dump")
+        .arg("--root")
+        .arg(root.path())
+        .arg("--output")
+        .arg(&output_link)
+        .output()
+        .unwrap();
+
+    assert!(fs::symlink_metadata(&output_link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_link(&output_link).unwrap(), external_target);
+    assert!(
+        !external_target.exists(),
+        "dump followed the dangling output symlink and created its external target"
+    );
+    assert!(!output.status.success());
+}
+
+#[test]
+fn test_dump_rejects_existing_regular_output_without_modifying_it() {
+    let root = TempDir::new().unwrap();
+    fs::write(root.path().join("input.txt"), "input").unwrap();
+
+    let output_path = root.path().join("existing.md");
+    let sentinel = b"existing output sentinel";
+    fs::write(&output_path, sentinel).unwrap();
+
+    let output = get_command()
+        .arg("dump")
+        .arg("--root")
+        .arg(root.path())
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&output_path).unwrap(), sentinel);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_init_rejects_link_ancestor_below_root_without_external_creation() {
+    use std::os::unix::fs::symlink;
+
+    let root = TempDir::new().unwrap();
+    let external = TempDir::new().unwrap();
+    fs::write(root.path().join("input.txt"), "input").unwrap();
+    symlink(external.path(), root.path().join("linked")).unwrap();
+
+    let output_path = root.path().join("linked/output.md");
+    let output = get_command()
+        .arg("init")
+        .arg("--root")
+        .arg(root.path())
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--exclude")
+        .arg("linked")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(!external.path().join("output.md").exists());
+}
+
+#[test]
+fn output_new_destination_matrix() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+
+        let in_root = root.path().join(format!("{command:?}-in-root.md"));
+        let result = run_file_output(command, root.path(), &in_root, &[]);
+        assert!(
+            result.status.success(),
+            "{command:?} did not create a new in-root destination: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let content = fs::read_to_string(&in_root).unwrap();
+        assert!(content.contains("<agentic-navigation-guide>"));
+        assert!(content.contains("- input.txt"));
+        assert!(
+            !content.contains(&format!("- {command:?}-in-root.md")),
+            "{command:?} included its absent destination in generated input"
+        );
+        assert!(fs::metadata(&in_root).unwrap().is_file());
+
+        let external = TempDir::new().unwrap();
+        let external_output = external.path().join(format!("{command:?}-external.md"));
+        let result = run_file_output(command, root.path(), &external_output, &[]);
+        assert!(
+            result.status.success(),
+            "{command:?} did not create an explicitly selected external destination: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(fs::metadata(external_output).unwrap().is_file());
+    }
+}
+
+#[test]
+fn output_existing_entry_matrix() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+
+        let regular = output_parent.path().join(format!("{command:?}-regular.md"));
+        fs::write(&regular, b"regular sentinel").unwrap();
+        let result = run_file_output(command, root.path(), &regular, &[]);
+        assert!(!result.status.success());
+        assert_eq!(fs::read(&regular).unwrap(), b"regular sentinel");
+
+        let directory = output_parent.path().join(format!("{command:?}-directory"));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("child"), b"directory sentinel").unwrap();
+        let result = run_file_output(command, root.path(), &directory, &[]);
+        assert!(!result.status.success());
+        assert!(directory.is_dir());
+        assert_eq!(
+            fs::read(directory.join("child")).unwrap(),
+            b"directory sentinel"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_existing_hard_link_matrix() {
+    use std::os::unix::fs::MetadataExt;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let source = output_parent.path().join(format!("{command:?}-source"));
+        let output = output_parent.path().join(format!("{command:?}-hard-link"));
+        fs::write(&source, b"hard-link sentinel").unwrap();
+        fs::hard_link(&source, &output).unwrap();
+        let identity = (
+            fs::metadata(&source).unwrap().dev(),
+            fs::metadata(&source).unwrap().ino(),
+        );
+
+        let result = run_file_output(command, root.path(), &output, &[]);
+
+        assert!(!result.status.success());
+        assert_eq!(fs::read(&source).unwrap(), b"hard-link sentinel");
+        assert_eq!(fs::read(&output).unwrap(), b"hard-link sentinel");
+        assert_eq!(
+            (
+                fs::metadata(&output).unwrap().dev(),
+                fs::metadata(&output).unwrap().ino()
+            ),
+            identity
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn output_existing_hard_link_matrix() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let source = output_parent.path().join(format!("{command:?}-source"));
+        let output = output_parent.path().join(format!("{command:?}-hard-link"));
+        fs::write(&source, b"hard-link sentinel").unwrap();
+        fs::hard_link(&source, &output).unwrap();
+
+        let result = run_file_output(command, root.path(), &output, &[]);
+
+        assert!(!result.status.success());
+        assert_eq!(fs::read(&source).unwrap(), b"hard-link sentinel");
+        assert_eq!(fs::read(&output).unwrap(), b"hard-link sentinel");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_final_link_matrix() {
+    use std::os::unix::fs::symlink;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        for relative in [false, true] {
+            let root = TempDir::new().unwrap();
+            fs::write(root.path().join("input.txt"), "input").unwrap();
+            let output_parent = TempDir::new().unwrap();
+            let target_parent = TempDir::new().unwrap();
+            let target = if relative {
+                output_parent
+                    .path()
+                    .join(format!("{command:?}-{relative}-target"))
+            } else {
+                target_parent
+                    .path()
+                    .join(format!("{command:?}-{relative}-target"))
+            };
+            let link = output_parent
+                .path()
+                .join(format!("{command:?}-{relative}-link"));
+            fs::write(&target, b"linked target sentinel").unwrap();
+            if relative {
+                symlink(target.file_name().unwrap(), &link).unwrap();
+            } else {
+                symlink(&target, &link).unwrap();
+            }
+            let original_target = fs::read_link(&link).unwrap();
+
+            let result = run_file_output(command, root.path(), &link, &[]);
+
+            assert!(!result.status.success());
+            assert!(fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(fs::read_link(&link).unwrap(), original_target);
+            assert_eq!(fs::read(&target).unwrap(), b"linked target sentinel");
+        }
+
+        let root = TempDir::new().unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let in_root_target = root.path().join("in-root-target");
+        fs::write(&in_root_target, b"in-root target sentinel").unwrap();
+        let in_root_link = output_parent
+            .path()
+            .join(format!("{command:?}-in-root-link"));
+        symlink(&in_root_target, &in_root_link).unwrap();
+        let result = run_file_output(command, root.path(), &in_root_link, &[]);
+        assert!(!result.status.success());
+        assert_eq!(
+            fs::read(in_root_target).unwrap(),
+            b"in-root target sentinel"
+        );
+
+        let directory_target = output_parent
+            .path()
+            .join(format!("{command:?}-target-directory"));
+        fs::create_dir(&directory_target).unwrap();
+        fs::write(directory_target.join("sentinel"), b"directory").unwrap();
+        let directory_link = output_parent
+            .path()
+            .join(format!("{command:?}-directory-link"));
+        symlink(&directory_target, &directory_link).unwrap();
+        let result = run_file_output(command, root.path(), &directory_link, &[]);
+        assert!(!result.status.success());
+        assert_eq!(
+            fs::read(directory_target.join("sentinel")).unwrap(),
+            b"directory"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_link_chain_and_loop_matrix() {
+    use std::os::unix::fs::symlink;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let terminal_parent = TempDir::new().unwrap();
+
+        let terminal = terminal_parent.path().join("must-not-be-created");
+        let second = output_parent.path().join(format!("{command:?}-second"));
+        let chain = output_parent.path().join(format!("{command:?}-chain"));
+        symlink(&terminal, &second).unwrap();
+        symlink(&second, &chain).unwrap();
+        let result = run_file_output(command, root.path(), &chain, &[]);
+        assert!(!result.status.success());
+        assert_eq!(fs::read_link(&chain).unwrap(), second);
+        assert!(!terminal.exists());
+
+        let first_loop = output_parent.path().join(format!("{command:?}-loop-a"));
+        let second_loop = output_parent.path().join(format!("{command:?}-loop-b"));
+        symlink(&second_loop, &first_loop).unwrap();
+        symlink(&first_loop, &second_loop).unwrap();
+        let result = run_file_output(command, root.path(), &first_loop, &[]);
+        assert!(!result.status.success());
+        assert_eq!(fs::read_link(&first_loop).unwrap(), second_loop);
+        assert_eq!(fs::read_link(&second_loop).unwrap(), first_loop);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_existing_special_entry_matrix() {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::FileTypeExt;
+    use std::os::unix::net::UnixListener;
+    use std::process::Command as ProcessCommand;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+
+        let fifo = output_parent.path().join(format!("{command:?}-fifo"));
+        let mkfifo = ProcessCommand::new("mkfifo").arg(&fifo).output().unwrap();
+        assert!(
+            mkfifo.status.success(),
+            "mkfifo unavailable: {}",
+            String::from_utf8_lossy(&mkfifo.stderr)
+        );
+        // Keep both ends open so an implementation that incorrectly opens
+        // the FIFO for writing returns and fails the sentinel checks instead
+        // of hanging the regression suite.
+        let fifo_guard = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fifo)
+            .unwrap();
+        let result = run_file_output(command, root.path(), &fifo, &[]);
+        assert!(!result.status.success());
+        assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+        drop(fifo_guard);
+
+        let socket = output_parent.path().join(format!("{command:?}-socket"));
+        let listener = UnixListener::bind(&socket).unwrap();
+        let result = run_file_output(command, root.path(), &socket, &[]);
+        assert!(!result.status.success());
+        assert!(fs::symlink_metadata(&socket)
+            .unwrap()
+            .file_type()
+            .is_socket());
+        drop(listener);
+
+        let null_device = Path::new("/dev/null");
+        assert!(fs::symlink_metadata(null_device)
+            .unwrap()
+            .file_type()
+            .is_char_device());
+        let result = run_file_output(command, root.path(), null_device, &[]);
+        assert!(!result.status.success());
+    }
+}
+
+#[test]
+fn output_missing_parent_matrix() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let missing_parent = output_parent.path().join("missing/nested");
+        let output = missing_parent.join(format!("{command:?}.md"));
+
+        let result = run_file_output(command, root.path(), &output, &[]);
+
+        assert!(!result.status.success());
+        assert!(!missing_parent.exists());
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn output_terminal_dot_component_never_retargets_the_parent_name() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let unintended_name = output_parent
+            .path()
+            .join(format!("{command:?}-must-not-exist"));
+        let requested = unintended_name.join(".");
+
+        let result = run_file_output(command, root.path(), &requested, &[]);
+
+        assert!(!result.status.success());
+        assert!(
+            !unintended_name.exists(),
+            "{command:?} retargeted a terminal dot component to its parent name"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_read_only_parent_matrix() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = TempDir::new().unwrap();
+    fs::write(root.path().join("input.txt"), "input").unwrap();
+    let output_parent = TempDir::new().unwrap();
+    let original_permissions = fs::metadata(output_parent.path()).unwrap().permissions();
+    fs::set_permissions(output_parent.path(), fs::Permissions::from_mode(0o555)).unwrap();
+
+    let observations: Vec<_> = FILE_OUTPUT_COMMANDS
+        .into_iter()
+        .map(|command| {
+            let output = output_parent.path().join(format!("{command:?}.md"));
+            let result = run_file_output(command, root.path(), &output, &[]);
+            (command, result.status.success(), output.exists())
+        })
+        .collect();
+
+    fs::set_permissions(output_parent.path(), original_permissions).unwrap();
+    for (command, succeeded, exists) in observations {
+        assert!(!succeeded, "{command:?} accepted a read-only parent");
+        assert!(!exists, "{command:?} left output in a read-only parent");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_in_root_link_ancestor_matrix() {
+    use std::os::unix::fs::symlink;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        for target_kind in ["in-root", "external", "dangling"] {
+            let root = TempDir::new().unwrap();
+            fs::write(root.path().join("input.txt"), "input").unwrap();
+            let external = TempDir::new().unwrap();
+            let in_root_target = root.path().join("real");
+            fs::create_dir(&in_root_target).unwrap();
+            let target = match target_kind {
+                "in-root" => in_root_target,
+                "external" => external.path().to_path_buf(),
+                "dangling" => external.path().join("missing"),
+                _ => unreachable!(),
+            };
+            let linked = root.path().join("linked");
+            symlink(&target, &linked).unwrap();
+            let output = linked.join(format!("{command:?}.md"));
+
+            let result = run_file_output(command, root.path(), &output, &["--exclude", "linked"]);
+
+            assert!(
+                !result.status.success(),
+                "{command:?} accepted a {target_kind} link ancestor"
+            );
+            assert!(!target.join(format!("{command:?}.md")).exists());
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_external_link_ancestor_matrix() {
+    use std::os::unix::fs::symlink;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let link_parent = TempDir::new().unwrap();
+        let external = TempDir::new().unwrap();
+        let linked = link_parent.path().join("explicit-external-link");
+        symlink(external.path(), &linked).unwrap();
+        let output = linked.join(format!("{command:?}.md"));
+
+        let result = run_file_output(command, root.path(), &output, &[]);
+
+        assert!(
+            result.status.success(),
+            "{command:?} rejected an explicitly selected external link ancestor: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(external.path().join(format!("{command:?}.md")).is_file());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_root_alias_matrix() {
+    use std::os::unix::fs::symlink;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let real_root = TempDir::new().unwrap();
+        fs::write(real_root.path().join("input.txt"), "input").unwrap();
+        let alias_parent = TempDir::new().unwrap();
+        let root_alias = alias_parent.path().join("selected-root-alias");
+        symlink(real_root.path(), &root_alias).unwrap();
+        let output = root_alias.join(format!("{command:?}.md"));
+
+        let result = run_file_output(command, &root_alias, &output, &[]);
+
+        assert!(
+            result.status.success(),
+            "{command:?} rejected a destination beneath the selected root alias: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(real_root.path().join(format!("{command:?}.md")).is_file());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_preserves_selected_root_spelling_with_unresolved_parent_components() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let base = TempDir::new().unwrap();
+        fs::create_dir(base.path().join("anchor")).unwrap();
+        fs::create_dir(base.path().join("real-child")).unwrap();
+        fs::write(base.path().join("input.txt"), "input").unwrap();
+        let root_spelling = base.path().join("anchor/..");
+        let output = root_spelling
+            .join("real-child")
+            .join(format!("{command:?}.md"));
+
+        let result = run_file_output(command, &root_spelling, &output, &[]);
+
+        assert!(
+            result.status.success(),
+            "{command:?} normalized the selected root spelling before authority classification: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(base
+            .path()
+            .join("real-child")
+            .join(format!("{command:?}.md"))
+            .is_file());
+    }
+}
+
+#[test]
+fn explicit_output_with_parent_tail_receives_external_authority() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let base = TempDir::new().unwrap();
+        let root = base.path().join("root");
+        let outside = base.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(root.join("input.txt"), "input").unwrap();
+        let output = root
+            .join("..")
+            .join("outside")
+            .join(format!("{command:?}.md"));
+
+        let result = run_file_output(command, &root, &output, &[]);
+
+        assert!(
+            result.status.success(),
+            "{command:?} did not treat a parent-component tail as an explicit external grant: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(outside.join(format!("{command:?}.md")).is_file());
+    }
+}
+
+#[test]
+fn output_preflight_and_generation_order_matrix() {
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+
+        let existing = root.path().join(format!("{command:?}-existing.md"));
+        fs::write(&existing, b"preflight sentinel").unwrap();
+        let result = run_file_output(command, root.path(), &existing, &["--exclude", "["]);
+        let diagnostics = String::from_utf8_lossy(&result.stderr);
+        assert!(!result.status.success());
+        assert!(
+            diagnostics.contains("already exists"),
+            "{command:?} generated before rejecting a pre-existing output: {diagnostics}"
+        );
+        assert!(!diagnostics.contains("glob pattern"));
+        assert_eq!(fs::read(existing).unwrap(), b"preflight sentinel");
+
+        let absent = root
+            .path()
+            .join(format!("{command:?}-generation-failure.md"));
+        let result = run_file_output(command, root.path(), &absent, &["--exclude", "["]);
+        assert!(!result.status.success());
+        assert!(
+            String::from_utf8_lossy(&result.stderr).contains("glob pattern"),
+            "{command:?} did not surface the injected generation failure"
+        );
+        assert!(
+            !absent.exists(),
+            "{command:?} created output before generation completed"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn init_competing_creator_never_gets_overwritten_in_100_races() {
+    use std::fs::OpenOptions;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::{Command as ProcessCommand, Stdio};
+
+    let root = TempDir::new().unwrap();
+    for index in 0..500 {
+        fs::write(root.path().join(format!("input-{index:03}.txt")), "input").unwrap();
+    }
+    let output_parent = TempDir::new().unwrap();
+    let competitor_bytes = b"competing creator sentinel";
+
+    for iteration in 0..100 {
+        let output = output_parent.path().join(format!("race-{iteration:03}.md"));
+        let mut child = ProcessCommand::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+            .arg("init")
+            .arg("--root")
+            .arg(root.path())
+            .arg("--output")
+            .arg(&output)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let mut stderr = BufReader::new(stderr);
+        let mut diagnostics = String::new();
+        loop {
+            let mut line = String::new();
+            let read = stderr.read_line(&mut line).unwrap();
+            diagnostics.push_str(&line);
+            if line.contains("Initializing navigation guide") || read == 0 {
+                break;
+            }
+        }
+        assert!(
+            diagnostics.contains("Initializing navigation guide"),
+            "init exited before reaching generation in race {iteration}: {diagnostics}"
+        );
+
+        let competitor = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output);
+        let competitor_won = match competitor {
+            Ok(mut file) => {
+                file.write_all(competitor_bytes).unwrap();
+                file.flush().unwrap();
+                file.sync_data().unwrap();
+                true
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+            Err(error) => panic!("unexpected competing create error in race {iteration}: {error}"),
+        };
+
+        stderr.read_to_string(&mut diagnostics).unwrap();
+        let status = child.wait().unwrap();
+        assert_ne!(
+            status.success(),
+            competitor_won,
+            "race {iteration} did not produce exactly one successful creator: {diagnostics}"
+        );
+        let bytes = fs::read(&output).unwrap();
+        if competitor_won {
+            assert_eq!(
+                bytes, competitor_bytes,
+                "init overwrote the competing winner in race {iteration}"
+            );
+        } else {
+            assert!(
+                bytes.starts_with(b"# Agentic Navigation Guide"),
+                "init won race {iteration} but its bytes were not retained"
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_output_reparse_matrix() {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let external = TempDir::new().unwrap();
+
+        let existing_target = external.path().join(format!("{command:?}-target"));
+        fs::write(&existing_target, b"Windows target sentinel").unwrap();
+        let file_link = output_parent.path().join(format!("{command:?}-file-link"));
+        symlink_file(&existing_target, &file_link)
+            .expect("Windows file-symlink capability is required for output trust evidence");
+        let result = run_file_output(command, root.path(), &file_link, &[]);
+        assert!(!result.status.success());
+        assert_eq!(
+            fs::read(&existing_target).unwrap(),
+            b"Windows target sentinel"
+        );
+
+        let dangling_target = external.path().join(format!("{command:?}-missing"));
+        let dangling_link = output_parent
+            .path()
+            .join(format!("{command:?}-dangling-link"));
+        symlink_file(&dangling_target, &dangling_link)
+            .expect("Windows dangling-symlink capability is required for output trust evidence");
+        let result = run_file_output(command, root.path(), &dangling_link, &[]);
+        assert!(!result.status.success());
+        assert!(!dangling_target.exists());
+
+        let directory_target = external
+            .path()
+            .join(format!("{command:?}-directory-target"));
+        fs::create_dir(&directory_target).unwrap();
+        fs::write(directory_target.join("sentinel"), b"directory").unwrap();
+        let directory_link = output_parent
+            .path()
+            .join(format!("{command:?}-directory-link"));
+        symlink_dir(&directory_target, &directory_link)
+            .expect("Windows directory-symlink capability is required for output trust evidence");
+        let result = run_file_output(command, root.path(), &directory_link, &[]);
+        assert!(!result.status.success());
+        assert_eq!(
+            fs::read(directory_target.join("sentinel")).unwrap(),
+            b"directory"
+        );
+
+        let in_root_link = root.path().join(format!("{command:?}-linked"));
+        symlink_dir(external.path(), &in_root_link)
+            .expect("Windows ancestor-reparse capability is required for output trust evidence");
+        let in_root_output = in_root_link.join("must-not-be-created.md");
+        let result = run_file_output(
+            command,
+            root.path(),
+            &in_root_output,
+            &["--exclude", &format!("{command:?}-linked")],
+        );
+        assert!(!result.status.success());
+        assert!(!external.path().join("must-not-be-created.md").exists());
+
+        let external_link = output_parent
+            .path()
+            .join(format!("{command:?}-external-link"));
+        symlink_dir(external.path(), &external_link)
+            .expect("Windows external-reparse capability is required for output trust evidence");
+        let external_output = external_link.join(format!("{command:?}-allowed.md"));
+        let result = run_file_output(command, root.path(), &external_output, &[]);
+        assert!(
+            result.status.success(),
+            "explicit external Windows reparse ancestor was rejected: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(external
+            .path()
+            .join(format!("{command:?}-allowed.md"))
+            .is_file());
+
+        let alias_root_target = TempDir::new().unwrap();
+        fs::write(alias_root_target.path().join("input.txt"), "input").unwrap();
+        let alias_parent = TempDir::new().unwrap();
+        let root_alias = alias_parent.path().join(format!("{command:?}-root-alias"));
+        symlink_dir(alias_root_target.path(), &root_alias)
+            .expect("Windows root-alias capability is required for output trust evidence");
+        let alias_output = root_alias.join(format!("{command:?}-alias-output.md"));
+        let result = run_file_output(command, &root_alias, &alias_output, &[]);
+        assert!(
+            result.status.success(),
+            "Windows selected-root alias was rejected: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_output_namespaces_and_streams_reject_before_access() {
+    use std::path::PathBuf;
+
+    for command in FILE_OUTPUT_COMMANDS {
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("input.txt"), "input").unwrap();
+        let output_parent = TempDir::new().unwrap();
+        let base = output_parent.path().join(format!("{command:?}-base.txt"));
+        let ads = PathBuf::from(format!("{}:secret", base.display()));
+
+        for output in [
+            ads,
+            output_parent.path().join("NUL.txt"),
+            output_parent.path().join("CONIN$.txt"),
+            output_parent.path().join("CONOUT$"),
+            output_parent.path().join("COM¹.log"),
+            output_parent.path().join("bad?.md"),
+            output_parent.path().join("bad|name.md"),
+            PathBuf::from(r"\\.\NUL"),
+            PathBuf::from(r"\\.\pipe\agentic-navigation-guide-test"),
+            PathBuf::from(r"\\localhost\pipe\agentic-navigation-guide-test"),
+            PathBuf::from(r"\\localhost\mailslot\agentic-navigation-guide-test"),
+            PathBuf::from(r"\\localhost\IPC$\agentic-navigation-guide-test"),
+            PathBuf::from(r"//?/GLOBALROOT/Device/HarddiskVolume1/agentic-navigation-guide-test"),
+            PathBuf::from(r"\\?\C:\agentic-navigation-guide-test.md"),
+            PathBuf::from(r"\??\C:\agentic-navigation-guide-test.md"),
+        ] {
+            let result = run_file_output(command, root.path(), &output, &[]);
+            assert!(
+                !result.status.success(),
+                "{command:?} accepted unsafe Windows output {output:?}"
+            );
+        }
+        assert!(!base.exists());
+    }
 }
 
 #[test]

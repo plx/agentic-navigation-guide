@@ -10,6 +10,7 @@ dependencies = [
  "clap",
  "env_logger",
  "globset",
+ "libc",
  "log",
  "predicates",
  "quote",
@@ -19,6 +20,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "walkdir",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

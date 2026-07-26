@@ -1,7 +1,8 @@
 //! Init subcommand implementation
 
+use super::output;
 use agentic_navigation_guide::dumper::Dumper;
-use agentic_navigation_guide::errors::{AppError, Result};
+use agentic_navigation_guide::errors::Result;
 use agentic_navigation_guide::types::Config;
 use clap::Args;
 use std::path::PathBuf;
@@ -12,7 +13,7 @@ const DEFAULT_VCS_EXCLUDES: &[&str] = &[".git", ".svn", ".hg", ".bzr", "CVS", "_
 /// Arguments for the init subcommand
 #[derive(Args, Debug)]
 pub struct InitArgs {
-    /// Output file path (required)
+    /// New output file path; existing entries are never overwritten
     #[arg(short, long)]
     pub output: PathBuf,
 
@@ -41,41 +42,39 @@ pub struct InitArgs {
 impl InitArgs {
     /// Execute the init command
     pub fn execute(self, _config: &Config) -> Result<()> {
-        // Check if output file already exists
-        if self.output.exists() {
-            return Err(AppError::Other(format!(
-                "File already exists: {}. Choose a different --output path or remove the existing file.",
-                self.output.display()
-            )));
-        }
+        let Self {
+            output: output_path,
+            depth,
+            exclude,
+            indent,
+            root,
+            include_vcs_directories,
+        } = self;
 
         // Determine root path
-        let root_path = match self.root {
+        let root_path = match root {
             Some(root) => root,
             None => std::env::current_dir()?,
         };
 
-        log::info!("Initializing navigation guide for: {}", root_path.display());
-
         // Build exclude patterns: VCS directories (unless --include-vcs-directories) + user patterns
         let mut exclude_patterns = Vec::new();
-        if !self.include_vcs_directories {
+        if !include_vcs_directories {
             exclude_patterns.extend(DEFAULT_VCS_EXCLUDES.iter().map(|s| s.to_string()));
         }
-        exclude_patterns.extend(self.exclude);
+        exclude_patterns.extend(exclude);
 
-        // Create dumper
-        let dumper = Dumper::new(&root_path)
-            .with_max_depth(self.depth)
-            .with_exclude_patterns(&exclude_patterns)?
-            .with_indent_size(self.indent);
+        output::generate_to_file(&root_path, &output_path, || {
+            log::info!("Initializing navigation guide for: {}", root_path.display());
 
-        // Generate output with wrapper (always include for init)
-        let output = dumper.dump_with_wrapper()?;
+            let dumper = Dumper::new(&root_path)
+                .with_max_depth(depth)
+                .with_exclude_patterns(&exclude_patterns)?
+                .with_indent_size(indent);
+            let output = dumper.dump_with_wrapper()?;
 
-        // Add header and footer
-        let full_output = format!(
-            r#"# Agentic Navigation Guide
+            let full_output = format!(
+                r#"# Agentic Navigation Guide
 
 This navigation guide helps AI coding assistants understand the structure of this project.
 The listing below may be incomplete and highlights key files and directories.
@@ -84,14 +83,13 @@ The listing below may be incomplete and highlights key files and directories.
 
 Note: This guide was automatically generated and may need manual adjustments.
 "#
-        );
+            );
 
-        // Write output
-        log::info!("Writing navigation guide to: {}", self.output.display());
-        std::fs::write(&self.output, full_output)?;
+            log::info!("Writing navigation guide to: {}", output_path.display());
+            Ok(full_output.into_bytes())
+        })?;
 
-        println!("Navigation guide created at: {}", self.output.display());
-
+        println!("Navigation guide created at: {}", output_path.display());
         Ok(())
     }
 }

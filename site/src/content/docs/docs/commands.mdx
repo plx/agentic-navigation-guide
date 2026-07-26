@@ -12,7 +12,7 @@ The CLI exposes four main commands.
 Create a starting `AGENTIC_NAVIGATION_GUIDE.md` from the current repository tree.
 
 ```sh
-agentic-navigation-guide init
+agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md
 ```
 
 ## `check`
@@ -44,3 +44,41 @@ Print the current directory structure in navigation-guide format.
 ```sh
 agentic-navigation-guide dump
 ```
+
+To create a new output file instead of writing to stdout:
+
+```sh
+agentic-navigation-guide dump --output tree.md
+```
+
+## File-output safety
+
+`init --output` and `dump --output` only create a destination whose final name
+is absent. They never overwrite or follow an existing file, directory, link or
+reparse entry, dangling link, or special entry, and there is no force mode. The
+parent directory must already exist and be writable.
+
+An output beneath the selected generation root cannot traverse a link or
+reparse ancestor. An explicitly selected external output may use a stable
+resolved link ancestor. The full guide is generated before one exclusive
+create; writes, flush, and data synchronization complete before success.
+Identity-safe cleanup removes a failed command's own artifact without deleting
+an entry whose observed identity differs from the one it created.
+
+These checks assume a stable filesystem while the command runs; they are not a
+sandbox against hostile ancestor or identity replacement, including a
+replacement between the cleanup identity check and removal.
+
+Exclusive creation protects ownership of the final name, not atomic content
+publication: a concurrent reader can see in-progress content. The parent
+directory is not synchronized, so immediate-failure crash durability is not
+promised.
+
+Unix and macOS use non-following classification and exclusive no-follow
+creation. A parent with no declared write bit or search bit is treated as
+read-only even when a privileged identity could bypass discretionary access
+control, and an otherwise eligible parent must pass the current identity's
+access check. Windows additionally rejects reparse descendants, alternate
+data streams, device/named-pipe namespaces, reserved DOS device aliases, and
+unsupported verbatim prefixes, then validates that the new handle is a regular
+disk file.
