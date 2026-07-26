@@ -32,7 +32,7 @@ pub struct InitArgs {
     pub indent: usize,
 
     /// Readable root directory; empty or fully excluded generation fails
-    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
+    #[arg(short, long)]
     pub root: Option<PathBuf>,
 
     /// Include version control system directories (e.g., .git, .svn, .hg)

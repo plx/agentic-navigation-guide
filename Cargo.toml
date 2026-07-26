@@ -15,7 +15,7 @@ name = "agentic-navigation-guide"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.5", features = ["derive"] }
 thiserror = "1.0"
 walkdir = "2.5"
 globset = "0.4"

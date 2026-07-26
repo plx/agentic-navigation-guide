@@ -117,12 +117,7 @@ fn finish_empty_discovery(error: NoGuidesFound, allow_empty: bool, config: &Conf
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
     /// Path to the navigation guide file
-    #[arg(
-        short,
-        long,
-        env = "AGENTIC_NAVIGATION_GUIDE_PATH",
-        conflicts_with = "recursive"
-    )]
+    #[arg(short, long, conflicts_with = "recursive")]
     pub guide: Option<PathBuf>,
 
     /// Fail when any discovered guide is marked with ignore=true
@@ -130,7 +125,7 @@ pub struct VerifyArgs {
     pub deny_ignored: bool,
 
     /// Root directory for verification
-    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
+    #[arg(short, long)]
     pub root: Option<PathBuf>,
 
     /// Recursively find and verify all navigation guides
@@ -138,7 +133,7 @@ pub struct VerifyArgs {
     pub recursive: bool,
 
     /// Name of the navigation guide file to search for (only used with --recursive)
-    #[arg(long, requires = "recursive", env = "AGENTIC_NAVIGATION_GUIDE_NAME")]
+    #[arg(long, requires = "recursive")]
     pub guide_name: Option<String>,
 
     /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
@@ -190,7 +185,9 @@ impl VerifyArgs {
                 (path.clone(), path, GuideAuthority::Explicit)
             }
             None => {
-                let name = super::implicit_guide_name().map_err(report_guide_input_error)?;
+                let name = self
+                    .guide_name
+                    .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
                 guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
                 (
                     root_path.join(&name),
@@ -329,7 +326,7 @@ impl VerifyArgs {
         // Determine the guide name to search for
         let guide_name = self
             .guide_name
-            .unwrap_or_else(|| "AGENTIC_NAVIGATION_GUIDE.md".to_string());
+            .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
 
         log::debug!(
             "Recursively searching for {} guides in {}",
