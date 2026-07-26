@@ -1036,18 +1036,30 @@ fn api_ledger_matches_current_rust_source_and_cargo_target() {
 
 #[test]
 fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
+    let unique_realized_ids = REALIZED_API_REMOVAL_IDS
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        unique_realized_ids.len(),
+        REALIZED_API_REMOVAL_IDS.len(),
+        "the realized-removal ID set contains a duplicate"
+    );
+
     let realized_rows = api_fixtures::CASES
         .iter()
         .filter(|case| REALIZED_API_REMOVAL_IDS.contains(&case.id))
         .collect::<Vec<_>>();
     assert_eq!(
         realized_rows.len(),
-        1,
-        "#52 must retain exactly one historical disposition row"
+        REALIZED_API_REMOVAL_IDS.len(),
+        "every realized-removal ID must resolve to exactly one historical disposition row"
     );
 
-    let row = realized_rows[0];
-    assert_eq!(row.id, "api-method-navigation-guide-get-full-path");
+    let row = realized_rows
+        .iter()
+        .find(|case| case.id == "api-method-navigation-guide-get-full-path")
+        .expect("#52's historical disposition row");
     assert_eq!(row.kind, ApiKind::Method);
     assert_eq!(row.disposition, ApiDisposition::RemoveIncorrectMethod);
     assert_eq!(

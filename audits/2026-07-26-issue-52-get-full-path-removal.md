@@ -95,26 +95,30 @@ The current Cargo metadata must still expose exactly one legacy library
 target. Removing that target or making the other 129 #54-owned rows internal
 remains #54 work.
 
-### Packaged downstream negative consumer
+### Packaged downstream positive control and negative consumer
 
 `issue_52_packaged_downstream_consumer_cannot_call_removed_method` runs the
 real locked, offline `cargo package` workflow in an isolated target directory.
-It resolves the verified unpacked artifact as a path dependency and compiles a
-consumer that constructs the transitional model and calls `get_full_path`.
+It resolves the verified unpacked artifact as a path dependency. A positive
+control first imports and constructs the transitional model without the
+removed call and must compile successfully. The negative consumer changes only
+the final expression to call `get_full_path`.
 
 The post-removal build must fail specifically with the compiler diagnostic
 containing both:
 
 ```text
+error[E0599]
 no method named `get_full_path`
 NavigationGuide
 ```
 
-That exact diagnostic proves the package and type resolved and the selected
-method alone is unavailable. It is negative migration evidence for the
-temporary linkable source package, not a supported v0.2 Rust facade. #54 owns
-migrating or retiring this method-specific test when it removes the library
-target; #62 owns the final binary-only packaged-consumer proof.
+The positive control and exact, color-disabled diagnostic prove that the
+package and type resolved and the selected method alone is unavailable. This
+is negative migration evidence for the temporary linkable source package, not
+a supported v0.2 Rust facade. #54 owns migrating or retiring this
+method-specific test when it removes the library target; #62 owns the final
+binary-only packaged-consumer proof.
 
 ## Migration and Documentation
 
@@ -154,7 +158,7 @@ This change also does not:
 
 | Command | Result |
 | --- | --- |
-| `cargo test --locked issue_52 -- --nocapture` | Pass: packaged negative consumer and exact source/ledger test |
+| `cargo test --locked issue_52 -- --nocapture` | Pass: packaged positive control, negative consumer, and exact source/ledger test |
 | `GUIDE_FORMAT_REQUIRE_CONFORMANCE=all cargo test --test v0_2_contract --locked -- --nocapture` | Pass: 43 tests; frozen 132-row ledger |
 | Debug all-target/all-feature suite | Pass: 329 tests, 2 intentional ignores |
 | Release all-target/all-feature suite | Pass: 329 tests, 2 intentional ignores |

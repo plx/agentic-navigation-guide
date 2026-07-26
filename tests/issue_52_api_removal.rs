@@ -7,6 +7,7 @@ fn run_consumer_check(consumer: &Path, target: &Path) -> Output {
     Command::new(env!("CARGO"))
         .args(["check", "--offline"])
         .current_dir(consumer)
+        .env("CARGO_TERM_COLOR", "never")
         .env("CARGO_TARGET_DIR", target)
         .output()
         .expect("run downstream cargo check")
@@ -67,9 +68,7 @@ fn issue_52_packaged_downstream_consumer_cannot_call_removed_method() {
     )
     .expect("consumer manifest");
 
-    let consumer_target = temp.path().join("consumer-target");
-    fs::write(
-        consumer.join("src/main.rs"),
+    let consumer_source_prefix =
         "use agentic_navigation_guide::{FilesystemItem, NavigationGuide, NavigationGuideLine};\n\
          fn main() {\n\
              let guide = NavigationGuide::new();\n\
@@ -77,9 +76,25 @@ fn issue_52_packaged_downstream_consumer_cannot_call_removed_method() {
                  line_number: 1,\n\
                  indent_level: 0,\n\
                  item: FilesystemItem::File { path: \"child.txt\".into(), comment: None },\n\
-             };\n\
-             let _path = guide.get_full_path(&item);\n\
-         }\n",
+             };\n";
+    let consumer_target = temp.path().join("consumer-target");
+    fs::write(
+        consumer.join("src/main.rs"),
+        format!("{consumer_source_prefix}    let _path = (&guide, &item);\n}}\n"),
+    )
+    .expect("positive consumer source");
+    let positive = run_consumer_check(&consumer, &consumer_target);
+    assert!(
+        positive.status.success(),
+        "the packaged crate did not compile for the same downstream consumer without the removed \
+         method call\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&positive.stdout),
+        String::from_utf8_lossy(&positive.stderr)
+    );
+
+    fs::write(
+        consumer.join("src/main.rs"),
+        format!("{consumer_source_prefix}    let _path = guide.get_full_path(&item);\n}}\n"),
     )
     .expect("negative consumer source");
     let negative = run_consumer_check(&consumer, &consumer_target);
@@ -89,7 +104,8 @@ fn issue_52_packaged_downstream_consumer_cannot_call_removed_method() {
     );
     let diagnostic = String::from_utf8_lossy(&negative.stderr);
     assert!(
-        diagnostic.contains("no method named `get_full_path`")
+        diagnostic.contains("error[E0599]")
+            && diagnostic.contains("no method named `get_full_path`")
             && diagnostic.contains("NavigationGuide"),
         "the negative consumer failed for an unrelated reason:\n{diagnostic}"
     );
