@@ -34,4 +34,16 @@ The repository also uses a local verification workflow that builds the crate and
 cargo run --release -- verify --github-actions-check
 ```
 
+For a monorepo, require recursive discovery as part of the gate:
+
+```yaml
+- run: agentic-navigation-guide verify --recursive --github-actions-check
+```
+
+Do not add `--allow-empty` to a required CI check. Recursive verification
+fails when it discovers zero guides, which keeps a wrong root or guide name,
+an overly broad exclusion, or deletion of the final guide from turning the gate
+into a successful no-op. `--allow-empty` is reserved for searches the workflow
+intentionally treats as optional.
+
 For agent workflows, the same verification can run after file-writing tools so navigation drift is caught while the work is still fresh.

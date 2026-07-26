@@ -84,6 +84,9 @@ cargo run -- verify --github-actions-check
 cargo run -- verify --recursive
 cargo run -- verify --recursive --guide-name GUIDE.md --exclude target --exclude node_modules
 
+# Only for an intentionally optional recursive search; required CI must omit it
+cargo run -- verify --recursive --allow-empty
+
 # Initialize new guide file
 cargo run -- init --output AGENTIC_NAVIGATION_GUIDE.md
 ```

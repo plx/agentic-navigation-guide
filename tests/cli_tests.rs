@@ -1,12 +1,176 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 use tempfile::TempDir;
 
 fn get_command() -> Command {
     Command::cargo_bin("agentic-navigation-guide").unwrap()
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RecursiveZeroMode {
+    Default,
+    Quiet,
+    PostToolUse,
+    PreCommit,
+    GitHubActions,
+}
+
+const RECURSIVE_ZERO_MODES: [RecursiveZeroMode; 5] = [
+    RecursiveZeroMode::Default,
+    RecursiveZeroMode::Quiet,
+    RecursiveZeroMode::PostToolUse,
+    RecursiveZeroMode::PreCommit,
+    RecursiveZeroMode::GitHubActions,
+];
+
+impl RecursiveZeroMode {
+    fn configure(self, command: &mut Command) {
+        match self {
+            Self::Default => {}
+            Self::Quiet => {
+                command.arg("--quiet");
+            }
+            Self::PostToolUse => {
+                command.arg("--post-tool-use-hook");
+            }
+            Self::PreCommit => {
+                command.arg("--pre-commit-hook");
+            }
+            Self::GitHubActions => {
+                command.arg("--github-actions-check");
+            }
+        }
+    }
+
+    fn failure_code(self) -> i32 {
+        match self {
+            Self::PostToolUse => 2,
+            _ => 1,
+        }
+    }
+
+    fn is_quiet(self) -> bool {
+        matches!(self, Self::Quiet)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ZeroDiscoveryCase {
+    EmptyTree,
+    NoMatchingGuide,
+    TypoInGuideName,
+    WrongRoot,
+    AllGuidesExcluded,
+    LastGuideDeleted,
+}
+
+const ZERO_DISCOVERY_CASES: [ZeroDiscoveryCase; 6] = [
+    ZeroDiscoveryCase::EmptyTree,
+    ZeroDiscoveryCase::NoMatchingGuide,
+    ZeroDiscoveryCase::TypoInGuideName,
+    ZeroDiscoveryCase::WrongRoot,
+    ZeroDiscoveryCase::AllGuidesExcluded,
+    ZeroDiscoveryCase::LastGuideDeleted,
+];
+
+struct ZeroDiscoveryFixture {
+    _temp: TempDir,
+    search_root: PathBuf,
+    guide_name: &'static str,
+    exclusions: Vec<&'static str>,
+}
+
+impl ZeroDiscoveryCase {
+    fn fixture(self) -> ZeroDiscoveryFixture {
+        const DEFAULT_NAME: &str = "AGENTIC_NAVIGATION_GUIDE.md";
+        const TYPO_NAME: &str = "AGENTIC_NAVIGATION_GUDIE.md";
+        const VALID_GUIDE: &str =
+            "<agentic-navigation-guide>\n- payload.txt\n</agentic-navigation-guide>";
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let mut search_root = root.to_path_buf();
+        let mut guide_name = DEFAULT_NAME;
+        let mut exclusions = Vec::new();
+
+        match self {
+            Self::EmptyTree => {}
+            Self::NoMatchingGuide => {
+                fs::write(root.join("README.md"), "not a navigation guide").unwrap();
+            }
+            Self::TypoInGuideName => {
+                fs::write(root.join("payload.txt"), "").unwrap();
+                fs::write(root.join(DEFAULT_NAME), VALID_GUIDE).unwrap();
+                guide_name = TYPO_NAME;
+            }
+            Self::WrongRoot => {
+                let actual_root = root.join("actual");
+                fs::create_dir(&actual_root).unwrap();
+                fs::write(actual_root.join("payload.txt"), "").unwrap();
+                fs::write(actual_root.join(DEFAULT_NAME), VALID_GUIDE).unwrap();
+
+                search_root = root.join("wrong");
+                fs::create_dir(&search_root).unwrap();
+            }
+            Self::AllGuidesExcluded => {
+                let excluded = root.join("excluded");
+                fs::create_dir(&excluded).unwrap();
+                fs::write(excluded.join("payload.txt"), "").unwrap();
+                fs::write(excluded.join(DEFAULT_NAME), VALID_GUIDE).unwrap();
+                exclusions.push("excluded");
+            }
+            Self::LastGuideDeleted => {
+                let guide = root.join(DEFAULT_NAME);
+                fs::write(root.join("payload.txt"), "").unwrap();
+                fs::write(&guide, VALID_GUIDE).unwrap();
+                fs::remove_file(guide).unwrap();
+            }
+        }
+
+        ZeroDiscoveryFixture {
+            _temp: temp,
+            search_root,
+            guide_name,
+            exclusions,
+        }
+    }
+}
+
+fn run_recursive_zero_case(
+    fixture: &ZeroDiscoveryFixture,
+    mode: RecursiveZeroMode,
+    allow_empty: bool,
+) -> Output {
+    let mut command = get_command();
+    for variable in [
+        "AGENTIC_NAVIGATION_GUIDE_PATH",
+        "AGENTIC_NAVIGATION_GUIDE_ROOT",
+        "AGENTIC_NAVIGATION_GUIDE_NAME",
+        "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
+        "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
+    ] {
+        command.env_remove(variable);
+    }
+    command
+        .arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(&fixture.search_root)
+        .arg("--guide-name")
+        .arg(fixture.guide_name);
+
+    for exclusion in &fixture.exclusions {
+        command.arg("--exclude").arg(exclusion);
+    }
+    if allow_empty {
+        command.arg("--allow-empty");
+    }
+    mode.configure(&mut command);
+
+    command.output().unwrap()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2290,11 +2454,13 @@ fn test_recursive_verify_with_invalid_glob_pattern_reports_error() {
         .arg("--recursive")
         .arg("--exclude")
         .arg("[")
+        .arg("--allow-empty")
         .arg("--root")
         .arg(root)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid glob pattern"));
+        .stderr(predicate::str::contains("invalid glob pattern"))
+        .stderr(predicate::str::contains("zero navigation guides were verified").not());
 }
 
 #[test]
@@ -2328,6 +2494,7 @@ fn test_recursive_verify_with_ignored_guides() {
     let mut cmd = get_command();
     cmd.arg("verify")
         .arg("--recursive")
+        .arg("--allow-empty")
         .arg("--root")
         .arg(root)
         .assert()
@@ -2357,6 +2524,7 @@ fn test_recursive_verify_rejects_non_ignore_attribute() {
     let mut cmd = get_command();
     cmd.arg("verify")
         .arg("--recursive")
+        .arg("--allow-empty")
         .arg("--root")
         .arg(root)
         .assert()
@@ -2364,27 +2532,214 @@ fn test_recursive_verify_rejects_non_ignore_attribute() {
         .stderr(predicate::str::contains("line 1"))
         .stderr(predicate::str::contains("invalid guide document"))
         .stderr(predicate::str::contains("missing opening"))
-        .stderr(predicate::str::contains("Skipping").not());
+        .stderr(predicate::str::contains("Skipping").not())
+        .stderr(predicate::str::contains("zero navigation guides were verified").not());
 }
 
 #[test]
-fn test_recursive_verify_no_guides_found() {
-    let temp_dir = TempDir::new().unwrap();
-    let root = temp_dir.path();
+fn test_recursive_verify_zero_discovery_is_fail_closed_unless_explicitly_allowed() {
+    const ZERO_SUMMARY: &str = "Discovered: 0, Passed: 0, Failed: 0, Ignored: 0, Absent: 1";
 
-    // Create structure with no guide files
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/main.rs"), "").unwrap();
+    for case in ZERO_DISCOVERY_CASES {
+        let fixture = case.fixture();
 
-    // Run recursive verify
-    let mut cmd = get_command();
-    cmd.arg("verify")
-        .arg("--recursive")
+        for mode in RECURSIVE_ZERO_MODES {
+            let rejected = run_recursive_zero_case(&fixture, mode, false);
+            let rejected_stderr = String::from_utf8_lossy(&rejected.stderr);
+            let search_root_name = fixture
+                .search_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap();
+
+            assert_eq!(
+                rejected.status.code(),
+                Some(mode.failure_code()),
+                "{case:?} in {mode:?} mode must fail closed; stderr:\n{rejected_stderr}"
+            );
+            assert!(
+                rejected_stderr.contains("zero navigation guides were verified"),
+                "{case:?} in {mode:?} mode omitted the required zero-guide diagnostic:\n{rejected_stderr}"
+            );
+            assert!(
+                rejected_stderr.contains(ZERO_SUMMARY),
+                "{case:?} in {mode:?} mode omitted the absent-guide aggregate:\n{rejected_stderr}"
+            );
+            assert!(
+                rejected_stderr.contains(fixture.guide_name)
+                    && rejected_stderr.contains(search_root_name)
+                    && rejected_stderr.contains("--root")
+                    && rejected_stderr.contains("--guide-name")
+                    && rejected_stderr.contains("--exclude")
+                    && rejected_stderr.contains("--allow-empty"),
+                "{case:?} in {mode:?} mode did not explain how to correct or explicitly allow the empty search:\n{rejected_stderr}"
+            );
+
+            let allowed = run_recursive_zero_case(&fixture, mode, true);
+            let allowed_stdout = String::from_utf8_lossy(&allowed.stdout);
+            let allowed_stderr = String::from_utf8_lossy(&allowed.stderr);
+
+            assert_eq!(
+                allowed.status.code(),
+                Some(0),
+                "{case:?} in {mode:?} mode was not allowed by --allow-empty; stderr:\n{allowed_stderr}"
+            );
+            if mode.is_quiet() {
+                assert!(
+                    allowed_stdout.is_empty() && allowed_stderr.is_empty(),
+                    "{case:?} quiet allow-empty success emitted ordinary chatter"
+                );
+            } else {
+                assert!(
+                    allowed_stdout.contains("zero navigation guides were verified")
+                        && allowed_stdout.contains(ZERO_SUMMARY),
+                    "{case:?} in {mode:?} mode did not report the explicitly allowed zero count:\n{allowed_stdout}"
+                );
+                assert!(
+                    allowed_stderr.is_empty(),
+                    "{case:?} in {mode:?} mode reported an allowed empty search as an error:\n{allowed_stderr}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_recursive_verify_ignored_guide_is_discovered_not_absent() {
+    const IGNORED_SUMMARY: &str = "Discovered: 1, Passed: 0, Failed: 0, Ignored: 1, Absent: 0";
+    const IGNORED_GUIDE: &str = "<agentic-navigation-guide ignore=true>\n\
+                                - deliberately-missing.txt\n\
+                                </agentic-navigation-guide>";
+
+    let temp = TempDir::new().unwrap();
+    fs::write(
+        temp.path().join("AGENTIC_NAVIGATION_GUIDE.md"),
+        IGNORED_GUIDE,
+    )
+    .unwrap();
+
+    let search_root = temp.path().to_path_buf();
+    let fixture = ZeroDiscoveryFixture {
+        _temp: temp,
+        search_root,
+        guide_name: "AGENTIC_NAVIGATION_GUIDE.md",
+        exclusions: Vec::new(),
+    };
+
+    for allow_empty in [false, true] {
+        for mode in RECURSIVE_ZERO_MODES {
+            let output = run_recursive_zero_case(&fixture, mode, allow_empty);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let diagnostics = format!("{stdout}\n{stderr}");
+
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "ignored guide in {mode:?} mode must remain a discovered success; stderr:\n{stderr}"
+            );
+            assert!(
+                !diagnostics.contains("zero navigation guides were verified"),
+                "ignored guide in {mode:?} mode was mistaken for absent"
+            );
+            if mode.is_quiet() {
+                assert!(
+                    stdout.is_empty() && stderr.is_empty(),
+                    "quiet ignored-guide success emitted ordinary chatter"
+                );
+            } else {
+                assert!(
+                    diagnostics.contains(IGNORED_SUMMARY),
+                    "ignored guide in {mode:?} mode omitted separate aggregate counts:\n{diagnostics}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_allow_empty_requires_recursive() {
+    let temp = TempDir::new().unwrap();
+    let mut command = get_command();
+    command
+        .arg("verify")
+        .arg("--allow-empty")
         .arg("--root")
-        .arg(root)
+        .arg(temp.path())
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_recursive_verify_help_documents_allow_empty() {
+    let mut command = get_command();
+    command
+        .arg("verify")
+        .arg("--help")
         .assert()
         .success()
-        .stderr(predicate::str::contains("No navigation guide files"));
+        .stdout(predicate::str::contains("--allow-empty"))
+        .stdout(predicate::str::contains(
+            "Allow a recursive search to succeed after discovering zero guides",
+        ));
+}
+
+#[test]
+fn test_allow_empty_does_not_convert_traversal_failure_into_empty_success() {
+    for mode in RECURSIVE_ZERO_MODES {
+        let temp = TempDir::new().unwrap();
+        let missing_root = temp.path().join("missing");
+        let fixture = ZeroDiscoveryFixture {
+            _temp: temp,
+            search_root: missing_root,
+            guide_name: "AGENTIC_NAVIGATION_GUIDE.md",
+            exclusions: Vec::new(),
+        };
+        let output = run_recursive_zero_case(&fixture, mode, true);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert_eq!(
+            output.status.code(),
+            Some(mode.failure_code()),
+            "traversal failure in {mode:?} mode was converted to allow-empty success"
+        );
+        assert!(
+            stderr.contains("filesystem walk error")
+                && !stderr.contains("zero navigation guides were verified"),
+            "traversal failure in {mode:?} mode was misclassified:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn test_allow_empty_does_not_convert_non_directory_root_into_empty_success() {
+    for allow_empty in [false, true] {
+        for mode in RECURSIVE_ZERO_MODES {
+            let temp = TempDir::new().unwrap();
+            let file_root = temp.path().join("not-a-directory");
+            fs::write(&file_root, "").unwrap();
+            let fixture = ZeroDiscoveryFixture {
+                _temp: temp,
+                search_root: file_root,
+                guide_name: "AGENTIC_NAVIGATION_GUIDE.md",
+                exclusions: Vec::new(),
+            };
+            let output = run_recursive_zero_case(&fixture, mode, allow_empty);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            assert_eq!(
+                output.status.code(),
+                Some(mode.failure_code()),
+                "non-directory root in {mode:?} mode was converted to empty success"
+            );
+            assert!(
+                stderr.contains("is not a directory")
+                    && !stderr.contains("zero navigation guides were verified"),
+                "non-directory root in {mode:?} mode was misclassified:\n{stderr}"
+            );
+        }
+    }
 }
 
 #[test]

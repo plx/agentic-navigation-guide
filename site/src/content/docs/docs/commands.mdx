@@ -37,6 +37,25 @@ For GitHub Actions annotations and CI-friendly output:
 agentic-navigation-guide verify --github-actions-check
 ```
 
+For a monorepo, discover and verify every matching guide recursively:
+
+```sh
+agentic-navigation-guide verify --recursive
+```
+
+Recursive verification fails when it discovers zero guides. This prevents a
+wrong root or name, an overly broad exclusion, or deletion of the final guide from
+silently disabling a required check. Only a deliberately optional search
+should opt in to empty success:
+
+```sh
+agentic-navigation-guide verify --recursive --allow-empty
+```
+
+Non-quiet output reports the zero count even when it is allowed. The flag
+cannot suppress a missing or non-directory root, an invalid exclusion pattern,
+a traversal error, or a failure from a discovered guide.
+
 ## `dump`
 
 Print the current directory structure in navigation-guide format.

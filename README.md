@@ -67,6 +67,11 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   `init`'s create-new policy and has no force mode. This breaking CLI change
   prevents scripts or races from silently replacing a file. Callers that
   intentionally replace output must remove or rename the old entry first.
+- **2026-07-25 — Empty recursive verification is intentionally fail-closed.**
+  Unlike `0.1.4`, `verify --recursive` exits nonzero after discovering zero
+  guides, including when a root/name is wrong, exclusions remove every match,
+  or the last guide was deleted. An intentionally optional search must opt in
+  with `--allow-empty`; required CI gates must omit that flag.
 
 ## Navigation Guide Format
 
@@ -362,6 +367,18 @@ You can also set the execution mode via environment variable:
     AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE: github-actions
 ```
 
+For a monorepo, make recursive discovery part of the required gate without an
+empty-search opt-out:
+
+```yaml
+- name: Verify every navigation guide
+  run: agentic-navigation-guide verify --recursive --github-actions-check
+```
+
+This command fails if discovery verifies zero guides, so a wrong root, a
+misspelled guide name, an overbroad exclusion, or deletion of the final guide
+cannot silently disable the check.
+
 ## Recursive Verification for Monorepos
 
 For monorepos or projects with nested navigation guides, you can use the `--recursive` flag to automatically discover and verify all guide files:
@@ -376,6 +393,24 @@ agentic-navigation-guide verify --recursive --guide-name GUIDE.md
 # Exclude directories from the search
 agentic-navigation-guide verify --recursive --exclude target --exclude node_modules
 ```
+
+Recursive verification fails by default when discovery returns zero matching
+guides. The required diagnostic reports the selected root and guide name,
+suggests checking `--root`, `--guide-name`, and `--exclude`, and distinguishes
+the absent search from passed, failed, and ignored guides. Quiet mode suppresses
+ordinary success output but never suppresses this failure.
+
+Use `--allow-empty` only when a recursive search is deliberately optional:
+
+```bash
+agentic-navigation-guide verify --recursive --allow-empty
+```
+
+That explicit flag permits only a successfully completed search with zero
+matches. Missing, inaccessible, or non-directory roots, invalid exclusion
+patterns, traversal failures, and failures from a discovered guide remain
+nonzero. Non-quiet output still reports that zero guides were verified;
+`--quiet --allow-empty` succeeds silently.
 
 ### Example Monorepo Structure
 
@@ -412,7 +447,8 @@ Each guide is verified relative to its parent directory, allowing you to maintai
 - **Root Boundary Enforcement**: On a stable filesystem, listed item paths that resolve outside the guide root are rejected; this consistency check is not a filesystem sandbox
 - **Custom Names**: Support for uniform custom guide filenames (e.g., `--guide-name GUIDE.md`)
 - **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
-- **Aggregated Results**: Shows summary of all verified guides with pass/fail counts
+- **Fail-Closed Discovery**: Zero matches fail unless `--allow-empty` is explicit
+- **Aggregated Results**: Separately reports discovered, passed, failed, ignored, and absent outcomes
 - **Execution Modes**: Works with all execution modes (default, post-tool-use, pre-commit-hook, GitHub Actions)
 
 ## Future Roadmap
