@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 /// Represents a filesystem item type
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FilesystemItem {
+pub(crate) enum FilesystemItem {
     /// A regular file
     File {
         /// The file path relative to its parent
@@ -31,18 +31,18 @@ pub enum FilesystemItem {
 
 /// Represents a single line in the navigation guide
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NavigationGuideLine {
+pub(crate) struct NavigationGuideLine {
     /// The line number in the original document
-    pub line_number: usize,
+    pub(crate) line_number: usize,
     /// The indentation level (number of spaces / indent_size)
-    pub indent_level: usize,
+    pub(crate) indent_level: usize,
     /// The filesystem item this line represents
-    pub item: FilesystemItem,
+    pub(crate) item: FilesystemItem,
 }
 
 impl NavigationGuideLine {
     /// Get the path of the filesystem item
-    pub fn path(&self) -> &str {
+    pub(crate) fn path(&self) -> &str {
         match &self.item {
             FilesystemItem::File { path, .. } | FilesystemItem::Directory { path, .. } => path,
             FilesystemItem::Placeholder { .. } => "...",
@@ -50,7 +50,7 @@ impl NavigationGuideLine {
     }
 
     /// Get the comment of the filesystem item
-    pub fn comment(&self) -> Option<&str> {
+    pub(crate) fn comment(&self) -> Option<&str> {
         match &self.item {
             FilesystemItem::File { comment, .. }
             | FilesystemItem::Directory { comment, .. }
@@ -59,17 +59,17 @@ impl NavigationGuideLine {
     }
 
     /// Check if this item is a directory
-    pub fn is_directory(&self) -> bool {
+    pub(crate) fn is_directory(&self) -> bool {
         matches!(self.item, FilesystemItem::Directory { .. })
     }
 
     /// Check if this item is a placeholder
-    pub fn is_placeholder(&self) -> bool {
+    pub(crate) fn is_placeholder(&self) -> bool {
         matches!(self.item, FilesystemItem::Placeholder { .. })
     }
 
     /// Get the children of a directory item
-    pub fn children(&self) -> Option<&[NavigationGuideLine]> {
+    pub(crate) fn children(&self) -> Option<&[NavigationGuideLine]> {
         match &self.item {
             FilesystemItem::Directory { children, .. } => Some(children),
             _ => None,
@@ -79,23 +79,23 @@ impl NavigationGuideLine {
 
 /// Represents a complete navigation guide
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NavigationGuide {
+pub(crate) struct NavigationGuide {
     /// The root items in the guide
-    pub items: Vec<NavigationGuideLine>,
+    pub(crate) items: Vec<NavigationGuideLine>,
     /// The original prologue content (before the guide block)
-    pub prologue: Option<String>,
+    pub(crate) prologue: Option<String>,
     /// The original epilogue content (after the guide block)
-    pub epilogue: Option<String>,
+    pub(crate) epilogue: Option<String>,
     /// Whether the exact opening marker selected the ignored outcome.
     ///
     /// Parsed ignored guides have an opaque body and no parsed items. The
     /// supported CLI reports this separately from checked or verified work.
-    pub ignore: bool,
+    pub(crate) ignore: bool,
 }
 
 impl NavigationGuide {
     /// Create a new empty navigation guide
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             items: Vec::new(),
             prologue: None,
@@ -113,7 +113,7 @@ impl Default for NavigationGuide {
 
 /// Execution mode for the CLI tool
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ExecutionMode {
+pub(crate) enum ExecutionMode {
     /// Default execution mode
     #[default]
     Default,
@@ -127,7 +127,7 @@ pub enum ExecutionMode {
 
 /// Log level for output verbosity
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum LogLevel {
+pub(crate) enum LogLevel {
     /// Minimal output
     Quiet,
     /// Normal output
@@ -139,17 +139,17 @@ pub enum LogLevel {
 
 /// Configuration for the CLI tool
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Config {
+pub(crate) struct Config {
     /// The execution mode
-    pub execution_mode: ExecutionMode,
+    pub(crate) execution_mode: ExecutionMode,
     /// The log level
-    pub log_level: LogLevel,
+    pub(crate) log_level: LogLevel,
     /// The root directory for operations
-    pub root_path: Option<PathBuf>,
+    pub(crate) root_path: Option<PathBuf>,
     /// The path to the navigation guide file
-    pub guide_path: Option<PathBuf>,
+    pub(crate) guide_path: Option<PathBuf>,
     /// The original guide path as provided by the user (for error messages)
-    pub original_guide_path: Option<String>,
+    pub(crate) original_guide_path: Option<String>,
     /// The original root path as provided by the user (for error messages)
-    pub original_root_path: Option<String>,
+    pub(crate) original_root_path: Option<String>,
 }

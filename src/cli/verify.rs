@@ -1,12 +1,12 @@
 //! Verify subcommand implementation
 
+use crate::errors::{AppError, ErrorFormatter, Result};
 use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
-use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
-use agentic_navigation_guide::parser::Parser;
-use agentic_navigation_guide::recursive::{self, GuideLocation, GuideVerificationResult};
-use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
-use agentic_navigation_guide::validator::Validator;
-use agentic_navigation_guide::verifier::Verifier;
+use crate::parser::Parser;
+use crate::recursive::{self, GuideLocation, GuideVerificationResult};
+use crate::types::{Config, ExecutionMode, LogLevel};
+use crate::validator::Validator;
+use crate::verifier::Verifier;
 use clap::Args;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -115,26 +115,26 @@ fn finish_empty_discovery(error: NoGuidesFound, allow_empty: bool, config: &Conf
 
 /// Arguments for the verify subcommand
 #[derive(Args, Debug)]
-pub struct VerifyArgs {
+pub(crate) struct VerifyArgs {
     /// Path to the navigation guide file
     #[arg(short, long, conflicts_with = "recursive")]
-    pub guide: Option<PathBuf>,
+    pub(crate) guide: Option<PathBuf>,
 
     /// Fail when any discovered guide is marked with ignore=true
     #[arg(long)]
-    pub deny_ignored: bool,
+    pub(crate) deny_ignored: bool,
 
     /// Root directory for verification
     #[arg(short, long)]
-    pub root: Option<PathBuf>,
+    pub(crate) root: Option<PathBuf>,
 
     /// Recursively find and verify all navigation guides
     #[arg(long, conflicts_with = "guide")]
-    pub recursive: bool,
+    pub(crate) recursive: bool,
 
     /// Name of the navigation guide file to search for (only used with --recursive)
     #[arg(long, requires = "recursive")]
-    pub guide_name: Option<String>,
+    pub(crate) guide_name: Option<String>,
 
     /// Resolved implicit filename from the environment or built-in default
     #[arg(skip)]
@@ -142,28 +142,28 @@ pub struct VerifyArgs {
 
     /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
     #[arg(long = "exclude", requires = "recursive")]
-    pub exclude_patterns: Vec<String>,
+    pub(crate) exclude_patterns: Vec<String>,
 
     /// Allow a recursive search to succeed after discovering zero guides
     #[arg(long, requires = "recursive")]
-    pub allow_empty: bool,
+    pub(crate) allow_empty: bool,
 
     /// Running as post-tool-use hook
     #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
-    pub post_tool_use_hook: bool,
+    pub(crate) post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "github_actions_check"])]
-    pub pre_commit_hook: bool,
+    pub(crate) pre_commit_hook: bool,
 
     /// Running as GitHub Actions check
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "pre_commit_hook"])]
-    pub github_actions_check: bool,
+    pub(crate) github_actions_check: bool,
 }
 
 impl VerifyArgs {
     /// Execute the verify command
-    pub fn execute(self, config: &mut Config) -> Result<super::CommandOutcome> {
+    pub(crate) fn execute(self, config: &mut Config) -> Result<super::CommandOutcome> {
         // Update execution mode based on flags
         if self.post_tool_use_hook {
             config.execution_mode = ExecutionMode::PostToolUse;
@@ -399,12 +399,12 @@ impl VerifyArgs {
 
 /// Format errors specifically for post-tool-use hook mode
 fn format_post_tool_use_error(
-    error: &agentic_navigation_guide::errors::AppError,
+    error: &crate::errors::AppError,
     _guide_path: &Path,
     _root_path: &Path,
     config: &Config,
 ) -> String {
-    use agentic_navigation_guide::errors::AppError;
+    use crate::errors::AppError;
 
     // Get display paths - use original if available, otherwise use defaults
     let display_guide_path = config
@@ -439,11 +439,11 @@ fn format_post_tool_use_error(
 
 /// Format errors specifically for GitHub Actions mode
 fn format_github_actions_error(
-    error: &agentic_navigation_guide::errors::AppError,
+    error: &crate::errors::AppError,
     _guide_path: &Path,
     config: &Config,
 ) -> String {
-    use agentic_navigation_guide::errors::AppError;
+    use crate::errors::AppError;
 
     let display_guide_path = config
         .original_guide_path

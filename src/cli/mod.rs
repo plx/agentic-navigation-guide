@@ -1,15 +1,15 @@
 //! CLI module for the agentic navigation guide
 
-pub mod check;
-pub mod dump;
+pub(crate) mod check;
+pub(crate) mod dump;
 mod environment;
 mod generation_options;
-pub mod init;
+pub(crate) mod init;
 mod output;
-pub mod verify;
+pub(crate) mod verify;
 
-use agentic_navigation_guide::errors::{AppError, Result};
-use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
+use crate::errors::{AppError, Result};
+use crate::types::{Config, ExecutionMode, LogLevel};
 use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand};
 
 const ENVIRONMENT_HELP: &str = "\
@@ -75,14 +75,14 @@ pub(crate) fn finish_ignored_policy(
     author,
     after_help = ENVIRONMENT_HELP
 )]
-pub struct Cli {
+pub(crate) struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true, conflicts_with_all = ["quiet", "log_level"])]
-    pub verbose: bool,
+    pub(crate) verbose: bool,
 
     /// Enable quiet output (minimal messages)
     #[arg(short, long, global = true, conflicts_with_all = ["verbose", "log_level"])]
-    pub quiet: bool,
+    pub(crate) quiet: bool,
 
     /// Set log level directly
     #[arg(
@@ -92,7 +92,7 @@ pub struct Cli {
         hide = true,
         conflicts_with_all = ["verbose", "quiet"]
     )]
-    pub log_level: Option<String>,
+    pub(crate) log_level: Option<String>,
 
     /// Set execution mode directly
     #[arg(
@@ -101,16 +101,16 @@ pub struct Cli {
         value_parser = ["default", "post-tool-use", "pre-commit-hook", "github-actions"],
         hide = true
     )]
-    pub execution_mode: Option<String>,
+    pub(crate) execution_mode: Option<String>,
 
     /// Subcommand to execute
     #[command(subcommand)]
-    pub command: Command,
+    pub(crate) command: Command,
 }
 
 /// Available subcommands
 #[derive(Subcommand, Debug)]
-pub enum Command {
+pub(crate) enum Command {
     /// Dump the current directory contents in navigation guide format
     Dump(dump::DumpArgs),
 
@@ -126,7 +126,7 @@ pub enum Command {
 
 impl Cli {
     /// Apply relevant environment defaults after Clap validates explicit CLI intent.
-    pub fn apply_environment_defaults(&mut self) -> std::result::Result<(), clap::Error> {
+    pub(crate) fn apply_environment_defaults(&mut self) -> std::result::Result<(), clap::Error> {
         let defaults = environment::EnvironmentDefaults::capture();
         self.resolve_environment(&defaults)
             .map_err(|error| Self::command().error(ErrorKind::InvalidValue, error.to_string()))
@@ -186,7 +186,7 @@ impl Cli {
     }
 
     /// Resolve already-parsed CLI arguments into a Config.
-    pub fn build_config(&self) -> Config {
+    pub(crate) fn build_config(&self) -> Config {
         let log_level = if self.verbose {
             LogLevel::Verbose
         } else if self.quiet {
@@ -242,7 +242,7 @@ impl Command {
 }
 
 /// Initialize logging based on config
-pub fn init_logging(config: &Config) {
+pub(crate) fn init_logging(config: &Config) {
     use env_logger::{Builder, Target};
     use log::LevelFilter;
 
@@ -259,7 +259,7 @@ pub fn init_logging(config: &Config) {
 }
 
 /// Get the appropriate exit code based on execution mode
-pub fn get_exit_code(config: &Config, is_error: bool) -> i32 {
+pub(crate) fn get_exit_code(config: &Config, is_error: bool) -> i32 {
     if is_error {
         match config.execution_mode {
             ExecutionMode::PostToolUse => 2,

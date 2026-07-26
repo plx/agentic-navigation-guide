@@ -57,14 +57,14 @@ impl HierarchyObserver for () {
 }
 
 /// Parser for navigation guide markdown content
-pub struct Parser {
+pub(crate) struct Parser {
     /// Regular expression for detecting list items
     list_item_regex: Regex,
 }
 
 impl Parser {
     /// Create a new parser instance
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             list_item_regex: Regex::new(r"^(\s*)- (.+)$").unwrap(),
         }
@@ -75,7 +75,7 @@ impl Parser {
     /// The exact document envelope and marker-candidate scan are always
     /// validated. When the opening marker contains `ignore=true`, the body is
     /// opaque and may be empty; the returned guide has no parsed items.
-    pub fn parse(&self, content: &str) -> Result<NavigationGuide> {
+    pub(crate) fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
         let (prologue, guide_content, epilogue, line_offset, ignore) =
             self.extract_guide_block(content)?;
@@ -667,7 +667,7 @@ impl Parser {
     /// - The choice block is empty or contains only whitespace
     ///
     /// # Examples
-    /// ```ignore
+    /// ```text
     /// // Single expansion (no choice block)
     /// expand_wildcard_path("foo.rs", 1) → Ok(vec!["foo.rs"])
     ///
@@ -945,7 +945,7 @@ impl Parser {
     /// - The choice count falls outside 2–256
     ///
     /// # Examples
-    /// ```ignore
+    /// ```text
     /// parse_choice_block("a, b, c", "path", 1) → Ok(vec!["a", "b", "c"])
     /// parse_choice_block("\"a, b\", c", "path", 1) → Ok(vec!["a, b", "c"])
     /// parse_choice_block("\\,a, b", "path", 1) → Ok(vec!["\\,a", "b"])  // Escape preserved

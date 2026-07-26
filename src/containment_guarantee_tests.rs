@@ -1,4 +1,6 @@
-use agentic_navigation_guide::{AppError, Parser, SemanticError, Verifier};
+use crate::errors::{AppError, SemanticError};
+use crate::parser::Parser;
+use crate::verifier::Verifier;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -240,7 +242,7 @@ fn issue_51_path_escape_error_redacts_both_canonical_paths() {
 }
 
 #[test]
-fn issue_51_cli_and_transitional_public_routes_share_containment() {
+fn issue_51_cli_and_internal_route_share_containment() {
     let temp = TempDir::new().expect("temporary shared-route root");
     let root = temp.path().join("root");
     let outside = temp.path().join(EXTERNAL_TARGET_SENTINEL);
@@ -254,26 +256,22 @@ fn issue_51_cli_and_transitional_public_routes_share_containment() {
         .parse(guide_source)
         .expect("shared-route guide must parse");
 
-    for result in [
-        Verifier::new(&root).verify(&guide),
-        agentic_navigation_guide::verify_guide(&guide, &root),
-    ] {
-        assert!(matches!(
-            result,
-            Err(AppError::Semantic(SemanticError::TypeMismatch {
-                line: 2,
-                ref expected,
-                ref found,
-                ref path,
-            })) if expected == "directory"
-                && is_link_like_diagnostic(found)
-                && path == "linked"
-        ));
-    }
+    let result = Verifier::new(&root).verify(&guide);
+    assert!(matches!(
+        result,
+        Err(AppError::Semantic(SemanticError::TypeMismatch {
+            line: 2,
+            ref expected,
+            ref found,
+            ref path,
+        })) if expected == "directory"
+            && is_link_like_diagnostic(found)
+            && path == "linked"
+    ));
 
     let guide_path = root.join("guide.md");
     fs::write(&guide_path, guide_source).expect("CLI guide file");
-    let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let output = Command::new(crate::test_support::cli_binary())
         .args(["verify", "--guide"])
         .arg(&guide_path)
         .args(["--root"])
@@ -450,7 +448,7 @@ const ISSUE_51_TRUST_EVIDENCE: &[TrustEvidenceGroup] = &[
 
 #[test]
 fn issue_51_trust_evidence_is_an_exact_set() {
-    let expected = issue_51_trust_ids(include_str!("fixtures/v0_2_trust.rs"));
+    let expected = issue_51_trust_ids(include_str!("../tests/fixtures/v0_2_trust.rs"));
     let mut declared = BTreeSet::new();
     let mut test_names = BTreeSet::new();
     for group in ISSUE_51_TRUST_EVIDENCE {
@@ -476,7 +474,7 @@ fn issue_51_trust_evidence_is_an_exact_set() {
 
     let executable_sources = format!(
         "{}\n{}",
-        include_str!("containment_guarantee.rs"),
+        include_str!("containment_guarantee_tests.rs"),
         include_str!("../src/verifier.rs")
     );
     for test in test_names {

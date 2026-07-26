@@ -13,7 +13,6 @@ dependencies = [
  "libc",
  "log",
  "predicates",
- "quote",
  "regex",
  "serde",
  "syn",

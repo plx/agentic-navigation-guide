@@ -1,9 +1,9 @@
 //! Dump subcommand implementation
 
 use super::output;
-use agentic_navigation_guide::dumper::Dumper;
-use agentic_navigation_guide::errors::Result;
-use agentic_navigation_guide::types::Config;
+use crate::dumper::Dumper;
+use crate::errors::Result;
+use crate::types::Config;
 use clap::Args;
 use std::io::Write;
 use std::path::PathBuf;
@@ -12,35 +12,35 @@ use super::generation_options::{parse_depth, parse_indent};
 
 /// Arguments for the dump subcommand
 #[derive(Args, Debug)]
-pub struct DumpArgs {
+pub(crate) struct DumpArgs {
     /// New output file path (defaults to stdout); existing entries are never overwritten
     #[arg(short, long)]
-    pub output: Option<PathBuf>,
+    pub(crate) output: Option<PathBuf>,
 
     /// Maximum logical depth, 0 through 256; 0 selects root children; omission rejects depth above 256
     #[arg(short, long, value_parser = parse_depth)]
-    pub depth: Option<usize>,
+    pub(crate) depth: Option<usize>,
 
     /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
     #[arg(short, long)]
-    pub exclude: Vec<String>,
+    pub(crate) exclude: Vec<String>,
 
     /// Number of spaces per level, 1 through 16
     #[arg(short, long, default_value = "2", value_parser = parse_indent)]
-    pub indent: usize,
+    pub(crate) indent: usize,
 
     /// Omit the XML wrapper tags
     #[arg(long)]
-    pub omit_xml_wrapper: bool,
+    pub(crate) omit_xml_wrapper: bool,
 
     /// Readable root directory; empty or fully excluded generation fails
     #[arg(short, long)]
-    pub root: Option<PathBuf>,
+    pub(crate) root: Option<PathBuf>,
 }
 
 impl DumpArgs {
     /// Execute the dump command
-    pub fn execute(self, _config: &Config) -> Result<()> {
+    pub(crate) fn execute(self, _config: &Config) -> Result<()> {
         let Self {
             output: output_path,
             depth,

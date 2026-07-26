@@ -1,19 +1,19 @@
 //! Check subcommand implementation
 
+use crate::errors::{AppError, ErrorFormatter, Result};
 use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
-use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
-use agentic_navigation_guide::parser::Parser;
-use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
-use agentic_navigation_guide::validator::Validator;
+use crate::parser::Parser;
+use crate::types::{Config, ExecutionMode, LogLevel};
+use crate::validator::Validator;
 use clap::Args;
 use std::path::{Path, PathBuf};
 
 /// Arguments for the check subcommand
 #[derive(Args, Debug)]
-pub struct CheckArgs {
+pub(crate) struct CheckArgs {
     /// Path to the navigation guide file
     #[arg(short, long)]
-    pub guide: Option<PathBuf>,
+    pub(crate) guide: Option<PathBuf>,
 
     /// Resolved implicit filename from the environment or built-in default
     #[arg(skip)]
@@ -21,24 +21,24 @@ pub struct CheckArgs {
 
     /// Fail when the guide is marked with ignore=true
     #[arg(long)]
-    pub deny_ignored: bool,
+    pub(crate) deny_ignored: bool,
 
     /// Running as post-tool-use hook
     #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
-    pub post_tool_use_hook: bool,
+    pub(crate) post_tool_use_hook: bool,
 
     /// Running as pre-commit hook
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "github_actions_check"])]
-    pub pre_commit_hook: bool,
+    pub(crate) pre_commit_hook: bool,
 
     /// Running as GitHub Actions check
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "pre_commit_hook"])]
-    pub github_actions_check: bool,
+    pub(crate) github_actions_check: bool,
 }
 
 impl CheckArgs {
     /// Execute the check command
-    pub fn execute(self, config: &mut Config) -> Result<super::CommandOutcome> {
+    pub(crate) fn execute(self, config: &mut Config) -> Result<super::CommandOutcome> {
         // Update execution mode based on flags
         if self.post_tool_use_hook {
             config.execution_mode = ExecutionMode::PostToolUse;
@@ -160,11 +160,8 @@ impl CheckArgs {
 }
 
 /// Format errors specifically for GitHub Actions mode
-fn format_github_actions_error(
-    error: &agentic_navigation_guide::errors::AppError,
-    logical_path: &Path,
-) -> String {
-    use agentic_navigation_guide::errors::AppError;
+fn format_github_actions_error(error: &crate::errors::AppError, logical_path: &Path) -> String {
+    use crate::errors::AppError;
 
     let mut output = String::new();
 

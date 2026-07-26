@@ -1,6 +1,6 @@
 //! Shared, exclusive filesystem output for `init` and `dump --output`.
 
-use agentic_navigation_guide::errors::{AppError, Result as AppResult};
+use crate::errors::{AppError, Result as AppResult};
 use std::env;
 use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
@@ -90,8 +90,7 @@ enum CleanupFailure {
     Injected,
 }
 
-/// Kept binary-private so #45 can return typed output failures without
-/// expanding the approved public Rust API ledger before #54.
+/// Binary-private typed output failures used by the shared delivery path.
 #[derive(Debug, Error)]
 enum OutputError {
     #[error("invalid output path {path:?}: {reason}")]
@@ -1629,7 +1628,7 @@ mod tests {
 
     fn observe_new_basic() -> EvidenceOutcome {
         use crate::cli::{dump::DumpArgs, init::InitArgs};
-        use agentic_navigation_guide::types::Config;
+        use crate::types::Config;
 
         let root = TempDir::new().unwrap();
         fs::write(root.path().join("input"), b"input").unwrap();

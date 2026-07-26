@@ -1,6 +1,7 @@
-use agentic_navigation_guide::{
-    AppError, FilesystemItem, NavigationGuide, NavigationGuideLine, Parser, SemanticError, Verifier,
-};
+use crate::errors::{AppError, SemanticError};
+use crate::parser::Parser;
+use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
+use crate::verifier::Verifier;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -408,10 +409,9 @@ fn issue_50_unlisted_control_name_rejects_without_a_placeholder() {
 #[test]
 #[ignore = "manual release benchmark; run with --release --ignored --nocapture --test-threads=1"]
 fn issue_50_release_placeholder_scaling_benchmark() {
-    assert!(
-        !cfg!(debug_assertions),
-        "the issue #50 benchmark must run with --release"
-    );
+    if cfg!(debug_assertions) {
+        panic!("the issue #50 benchmark must run with --release");
+    }
 
     const SIZES: [usize; 3] = [500, 1_000, 2_000];
     const WARMUPS: usize = 3;

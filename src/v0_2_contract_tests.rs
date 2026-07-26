@@ -1,17 +1,16 @@
-use agentic_navigation_guide::{
-    AppError, Dumper, FilesystemItem, Parser, SemanticError, Validator, Verifier,
-};
-use quote::ToTokens;
+use crate::dumper::Dumper;
+use crate::entry_type as issue_42_entry_type;
+use crate::errors::{AppError, SemanticError};
+use crate::parser::Parser;
+use crate::types::FilesystemItem;
+use crate::validator::Validator;
+use crate::verifier::Verifier;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env::VarError;
 use std::fs;
 use std::process::Command;
-use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
+use syn::{Item, Visibility};
 use tempfile::TempDir;
-
-#[allow(dead_code)]
-#[path = "../src/entry_type.rs"]
-mod issue_42_entry_type;
 
 const ALLOWED_PENDING_OWNERS: &[u32] = &[];
 const REALIZED_API_REMOVAL_IDS: &[&str] = &[
@@ -309,25 +308,25 @@ struct ApiTraitCase {
 mod fixtures {
     use super::{ContractCase, ExpectedItem, ExpectedResult, ItemKind};
 
-    include!("fixtures/v0_2_contract.rs");
+    include!("../tests/fixtures/v0_2_contract.rs");
 }
 
 mod operation_fixtures {
     use super::{ExpectedItem, ExpectedOperationResult, ItemKind, OperationCase, OperationKind};
 
-    include!("fixtures/v0_2_operations.rs");
+    include!("../tests/fixtures/v0_2_operations.rs");
 }
 
 mod trust_fixtures {
     use super::{TrustCase, TrustOutcome, TrustSurface};
 
-    include!("fixtures/v0_2_trust.rs");
+    include!("../tests/fixtures/v0_2_trust.rs");
 }
 
 mod api_fixtures {
     use super::{ApiCase, ApiDisposition, ApiKind, ApiTraitCase};
 
-    include!("fixtures/v0_2_api.rs");
+    include!("../tests/fixtures/v0_2_api.rs");
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -406,7 +405,7 @@ fn observe(source: &str) -> ObservedResult {
 }
 
 fn flatten_items(
-    source: &[agentic_navigation_guide::NavigationGuideLine],
+    source: &[crate::types::NavigationGuideLine],
     parent: &str,
     output: &mut Vec<ObservedItem>,
 ) {
@@ -951,23 +950,86 @@ fn api_rows_inventory_the_complete_audited_legacy_surface_and_one_fate_per_expor
 }
 
 #[test]
-fn api_ledger_matches_current_rust_source_and_cargo_target() {
-    let expected: BTreeSet<_> = api_fixtures::CASES
+fn issue_54_binary_only_target_and_owned_dispositions_are_realized() {
+    let issue_rows = api_fixtures::CASES
         .iter()
-        .filter(|case| {
-            case.kind != ApiKind::PackageTarget && !REALIZED_API_REMOVAL_IDS.contains(&case.id)
-        })
-        .map(|case| (case.kind, case.symbol.to_string()))
-        .collect();
-    let observed = collect_current_source_api();
-
+        .filter(|case| case.owner_issue == 54)
+        .collect::<Vec<_>>();
     assert_eq!(
-        observed, expected,
-        "the current-source Rust API changed without an exact #36 ledger update"
+        issue_rows.len(),
+        129,
+        "#54 must preserve exactly its 129 historical disposition rows"
+    );
+    assert_eq!(
+        issue_rows
+            .iter()
+            .filter(|case| case.disposition == ApiDisposition::RemoveLibraryTarget)
+            .count(),
+        1,
+        "#54 must own exactly the library-target removal"
+    );
+    assert_eq!(
+        issue_rows
+            .iter()
+            .filter(|case| case.disposition == ApiDisposition::MakeImplementationOnly)
+            .count(),
+        128,
+        "#54 must make exactly 128 historical exports implementation-only"
     );
 
+    let library_root_exists = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/lib.rs")
+        .exists();
+
+    assert!(
+        !library_root_exists,
+        "#54 has not realized the binary-only boundary: src/lib.rs exists={library_root_exists}"
+    );
+
+    let readme = include_str!("../README.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        readme.contains("The current source package is binary-only")
+            && readme.contains("no linkable Rust library target or in-process shim"),
+        "README must state the realized binary-only/no-shim support boundary"
+    );
+
+    let contributor_guide = include_str!("../CLAUDE.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        contributor_guide.contains("The current source package is binary-only")
+            && contributor_guide.contains("test-only Rust library facade"),
+        "contributor guidance must reject every alternate library facade"
+    );
+
+    let contract = include_str!("../docs/v0.2-contract.md")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        contract.contains(
+            "#54 has now implemented its 129 dispositions while preserving all historical inventory rows"
+        ) && contract.contains("e34399c14683878064cad18e9506186cd7e4fef1"),
+        "the normative contract must record #54's realized disposition and exact last-linkable commit"
+    );
+}
+
+#[test]
+fn api_ledger_matches_the_realized_binary_only_cargo_target() {
+    assert_binary_crate_root_has_no_public_items();
     let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .args([
+            "metadata",
+            "--locked",
+            "--offline",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("run cargo metadata for the current package target snapshot");
@@ -978,16 +1040,26 @@ fn api_ledger_matches_current_rust_source_and_cargo_target() {
     );
 
     let metadata = String::from_utf8(output.stdout).expect("UTF-8 cargo metadata");
+    for target_kind in ["lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"] {
+        assert!(
+            !metadata.contains(&format!("\"kind\":[\"{target_kind}\"]"))
+                && !metadata.contains(&format!("\"crate_types\":[\"{target_kind}\"]")),
+            "Cargo metadata still exposes linkable target kind '{target_kind}'"
+        );
+    }
     assert_eq!(
-        metadata.matches("\"kind\":[\"lib\"]").count(),
+        metadata.matches("\"kind\":[\"bin\"]").count(),
         1,
-        "the current-source decision ledger expects exactly one legacy library target"
+        "the package must expose exactly one product binary target"
     );
-    assert!(
-        metadata.contains(
-            "\"kind\":[\"lib\"],\"crate_types\":[\"lib\"],\"name\":\"agentic_navigation_guide\""
-        ),
-        "the legacy library target name drifted from the decision ledger"
+    assert_eq!(
+        metadata
+            .matches(
+                "\"kind\":[\"bin\"],\"crate_types\":[\"bin\"],\"name\":\"agentic-navigation-guide\""
+            )
+            .count(),
+        1,
+        "Cargo metadata must expose exactly the intended named binary"
     );
     assert_eq!(
         api_fixtures::CASES
@@ -996,41 +1068,7 @@ fn api_ledger_matches_current_rust_source_and_cargo_target() {
             .map(|case| case.symbol)
             .collect::<Vec<_>>(),
         vec!["agentic_navigation_guide (lib)"],
-        "the Cargo target and package-target ledger row must stay aligned"
-    );
-
-    let mut expected_variant_order: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for case in api_fixtures::CASES.iter().filter(|case| {
-        case.kind == ApiKind::Variant && !REALIZED_API_REMOVAL_IDS.contains(&case.id)
-    }) {
-        let (type_name, remainder) = case
-            .symbol
-            .split_once("::")
-            .expect("qualified variant ledger symbol");
-        let variant_name = remainder
-            .split(['(', ' ', '{', '='])
-            .next()
-            .expect("variant name");
-        let variant_identity = if let Some((_, discriminant)) = remainder.rsplit_once(" = ") {
-            format!(
-                "{variant_name}={}",
-                discriminant
-                    .chars()
-                    .filter(|character| !character.is_whitespace())
-                    .collect::<String>()
-            )
-        } else {
-            variant_name.to_string()
-        };
-        expected_variant_order
-            .entry(type_name.to_string())
-            .or_default()
-            .push(variant_identity);
-    }
-    assert_eq!(
-        collect_current_variant_order(),
-        expected_variant_order,
-        "enum variant order or explicit discriminants changed without a #36 ledger update"
+        "the removed target's historical decision row must remain frozen"
     );
 }
 
@@ -1072,11 +1110,6 @@ fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
         "NavigationGuide::get_full_path(&self, item: &NavigationGuideLine) -> PathBuf"
     );
     assert_eq!(row.owner_issue, 52);
-    assert!(
-        !collect_current_source_api().contains(&(row.kind, row.symbol.to_string())),
-        "#52's incorrect method is still exported by the current source"
-    );
-
     let types = syn::parse_file(include_str!("../src/types.rs"))
         .expect("parse types.rs for the exact #52 removal");
     let method_still_exists = types.items.iter().any(|item| {
@@ -1155,7 +1188,6 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
             "SemanticError::SymlinkTargetMismatch { line: usize, path: String, expected: String, actual: String }",
         ),
     ];
-    let current_source = collect_current_source_api();
     for (id, symbol) in expected_rows {
         let row = issue_rows
             .iter()
@@ -1164,10 +1196,6 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
         assert_eq!(row.kind, ApiKind::Variant);
         assert_eq!(row.symbol, symbol);
         assert_eq!(row.disposition, ApiDisposition::RemoveUnsupportedLinkModel);
-        assert!(
-            !current_source.contains(&(row.kind, row.symbol.to_string())),
-            "#53's unsupported variant is still exported: {symbol}"
-        );
     }
 
     fn enum_contains_variant(source: &str, enum_name: &str, variant_name: &str) -> bool {
@@ -1229,363 +1257,34 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
     );
 }
 
-#[test]
-fn current_concrete_public_types_preserve_the_audited_auto_traits() {
-    fn assert_core_auto_traits<T: Send + Sync + Unpin>() {}
-
-    fn assert_unwind_auto_traits<
-        T: Send + Sync + Unpin + std::panic::UnwindSafe + std::panic::RefUnwindSafe,
-    >() {
+fn assert_binary_crate_root_has_no_public_items() {
+    let file = syn::parse_file(include_str!("main.rs")).expect("parse binary crate root");
+    for item in file.items {
+        let visibility = match item {
+            Item::Const(item) => Some(item.vis),
+            Item::Enum(item) => Some(item.vis),
+            Item::ExternCrate(item) => Some(item.vis),
+            Item::Fn(item) => Some(item.vis),
+            Item::Mod(item) => Some(item.vis),
+            Item::Static(item) => Some(item.vis),
+            Item::Struct(item) => Some(item.vis),
+            Item::Trait(item) => Some(item.vis),
+            Item::TraitAlias(item) => Some(item.vis),
+            Item::Type(item) => Some(item.vis),
+            Item::Union(item) => Some(item.vis),
+            Item::Use(item) => Some(item.vis),
+            _ => None,
+        };
+        assert!(
+            visibility.as_ref().map_or(true, |vis| !is_public(vis)),
+            "src/main.rs contains a top-level externally public Rust item; \
+             issue_54_binary_only_package checks visibility across the complete source tree"
+        );
     }
-
-    assert_unwind_auto_traits::<agentic_navigation_guide::Dumper>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::errors::ErrorFormatter>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::Parser>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::GuideLocation>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::GuideVerificationResult>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::NavigationGuideLine>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::NavigationGuide>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::types::Config>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::Validator>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::Verifier>();
-    assert_core_auto_traits::<agentic_navigation_guide::AppError>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::SyntaxError>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::SemanticError>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::FilesystemItem>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::ExecutionMode>();
-    assert_unwind_auto_traits::<agentic_navigation_guide::LogLevel>();
-}
-
-fn collect_current_source_api() -> BTreeSet<(ApiKind, String)> {
-    const SOURCES: &[(&str, &str)] = &[
-        ("crate", include_str!("../src/lib.rs")),
-        ("dumper", include_str!("../src/dumper.rs")),
-        ("errors", include_str!("../src/errors.rs")),
-        ("parser", include_str!("../src/parser.rs")),
-        ("recursive", include_str!("../src/recursive.rs")),
-        ("types", include_str!("../src/types.rs")),
-        ("validator", include_str!("../src/validator.rs")),
-        ("verifier", include_str!("../src/verifier.rs")),
-    ];
-
-    let mut surface = BTreeSet::new();
-
-    for (module, source) in SOURCES {
-        let file = syn::parse_file(source).unwrap_or_else(|error| {
-            panic!("parse current Rust source for API inventory ({module}): {error}")
-        });
-
-        for item in file.items {
-            match item {
-                Item::Mod(item) if is_public(&item.vis) => {
-                    assert_eq!(*module, "crate", "unexpected nested public module");
-                    surface.insert((ApiKind::Module, item.ident.to_string()));
-                }
-                Item::Use(item) if is_public(&item.vis) => {
-                    assert_eq!(*module, "crate", "unexpected non-root public re-export");
-                    let mut exported = Vec::new();
-                    flatten_public_use(&item.tree, &mut exported);
-                    for name in exported {
-                        surface.insert((ApiKind::ReExport, format!("crate::{name}")));
-                    }
-                }
-                Item::Type(item) if is_public(&item.vis) => {
-                    let generics = render_generics(&item.generics);
-                    let target = render_type(&item.ty);
-                    surface.insert((
-                        ApiKind::TypeAlias,
-                        format!("{module}::{}{generics} = {target}", item.ident),
-                    ));
-                }
-                Item::Struct(item) if is_public(&item.vis) => {
-                    let type_name = item.ident.to_string();
-                    surface.insert((
-                        ApiKind::Struct,
-                        format!("{module}::{type_name}{}", render_generics(&item.generics)),
-                    ));
-                    collect_public_struct_fields(&mut surface, &type_name, &item.fields);
-                }
-                Item::Enum(item) if is_public(&item.vis) => {
-                    let type_name = item.ident.to_string();
-                    surface.insert((
-                        ApiKind::Enum,
-                        format!("{module}::{type_name}{}", render_generics(&item.generics)),
-                    ));
-                    for variant in item.variants {
-                        surface.insert((ApiKind::Variant, render_variant(&type_name, &variant)));
-                    }
-                }
-                Item::Fn(item) if is_public(&item.vis) => {
-                    surface.insert((ApiKind::Function, render_function(module, &item.sig)));
-                }
-                Item::Impl(item) if item.trait_.is_none() => {
-                    let type_name = inherent_impl_type_name(&item.self_ty);
-                    for impl_item in item.items {
-                        if let syn::ImplItem::Fn(function) = impl_item {
-                            if is_public(&function.vis) {
-                                surface.insert((
-                                    ApiKind::Method,
-                                    render_function(&type_name, &function.sig),
-                                ));
-                            }
-                        }
-                    }
-                }
-                Item::Const(item) if is_public(&item.vis) => {
-                    panic!("uninventoried public const '{}::{:?}'", module, item.ident)
-                }
-                Item::Static(item) if is_public(&item.vis) => {
-                    panic!("uninventoried public static '{}::{:?}'", module, item.ident)
-                }
-                Item::Trait(item) if is_public(&item.vis) => {
-                    panic!("uninventoried public trait '{}::{:?}'", module, item.ident)
-                }
-                Item::TraitAlias(item) if is_public(&item.vis) => {
-                    panic!(
-                        "uninventoried public trait alias '{}::{:?}'",
-                        module, item.ident
-                    )
-                }
-                Item::Union(item) if is_public(&item.vis) => {
-                    panic!("uninventoried public union '{}::{:?}'", module, item.ident)
-                }
-                _ => {}
-            }
-        }
-    }
-
-    surface
-}
-
-fn collect_current_variant_order() -> BTreeMap<String, Vec<String>> {
-    const ENUM_SOURCES: &[&str] = &[
-        include_str!("../src/errors.rs"),
-        include_str!("../src/types.rs"),
-    ];
-
-    let mut order = BTreeMap::new();
-    for source in ENUM_SOURCES {
-        let file = syn::parse_file(source).expect("parse enum source for order snapshot");
-        for item in file.items {
-            let Item::Enum(item) = item else {
-                continue;
-            };
-            if !is_public(&item.vis) {
-                continue;
-            }
-            let type_name = item.ident.to_string();
-            let variants = item
-                .variants
-                .iter()
-                .map(|variant| {
-                    let mut identity = variant.ident.to_string();
-                    if let Some((_, discriminant)) = &variant.discriminant {
-                        identity.push('=');
-                        identity.push_str(&compact_tokens(discriminant));
-                    }
-                    identity
-                })
-                .collect();
-            order.insert(type_name, variants);
-        }
-    }
-    order
 }
 
 fn is_public(visibility: &Visibility) -> bool {
     matches!(visibility, Visibility::Public(_))
-}
-
-fn flatten_public_use(tree: &UseTree, exported: &mut Vec<String>) {
-    match tree {
-        UseTree::Path(path) => flatten_public_use(&path.tree, exported),
-        UseTree::Name(name) => exported.push(name.ident.to_string()),
-        UseTree::Rename(rename) => exported.push(rename.rename.to_string()),
-        UseTree::Group(group) => {
-            for item in &group.items {
-                flatten_public_use(item, exported);
-            }
-        }
-        UseTree::Glob(_) => panic!("glob re-exports are not allowed in the exact API ledger"),
-    }
-}
-
-fn render_generics(generics: &syn::Generics) -> String {
-    let parameters = if generics.params.is_empty() {
-        String::new()
-    } else {
-        let parameters = generics
-            .params
-            .iter()
-            .map(compact_tokens)
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("<{parameters}>")
-    };
-    format!("{parameters}{}", render_where_clause(generics))
-}
-
-fn render_generic_parameters(generics: &syn::Generics) -> String {
-    if generics.params.is_empty() {
-        String::new()
-    } else {
-        let parameters = generics
-            .params
-            .iter()
-            .map(compact_tokens)
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("<{parameters}>")
-    }
-}
-
-fn render_where_clause(generics: &syn::Generics) -> String {
-    generics
-        .where_clause
-        .as_ref()
-        .map(|clause| {
-            let clause = compact_tokens(clause);
-            let predicates = clause
-                .strip_prefix("where")
-                .expect("syn where-clause tokens start with where");
-            format!(" where {predicates}")
-        })
-        .unwrap_or_default()
-}
-
-fn render_type(ty: &syn::Type) -> String {
-    compact_tokens(ty)
-}
-
-fn compact_tokens(tokens: &impl ToTokens) -> String {
-    tokens
-        .to_token_stream()
-        .to_string()
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect()
-}
-
-fn collect_public_struct_fields(
-    surface: &mut BTreeSet<(ApiKind, String)>,
-    type_name: &str,
-    fields: &Fields,
-) {
-    for (index, field) in fields.iter().enumerate() {
-        if !is_public(&field.vis) {
-            continue;
-        }
-        let field_name = field
-            .ident
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| index.to_string());
-        surface.insert((
-            ApiKind::Field,
-            format!("{type_name}::{field_name}: {}", render_type(&field.ty)),
-        ));
-    }
-}
-
-fn render_variant(type_name: &str, variant: &syn::Variant) -> String {
-    let prefix = format!("{type_name}::{}", variant.ident);
-    let fields = match &variant.fields {
-        Fields::Unit => prefix,
-        Fields::Unnamed(fields) => {
-            let fields = fields
-                .unnamed
-                .iter()
-                .map(|field| render_type(&field.ty))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{prefix}({fields})")
-        }
-        Fields::Named(fields) => {
-            let fields = fields
-                .named
-                .iter()
-                .map(|field| {
-                    format!(
-                        "{}: {}",
-                        field.ident.as_ref().expect("named variant field"),
-                        render_type(&field.ty)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{prefix} {{ {fields} }}")
-        }
-    };
-    if let Some((_, discriminant)) = &variant.discriminant {
-        format!("{fields} = {}", compact_tokens(discriminant))
-    } else {
-        fields
-    }
-}
-
-fn render_function(namespace: &str, signature: &syn::Signature) -> String {
-    let mut arguments = signature
-        .inputs
-        .iter()
-        .map(|argument| match argument {
-            FnArg::Receiver(receiver) => {
-                if receiver.reference.is_some() {
-                    if receiver.mutability.is_some() {
-                        "&mut self".to_string()
-                    } else {
-                        "&self".to_string()
-                    }
-                } else {
-                    "self".to_string()
-                }
-            }
-            FnArg::Typed(argument) => format!(
-                "{}: {}",
-                compact_tokens(&argument.pat),
-                render_type(&argument.ty)
-            ),
-        })
-        .collect::<Vec<_>>();
-    if signature.variadic.is_some() {
-        arguments.push("...".to_string());
-    }
-    let arguments = arguments.join(", ");
-    let output = match &signature.output {
-        ReturnType::Default => String::new(),
-        ReturnType::Type(_, ty) => format!(" -> {}", render_type(ty)),
-    };
-    let mut modifiers = String::new();
-    if signature.constness.is_some() {
-        modifiers.push_str("const ");
-    }
-    if signature.asyncness.is_some() {
-        modifiers.push_str("async ");
-    }
-    if signature.unsafety.is_some() {
-        modifiers.push_str("unsafe ");
-    }
-    if let Some(abi) = &signature.abi {
-        modifiers.push_str(&format!("{} ", compact_tokens(abi)));
-    }
-    let generics = render_generic_parameters(&signature.generics);
-    let where_clause = render_where_clause(&signature.generics);
-
-    format!(
-        "{namespace}::{modifiers}{}{generics}({arguments}){output}{where_clause}",
-        signature.ident
-    )
-}
-
-fn inherent_impl_type_name(ty: &syn::Type) -> String {
-    let syn::Type::Path(path) = ty else {
-        panic!("unsupported inherent impl target in API inventory")
-    };
-    path.path
-        .segments
-        .last()
-        .expect("inherent impl type path")
-        .ident
-        .to_string()
 }
 
 #[test]
@@ -2433,14 +2132,14 @@ fn issue_41_generation_is_all_or_nothing_and_diagnostics_are_control_safe() {
     let rejected_name = "bad\nname.txt";
     fs::write(root.join(rejected_name), "").expect("newline-name fixture");
 
-    let dump = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let dump = Command::new(crate::test_support::cli_binary())
         .arg("dump")
         .arg("--root")
         .arg(&root)
         .output()
         .expect("run dump with rejected name");
     let dump_destination = temp.path().join("dump.md");
-    let dump_to_file = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let dump_to_file = Command::new(crate::test_support::cli_binary())
         .arg("dump")
         .arg("--root")
         .arg(&root)
@@ -2449,7 +2148,7 @@ fn issue_41_generation_is_all_or_nothing_and_diagnostics_are_control_safe() {
         .output()
         .expect("run dump-to-file with rejected name");
     let init_destination = temp.path().join("generated.md");
-    let init = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let init = Command::new(crate::test_support::cli_binary())
         .arg("init")
         .arg("--root")
         .arg(&root)
@@ -2632,7 +2331,7 @@ fn issue_41_parser_diagnostics_escape_rejected_controls() {
         )
         .expect("write control-bearing guide");
 
-        let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+        let output = Command::new(crate::test_support::cli_binary())
             .arg("check")
             .arg("--guide")
             .arg(&guide_path)
@@ -2678,7 +2377,7 @@ fn issue_41_rejected_name_diagnostics_are_reversible_and_double_quoted() {
         )
         .expect("write rejected-name guide");
 
-        let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+        let output = Command::new(crate::test_support::cli_binary())
             .arg("check")
             .arg("--guide")
             .arg(&guide_path)
@@ -2708,7 +2407,7 @@ fn issue_41_rejected_name_diagnostics_are_reversible_and_double_quoted() {
         "<agentic-navigation-guide>\n- \"a\\\"b\"\n- \"a\\\"b\"\n</agentic-navigation-guide>",
     )
     .expect("write duplicate rejected-name guide");
-    let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let output = Command::new(crate::test_support::cli_binary())
         .arg("check")
         .arg("--guide")
         .arg(&guide_path)
@@ -3417,7 +3116,7 @@ fn observe_ignored_cli_matrix(deny_ignored: bool) -> ObservedOperationResult {
             ],
         ),
     ] {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"));
+        let mut command = Command::new(crate::test_support::cli_binary());
         command.args(arguments);
         if deny_ignored {
             command.arg("--deny-ignored");
@@ -3504,7 +3203,7 @@ fn observe_dump_cli_number(option: &str, value: &str, nested: bool) -> ObservedO
         fs::write(temp.path().join("file.txt"), "").expect("fixture file");
     }
 
-    let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let output = Command::new(crate::test_support::cli_binary())
         .arg("dump")
         .arg("--root")
         .arg(temp.path())
@@ -3629,7 +3328,7 @@ fn comment_snapshot(source: &str) -> Vec<(String, Option<String>)> {
 }
 
 fn flatten_comments(
-    source: &[agentic_navigation_guide::NavigationGuideLine],
+    source: &[crate::types::NavigationGuideLine],
     parent: &str,
     output: &mut Vec<(String, Option<String>)>,
 ) {

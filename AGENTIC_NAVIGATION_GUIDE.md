@@ -1,7 +1,11 @@
 <agentic-navigation-guide>
 - src/
-  - main.rs # Main entry point
-  - lib.rs # Core logic goes here
+  - main.rs # Binary crate root and CLI entry point
+  - containment_guarantee_tests.rs # Binary-unit containment contract tests
+  - exclusion_semantics_tests.rs # Binary-unit exclusion contract tests
+  - filesystem_identity_snapshot_tests.rs # Binary-unit identity contract tests
+  - test_support.rs # Profile-aware CLI subprocess support for binary-unit tests
+  - v0_2_contract_tests.rs # Binary-unit contract ledger and documentation-sync tests
   - types.rs # Core data types
   - errors.rs # Error handling
   - guide_input.rs # shared private guide-path validation and safe opening
@@ -79,8 +83,8 @@
     - v0_2_contract.rs # Machine-readable v0.2 grammar conformance ledger
     - v0_2_operations.rs # Machine-readable v0.2 filesystem and CLI operation ledger
     - v0_2_trust.rs # Machine-readable v0.2 filesystem trust and adversarial fixture ledger
-    - v0_2_api.rs # Machine-readable current Rust export disposition ledger
-  - v0_2_contract.rs # Contract fixture, documentation-sync, and staged conformance tests
+    - v0_2_api.rs # Frozen #36 Rust export disposition ledger
+  - issue_54_binary_only_package.rs # Workspace/package binary-only target-shape regression
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings

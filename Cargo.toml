@@ -37,5 +37,4 @@ windows-sys = { version = "0.60", features = [
 tempfile = "3.10"
 assert_cmd = "2.0"
 predicates = "3.1"
-quote = "1.0"
-syn = { version = "2.0", features = ["full"] }
+syn = { version = "2.0", features = ["full", "visit"] }

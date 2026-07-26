@@ -32,7 +32,7 @@ struct DirectoryPosition<'a> {
 }
 
 /// Dumper for creating navigation guides from directory structures
-pub struct Dumper {
+pub(crate) struct Dumper {
     /// Root path to dump from
     root_path: PathBuf,
     /// Maximum depth to traverse
@@ -45,7 +45,7 @@ pub struct Dumper {
 
 impl Dumper {
     /// Create a new dumper for the given root path
-    pub fn new(root_path: &Path) -> Self {
+    pub(crate) fn new(root_path: &Path) -> Self {
         Self {
             root_path: root_path.to_path_buf(),
             max_depth: None,
@@ -55,25 +55,25 @@ impl Dumper {
     }
 
     /// Set the maximum depth to traverse
-    pub fn with_max_depth(mut self, max_depth: Option<usize>) -> Self {
+    pub(crate) fn with_max_depth(mut self, max_depth: Option<usize>) -> Self {
         self.max_depth = max_depth;
         self
     }
 
     /// Set exclude patterns
-    pub fn with_exclude_patterns(mut self, patterns: &[String]) -> Result<Self> {
+    pub(crate) fn with_exclude_patterns(mut self, patterns: &[String]) -> Result<Self> {
         self.exclude_matcher = ExclusionMatcher::compile(patterns)?;
         Ok(self)
     }
 
     /// Set the indent size
-    pub fn with_indent_size(mut self, indent_size: usize) -> Self {
+    pub(crate) fn with_indent_size(mut self, indent_size: usize) -> Self {
         self.indent_size = indent_size;
         self
     }
 
     /// Dump the directory structure as a navigation guide
-    pub fn dump(&self) -> Result<String> {
+    pub(crate) fn dump(&self) -> Result<String> {
         let mut output = String::new();
 
         // Get directory entries
@@ -97,7 +97,7 @@ impl Dumper {
     }
 
     /// Dump with XML wrapper tags
-    pub fn dump_with_wrapper(&self) -> Result<String> {
+    pub(crate) fn dump_with_wrapper(&self) -> Result<String> {
         let content = self.dump()?;
         Ok(format!(
             "<agentic-navigation-guide>\n{content}</agentic-navigation-guide>"
@@ -492,7 +492,9 @@ struct TreeNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Parser, Validator, Verifier};
+    use crate::parser::Parser;
+    use crate::validator::Validator;
+    use crate::verifier::Verifier;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;

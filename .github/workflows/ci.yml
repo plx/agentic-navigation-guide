@@ -62,7 +62,7 @@ jobs:
       with:
         components: clippy
     - name: Run clippy
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
   build:
     name: Build
@@ -95,14 +95,20 @@ jobs:
       run: cargo test --locked issue_51 -- --nocapture
     - name: Run focused containment-guarantee tests in release mode
       run: cargo test --release --locked issue_51 -- --nocapture
-    - name: Run focused full-path API-removal tests
-      run: cargo test --locked issue_52 -- --nocapture
-    - name: Run focused symlink-model API-removal tests
-      run: cargo test --locked issue_53 -- --nocapture
+    - name: Run focused historical full-path disposition tests
+      run: cargo test --bin agentic-navigation-guide --locked issue_52 -- --nocapture
+    - name: Run focused historical symlink-model disposition tests
+      run: cargo test --bin agentic-navigation-guide --locked issue_53 -- --nocapture
+    - name: Run focused binary-only surface tests
+      run: cargo test --bin agentic-navigation-guide --locked issue_54 -- --nocapture
+    - name: Prove the packaged target surface is binary-only
+      run: cargo test --test issue_54_binary_only_package --locked -- --nocapture
     - name: Run binding all-owner guide contract
       env:
         GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
-      run: cargo test --test v0_2_contract --locked -- --nocapture
+      run: >-
+        cargo test --bin agentic-navigation-guide --locked
+        v0_2_contract_tests:: -- --nocapture
     - name: Run focused logical-backslash regression
       run: cargo test --locked issue_27 -- --nocapture
     - name: Run focused syntax-sensitive-name tests

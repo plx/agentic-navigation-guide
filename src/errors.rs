@@ -3,12 +3,12 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
-/// Result type alias for the library
-pub type Result<T> = std::result::Result<T, AppError>;
+/// Shared result type for binary-internal operations
+pub(crate) type Result<T> = std::result::Result<T, AppError>;
 
 /// Top-level application error type
 #[derive(Debug, Error)]
-pub enum AppError {
+pub(crate) enum AppError {
     /// Error was already printed to stderr in a command-specific format
     #[error("{0}")]
     Reported(Box<AppError>),
@@ -44,7 +44,7 @@ pub enum AppError {
 
 impl AppError {
     /// Mark this error as already reported to stderr.
-    pub fn reported(self) -> Self {
+    pub(crate) fn reported(self) -> Self {
         if matches!(self, Self::Reported(_)) {
             self
         } else {
@@ -53,12 +53,12 @@ impl AppError {
     }
 
     /// Returns true when this error has already been printed to stderr.
-    pub fn is_reported(&self) -> bool {
+    pub(crate) fn is_reported(&self) -> bool {
         matches!(self, Self::Reported(_))
     }
 
     /// Returns the underlying error with any reporting wrapper removed.
-    pub fn root_cause(&self) -> &Self {
+    pub(crate) fn root_cause(&self) -> &Self {
         match self {
             Self::Reported(inner) => inner.root_cause(),
             _ => self,
@@ -68,7 +68,7 @@ impl AppError {
 
 /// Syntax errors in navigation guide format
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum SyntaxError {
+pub(crate) enum SyntaxError {
     /// Invalid guide document or missing opening sentinel marker
     #[error(
         "line {line}: invalid guide document or missing opening <agentic-navigation-guide> marker"
@@ -138,7 +138,7 @@ pub enum SyntaxError {
 
 /// Semantic errors when verifying against filesystem
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum SemanticError {
+pub(crate) enum SemanticError {
     /// File or directory not found
     #[error("line {line}: {item_type} '{path}' not found at {full_path}")]
     ItemNotFound {
@@ -183,7 +183,7 @@ pub enum SemanticError {
 
 impl SyntaxError {
     /// Get the line number associated with this error, if any
-    pub fn line_number(&self) -> Option<usize> {
+    pub(crate) fn line_number(&self) -> Option<usize> {
         match self {
             Self::MissingOpeningMarker { line }
             | Self::MissingClosingMarker { line }
@@ -204,7 +204,7 @@ impl SyntaxError {
 
 impl SemanticError {
     /// Get the line number associated with this error
-    pub fn line_number(&self) -> usize {
+    pub(crate) fn line_number(&self) -> usize {
         match self {
             Self::ItemNotFound { line, .. }
             | Self::TypeMismatch { line, .. }
@@ -217,11 +217,11 @@ impl SemanticError {
 }
 
 /// Format errors for display with optional context
-pub struct ErrorFormatter;
+pub(crate) struct ErrorFormatter;
 
 impl ErrorFormatter {
     /// Format an error with line context if available
-    pub fn format_with_context(error: &AppError, file_content: Option<&str>) -> String {
+    pub(crate) fn format_with_context(error: &AppError, file_content: Option<&str>) -> String {
         match error.root_cause() {
             AppError::Syntax(e) => {
                 if let Some(line_num) = e.line_number() {
