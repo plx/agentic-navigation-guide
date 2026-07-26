@@ -747,7 +747,9 @@ impl Parser {
     }
 
     fn invalid_decoded_component(component: &str) -> bool {
-        component.is_empty() || component == "." || component == ".."
+        component.is_empty()
+            || matches!(component, "." | ".." | "...")
+            || component.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}')
     }
 
     fn has_windows_drive_prefix(component: &str) -> bool {
@@ -802,7 +804,12 @@ impl Parser {
             match state {
                 ChoiceState::LeadingLayout => match ch {
                     ' ' | '\t' => {}
-                    ',' => choices.push(String::new()),
+                    ',' => Self::push_choice_before_separator(
+                        &mut choices,
+                        String::new(),
+                        path,
+                        line_number,
+                    )?,
                     '"' => state = ChoiceState::Quoted,
                     '\\' => {
                         let next =
@@ -841,7 +848,12 @@ impl Parser {
                 ChoiceState::Unquoted => match ch {
                     ',' => {
                         pending_layout.clear();
-                        choices.push(std::mem::take(&mut current));
+                        Self::push_choice_before_separator(
+                            &mut choices,
+                            std::mem::take(&mut current),
+                            path,
+                            line_number,
+                        )?;
                         state = ChoiceState::LeadingLayout;
                     }
                     ' ' | '\t' => pending_layout.push(ch),
@@ -916,7 +928,12 @@ impl Parser {
                 ChoiceState::QuotedClosed => match ch {
                     ' ' | '\t' => {}
                     ',' => {
-                        choices.push(std::mem::take(&mut current));
+                        Self::push_choice_before_separator(
+                            &mut choices,
+                            std::mem::take(&mut current),
+                            path,
+                            line_number,
+                        )?;
                         state = ChoiceState::LeadingLayout;
                     }
                     _ => {
@@ -941,6 +958,9 @@ impl Parser {
         }
 
         pending_layout.clear();
+        if choices.len() >= MAX_CHOICE_ALTERNATIVES {
+            return Err(Self::choice_count_error(path, line_number).into());
+        }
         choices.push(current);
 
         // Validate that the choice block is not empty
@@ -954,18 +974,37 @@ impl Parser {
         }
 
         if !(MIN_CHOICE_ALTERNATIVES..=MAX_CHOICE_ALTERNATIVES).contains(&choices.len()) {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: format!(
-                    "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
-                     {MAX_CHOICE_ALTERNATIVES} alternatives"
-                ),
-            }
-            .into());
+            return Err(Self::choice_count_error(path, line_number).into());
         }
 
         Ok(choices)
+    }
+
+    fn push_choice_before_separator(
+        choices: &mut Vec<String>,
+        choice: String,
+        path: &str,
+        line_number: usize,
+    ) -> Result<()> {
+        // A separator guarantees that one more alternative follows. Reject
+        // before allocating the 256th completed token, which would imply at
+        // least 257 alternatives once the final token is added.
+        if choices.len() >= MAX_CHOICE_ALTERNATIVES - 1 {
+            return Err(Self::choice_count_error(path, line_number).into());
+        }
+        choices.push(choice);
+        Ok(())
+    }
+
+    fn choice_count_error(path: &str, line_number: usize) -> SyntaxError {
+        SyntaxError::InvalidWildcardSyntax {
+            line: line_number,
+            path: path.to_string(),
+            message: format!(
+                "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
+                 {MAX_CHOICE_ALTERNATIVES} alternatives"
+            ),
+        }
     }
 
     fn valid_unquoted_choice_escape(ch: char) -> bool {
