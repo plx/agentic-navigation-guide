@@ -1022,7 +1022,14 @@ fn issue_54_binary_only_target_and_owned_dispositions_are_realized() {
 fn api_ledger_matches_the_realized_binary_only_cargo_target() {
     assert_binary_crate_root_has_no_public_items();
     let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .args([
+            "metadata",
+            "--locked",
+            "--offline",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("run cargo metadata for the current package target snapshot");
