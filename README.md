@@ -407,9 +407,10 @@ agentic-navigation-guide verify --recursive --allow-empty
 ```
 
 That explicit flag permits only a successfully completed search with zero
-matches. Invalid roots, invalid exclusion patterns, traversal failures, and
-failures from a discovered guide remain nonzero. Non-quiet output still reports
-that zero guides were verified; `--quiet --allow-empty` succeeds silently.
+matches. Missing, inaccessible, or non-directory roots, invalid exclusion
+patterns, traversal failures, and failures from a discovered guide remain
+nonzero. Non-quiet output still reports that zero guides were verified;
+`--quiet --allow-empty` succeeds silently.
 
 ### Example Monorepo Structure
 

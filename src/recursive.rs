@@ -1,6 +1,6 @@
 //! Recursive navigation guide discovery and verification
 
-use crate::errors::{ErrorFormatter, Result};
+use crate::errors::{AppError, ErrorFormatter, Result};
 use crate::parser::Parser;
 use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
@@ -8,6 +8,7 @@ use crate::verifier::Verifier;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 use walkdir::WalkDir;
 
 /// Represents a single guide file to be verified
@@ -68,6 +69,12 @@ impl fmt::Display for VerificationAggregate {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("recursive search root {root:?} is not a directory")]
+struct InvalidRecursiveRoot {
+    root: PathBuf,
+}
+
 /// Recursively find all navigation guide files
 pub fn find_guides(
     root: &Path,
@@ -86,6 +93,19 @@ pub fn find_guides(
         }
         Some(builder.build()?)
     };
+
+    // Validate a root whose metadata is available after validating the
+    // exclusion configuration. Following metadata deliberately permits a
+    // caller-selected symlink or junction alias to a directory; descendant
+    // link policy remains separately owned.
+    if let Ok(metadata) = std::fs::metadata(root) {
+        if !metadata.is_dir() {
+            let error = InvalidRecursiveRoot {
+                root: root.to_path_buf(),
+            };
+            return Err(AppError::Other(error.to_string()));
+        }
+    }
 
     // Walk directory tree
     let walker = WalkDir::new(root).follow_links(false).into_iter();
