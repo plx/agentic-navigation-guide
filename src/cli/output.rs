@@ -466,10 +466,12 @@ impl PreparedOutput {
             Ok(())
         })();
 
-        drop(file);
         match delivery_result {
-            Ok(()) => Ok(()),
-            Err(failure) => self.finish_failed_delivery(failure, &created_identity, control),
+            Ok(()) => {
+                drop(file);
+                Ok(())
+            }
+            Err(failure) => self.finish_failed_delivery(failure, file, &created_identity, control),
         }
     }
 
@@ -497,10 +499,24 @@ impl PreparedOutput {
     fn finish_failed_delivery<C: DeliveryControl>(
         &self,
         failure: DeliveryFailure,
+        created_file: File,
         created_identity: &FileIdentity,
         control: &mut C,
     ) -> Result<(), OutputError> {
-        let cleanup = cleanup_created_entry(&self.creation_path, created_identity, control);
+        // Keep the original handle alive while cleanup compares and removes
+        // the directory entry. Otherwise a filesystem may immediately reuse
+        // the unlinked file's identity for a competing replacement and make
+        // the path appear to still name our artifact.
+        let cleanup = cleanup_created_entry(
+            &self.creation_path,
+            &created_file,
+            created_identity,
+            control,
+        );
+        // Windows completes deletion of an open, delete-shared file only
+        // after the final handle closes. Drop before verifying absence.
+        drop(created_file);
+        let cleanup = cleanup.and_then(|()| verify_cleanup(&self.creation_path));
         match cleanup {
             Ok(()) => Err(OutputError::Delivery {
                 path: self.requested_path.clone(),
@@ -686,6 +702,7 @@ impl DeliveryControl for ProductionControl {}
 
 fn cleanup_created_entry<C: DeliveryControl>(
     path: &Path,
+    _created_file: &File,
     created_identity: &FileIdentity,
     control: &mut C,
 ) -> Result<(), CleanupFailure> {
@@ -700,7 +717,10 @@ fn cleanup_created_entry<C: DeliveryControl>(
         return Err(CleanupFailure::IdentityChanged);
     }
 
-    fs::remove_file(path).map_err(CleanupFailure::Remove)?;
+    fs::remove_file(path).map_err(CleanupFailure::Remove)
+}
+
+fn verify_cleanup(path: &Path) -> Result<(), CleanupFailure> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Ok(_) => Err(CleanupFailure::StillPresent),
@@ -1299,7 +1319,11 @@ mod tests {
                 CleanupAction::Normal => Ok(()),
                 CleanupAction::Fail => Err(CleanupFailure::Injected),
                 CleanupAction::Replace => {
+                    #[cfg(unix)]
                     fs::remove_file(path).map_err(CleanupFailure::Remove)?;
+                    #[cfg(windows)]
+                    fs::rename(path, replacement_tombstone(path))
+                        .map_err(CleanupFailure::Remove)?;
                     fs::write(path, b"replacement").map_err(CleanupFailure::Verification)?;
                     Ok(())
                 }
@@ -1483,7 +1507,14 @@ mod tests {
                 ..
             })
         ));
-        assert_eq!(fs::read(replacement_output).unwrap(), b"replacement");
+        assert_eq!(fs::read(&replacement_output).unwrap(), b"replacement");
+        #[cfg(windows)]
+        fs::remove_file(replacement_tombstone(&replacement_output)).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn replacement_tombstone(path: &Path) -> PathBuf {
+        path.with_extension("created-artifact-tombstone")
     }
 
     #[test]
