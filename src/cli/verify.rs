@@ -376,6 +376,14 @@ impl VerifyArgs {
             if config.log_level == LogLevel::Quiet {
                 eprintln!("  {aggregate}");
             }
+            if !all_passed {
+                let message = format!(
+                    "Some guides failed verification, and {}",
+                    super::denied_ignored_message(aggregate.ignored)
+                );
+                eprintln!("{message}");
+                return Err(AppError::Other(message).reported());
+            }
             return super::finish_ignored_policy(aggregate.ignored, true);
         }
 

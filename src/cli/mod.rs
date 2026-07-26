@@ -17,6 +17,15 @@ pub(crate) enum CommandOutcome {
     Ignored { count: usize },
 }
 
+pub(crate) fn denied_ignored_message(ignored_count: usize) -> String {
+    let noun = if ignored_count == 1 {
+        "navigation guide was"
+    } else {
+        "navigation guides were"
+    };
+    format!("--deny-ignored rejected the run because {ignored_count} ignored {noun} discovered")
+}
+
 pub(crate) fn finish_ignored_policy(
     ignored_count: usize,
     deny_ignored: bool,
@@ -32,14 +41,7 @@ pub(crate) fn finish_ignored_policy(
         return Ok(outcome);
     }
 
-    let noun = if ignored_count == 1 {
-        "navigation guide was"
-    } else {
-        "navigation guides were"
-    };
-    let message = format!(
-        "--deny-ignored rejected the run because {ignored_count} ignored {noun} discovered"
-    );
+    let message = denied_ignored_message(ignored_count);
     eprintln!("{message}");
     Err(AppError::Other(message).reported())
 }
