@@ -125,6 +125,57 @@ fn issue_50_case_identity_is_exact_in_first_directory_components() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn issue_50_intermediate_alias_to_external_symlink_rejects_identity_first() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary symlink-alias root");
+    let root = temp.path().join("root");
+    let outside = temp.path().join("outside");
+    fs::create_dir(&root).expect("verification root");
+    fs::create_dir(&outside).expect("external directory");
+    fs::write(outside.join("secret.txt"), "").expect("external file");
+    symlink(&outside, root.join("Src")).expect("external directory symlink");
+
+    if fs::symlink_metadata(root.join("src")).is_err() {
+        return;
+    }
+
+    let alias_error = verify_lines(&root, "- src/secret.txt\n")
+        .expect_err("an aliased intermediate symlink must fail exact identity first");
+    assert_exact_identity_mismatch(&alias_error, 2, "src");
+
+    assert!(matches!(
+        verify_lines(&root, "- Src/secret.txt\n"),
+        Err(AppError::Semantic(SemanticError::PathEscapesRoot {
+            line: 2,
+            ..
+        }))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_50_intermediate_alias_to_dangling_symlink_rejects_identity_first() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary dangling-symlink-alias root");
+    symlink("missing-target", temp.path().join("Src")).expect("dangling directory symlink");
+
+    if fs::symlink_metadata(temp.path().join("src")).is_err() {
+        return;
+    }
+
+    let alias_error = verify_lines(temp.path(), "- src/file.txt\n")
+        .expect_err("an aliased dangling intermediate symlink must fail exact identity first");
+    assert_exact_identity_mismatch(&alias_error, 2, "src");
+    assert!(matches!(
+        verify_lines(temp.path(), "- Src/file.txt\n"),
+        Err(AppError::Io(_))
+    ));
+}
+
 #[test]
 fn issue_50_unicode_identity_is_exact_or_capability_is_explicit() {
     let temp = TempDir::new().expect("temporary Unicode-identity root");
