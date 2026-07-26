@@ -3,8 +3,8 @@ pub(super) const CASES: &[OperationCase] = &[
         id: "operation-dump-hash-name",
         kind: OperationKind::DumpHashName,
         normative: ExpectedOperationResult::GeneratedPaths(&["report", "report#draft"]),
-        current: ExpectedOperationResult::GeneratedInvalid,
-        pending_issue: Some(41),
+        current: ExpectedOperationResult::GeneratedPaths(&["report", "report#draft"]),
+        pending_issue: None,
     },
     OperationCase {
         id: "operation-dump-regular-file",
@@ -315,7 +315,7 @@ pub(super) const CASES: &[OperationCase] = &[
         id: "operation-parse-tab-name",
         kind: OperationKind::ParseTabName,
         normative: ExpectedOperationResult::Rejected,
-        current: ExpectedOperationResult::GeneratedPaths(&["tab\tname.txt"]),
-        pending_issue: Some(41),
+        current: ExpectedOperationResult::Rejected,
+        pending_issue: None,
     },
 ];

@@ -382,10 +382,10 @@ pub(super) const CASES: &[ContractCase] = &[
             ignore: false,
             items: Some(&[ExpectedItem {
                 kind: ItemKind::File,
-                path: "\" report",
+                path: " report#draft[final], \"copy\" \\ ",
             }]),
         },
-        pending_issue: Some(41),
+        pending_issue: None,
     },
     ContractCase {
         id: "path-quoted-ellipsis",
@@ -401,23 +401,17 @@ pub(super) const CASES: &[ContractCase] = &[
             ignore: false,
             items: Some(&[ExpectedItem {
                 kind: ItemKind::File,
-                path: "\"...\"",
+                path: "...",
             }]),
         },
-        pending_issue: Some(41),
+        pending_issue: None,
     },
     ContractCase {
         id: "path-bare-nested-ellipsis",
         source: "<agentic-navigation-guide>\n- src/.../file\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "src/.../file",
-            }]),
-        },
-        pending_issue: Some(41),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-quoted-nested-ellipsis",
@@ -433,10 +427,10 @@ pub(super) const CASES: &[ContractCase] = &[
             ignore: false,
             items: Some(&[ExpectedItem {
                 kind: ItemKind::File,
-                path: "\"src/.../file\"",
+                path: "src/.../file",
             }]),
         },
-        pending_issue: Some(41),
+        pending_issue: None,
     },
     ContractCase {
         id: "path-quoted-directory",
@@ -452,23 +446,17 @@ pub(super) const CASES: &[ContractCase] = &[
             ignore: false,
             items: Some(&[ExpectedItem {
                 kind: ItemKind::Directory,
-                path: "\"src\"",
+                path: "src",
             }]),
         },
-        pending_issue: Some(41),
+        pending_issue: None,
     },
     ContractCase {
         id: "path-quoted-trailing-separator",
         source: "<agentic-navigation-guide>\n- \"src/\"\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "\"src/\"",
-            }]),
-        },
-        pending_issue: Some(41),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-repeated-internal-separator",
@@ -535,27 +523,15 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "path-unknown-escape",
         source: "<agentic-navigation-guide>\n- bad\\q.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "badq.txt",
-            }]),
-        },
-        pending_issue: Some(41),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-empty-quoted",
         source: "<agentic-navigation-guide>\n- \"\"\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "\"\"",
-            }]),
-        },
-        pending_issue: Some(41),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-unmatched-closing-bracket",

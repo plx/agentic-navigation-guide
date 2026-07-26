@@ -122,8 +122,8 @@ The main rules are:
   is limited to depth 256
 - exactly one trailing `/` marks a directory entry; repeated separators and
   empty path components are invalid before the marker is removed
-- comments are optional; the first unescaped `#` starts the comment portion
-- use `\#` to include a literal `#` character in a path
+- comments are optional; outside a whole quoted path, the first unescaped `#`
+  starts the comment portion
 - if an entry has no unescaped `#`, everything after the exact list delimiter
   is part of the path (for example, `- src/ source code` is a literal path,
   not a comment)
@@ -133,10 +133,36 @@ The main rules are:
   first-component Windows drive prefix
 - decoded file and directory paths must be unique across the complete guide,
   including equivalent flat and nested spellings
-- no ordering requirement is imposed
+- no ordering requirement is imposed on hand-authored guides
 - placeholder entries (`...`) can be used to indicate unlisted items (see below)
 
 Note that it's *not* an error to omit files and directories from the guide, but it *is* an error to include incorrect entries—the guide *must* be accurate*.
+
+### Filesystem Names and Quoting
+
+A path expression may be bare or whole quoted. In a bare path, the complete
+escape set is `\#`, `\\`, `\[`, `\]`, `\,`, `\"`, and `\ `; any other or
+dangling escape is invalid. Leading or trailing U+0020 spaces require the
+whole quoted form.
+
+A whole quoted path preserves syntax characters and edge spaces literally.
+Inside it, only `\"` and `\\` are escapes. A directory marker remains outside
+the closing quote, as in `- "dir#draft"/`. Quoted `"..."` is the literal
+filesystem name, while bare `...` remains a placeholder. Supported Unicode
+scalar sequences are preserved exactly without normalization.
+
+`dump` and `init` emit canonical names: an ordinary component is bare, while a
+syntax-sensitive component, an edge-space component, or literal `...` is
+whole quoted. Each physical line represents one immediate child, deeper
+components use indentation, and siblings are sorted by ascending UTF-8 bytes.
+
+Names containing NUL, CR, LF, HTAB, another C0 character, or DEL are rejected,
+as are non-UTF-8 filesystem names. Rejected-name diagnostics are
+double-quoted and reversible: valid UTF-8 uses `\"`, `\\`, `\0`, `\t`, `\n`,
+`\r`, or uppercase `\u{XXXX}`; undecodable Unix bytes use uppercase `\xNN`,
+and ill-formed Windows names preserve every UTF-16 unit as uppercase
+`\u{XXXX}`. Generation validates the complete included name set before
+writing guide bytes or creating its destination.
 
 ### UTF-8 Scope
 
