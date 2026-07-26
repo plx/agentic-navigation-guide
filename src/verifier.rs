@@ -1,6 +1,10 @@
 //! Filesystem verification for navigation guides
 
-use crate::errors::{Result, SemanticError};
+use crate::errors::{AppError, Result, SemanticError};
+use crate::path_codec::{
+    contains_forbidden_control, has_windows_drive_prefix, render_os_component,
+    render_utf8_component,
+};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -36,7 +40,12 @@ impl Verifier {
         // Then verify each item against the filesystem
         for item in &guide.items {
             if item.is_placeholder() {
-                self.verify_placeholder_with_context(item, &self.root_path, &mentioned_names)?;
+                self.verify_placeholder_with_context(
+                    item,
+                    &self.root_path,
+                    &mentioned_names,
+                    true,
+                )?;
             } else {
                 self.verify_item(item, &self.root_path, &canonical_root_path)?;
             }
@@ -116,7 +125,12 @@ impl Verifier {
 
                 for child in children {
                     if child.is_placeholder() {
-                        self.verify_placeholder_with_context(child, &item_path, &mentioned_names)?;
+                        self.verify_placeholder_with_context(
+                            child,
+                            &item_path,
+                            &mentioned_names,
+                            false,
+                        )?;
                     } else {
                         self.verify_item(child, &item_path, canonical_root_path)?;
                     }
@@ -290,7 +304,12 @@ impl Verifier {
         // For root-level placeholders, we need to check that there's at least one item
         // in the parent directory that isn't mentioned in the guide
         let mentioned_names = std::collections::HashSet::new();
-        self.verify_placeholder_with_context(item, parent_path, &mentioned_names)
+        self.verify_placeholder_with_context(
+            item,
+            parent_path,
+            &mentioned_names,
+            parent_path == self.root_path,
+        )
     }
 
     /// Verify a placeholder with context of mentioned sibling items
@@ -299,6 +318,7 @@ impl Verifier {
         item: &NavigationGuideLine,
         parent_path: &Path,
         mentioned_names: &std::collections::HashSet<String>,
+        at_root: bool,
     ) -> Result<()> {
         // Check that the parent directory has at least one item not in mentioned_names
         let entries = match std::fs::read_dir(parent_path) {
@@ -331,8 +351,22 @@ impl Verifier {
             let name = entry.file_name();
             let name = name.to_str().ok_or_else(|| SemanticError::NonUtf8Path {
                 line: item.line_number,
-                path: entry.path(),
+                path: PathBuf::from(render_os_component(&name)),
             })?;
+            if contains_forbidden_control(name) {
+                return Err(AppError::Other(format!(
+                    "line {}: unsupported control-bearing filesystem name {}",
+                    item.line_number,
+                    render_utf8_component(name)
+                )));
+            }
+            if at_root && (name.starts_with('\\') || has_windows_drive_prefix(name)) {
+                return Err(AppError::Other(format!(
+                    "line {}: unsupported rooted or drive-prefixed filesystem name {}",
+                    item.line_number,
+                    render_utf8_component(name)
+                )));
+            }
 
             if !mentioned_names.contains(name) {
                 unmentioned_count += 1;
@@ -1165,12 +1199,21 @@ mod tests {
             ignore: false,
         };
 
-        let result = verifier.verify(&guide);
+        let error = verifier
+            .verify(&guide)
+            .expect_err("placeholder enumeration must reject a non-UTF-8 name");
         assert!(matches!(
-            result,
-            Err(crate::errors::AppError::Semantic(
-                SemanticError::NonUtf8Path { .. }
-            ))
+            &error,
+            crate::errors::AppError::Semantic(SemanticError::NonUtf8Path { .. })
         ));
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains("\"\\x62\\x61\\x64\\x2D\\xFF\\x2D\\x66\\x69\\x6C\\x65\""),
+            "diagnostic did not preserve every raw byte: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains('\u{fffd}'),
+            "diagnostic used a lossy replacement character: {diagnostic}"
+        );
     }
 }

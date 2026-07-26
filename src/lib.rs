@@ -29,6 +29,7 @@ pub mod dumper;
 pub mod errors;
 mod guide_input;
 pub mod parser;
+mod path_codec;
 pub mod recursive;
 pub mod types;
 pub mod validator;

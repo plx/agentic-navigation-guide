@@ -1,6 +1,7 @@
 //! Parser for navigation guide markdown files
 
 use crate::errors::{Result, SyntaxError};
+use crate::path_codec::{has_windows_drive_prefix, render_utf8_component};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use regex::Regex;
 use std::collections::HashSet;
@@ -26,6 +27,12 @@ enum ChoiceState {
     Unquoted,
     Quoted,
     QuotedClosed,
+}
+
+enum ParsedPathExpression {
+    Placeholder,
+    Bare(String),
+    Quoted { path: String, directory: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -379,35 +386,66 @@ impl Parser {
                 }
 
                 // Parse path and comment
-                let (path, comment) = self.parse_path_comment(content, line_number)?;
-                let (expanded_paths, is_choice) =
-                    Self::expand_wildcard_path_with_kind(&path, line_number)?;
-                let line_can_own_children =
-                    !is_choice && expanded_paths.len() == 1 && expanded_paths[0].ends_with('/');
+                let (expression, comment) = self.parse_path_comment(content, line_number)?;
+                let (parsed_items, line_can_own_children) = match expression {
+                    ParsedPathExpression::Placeholder => (
+                        vec![FilesystemItem::Placeholder {
+                            comment: comment.clone(),
+                        }],
+                        false,
+                    ),
+                    ParsedPathExpression::Quoted { path, directory } => {
+                        let item = if directory {
+                            FilesystemItem::Directory {
+                                path,
+                                comment: comment.clone(),
+                                children: Vec::new(),
+                            }
+                        } else {
+                            FilesystemItem::File {
+                                path,
+                                comment: comment.clone(),
+                            }
+                        };
+                        (vec![item], directory)
+                    }
+                    ParsedPathExpression::Bare(path) => {
+                        let (expanded_paths, is_choice) = Self::expand_wildcard_path_with_kind(
+                            &path,
+                            line_number,
+                            indent_level == 0,
+                        )?;
+                        let line_can_own_children = !is_choice
+                            && expanded_paths.len() == 1
+                            && expanded_paths[0].ends_with('/');
+                        let mut parsed_items = Vec::with_capacity(expanded_paths.len());
+                        for expanded in expanded_paths {
+                            Self::validate_bare_expansion(
+                                &expanded,
+                                line_number,
+                                indent_level == 0,
+                            )?;
+                            if expanded.ends_with('/') {
+                                parsed_items.push(FilesystemItem::Directory {
+                                    path: expanded
+                                        .strip_suffix('/')
+                                        .expect("ends_with established one directory marker")
+                                        .to_string(),
+                                    comment: comment.clone(),
+                                    children: Vec::new(),
+                                });
+                            } else {
+                                parsed_items.push(FilesystemItem::File {
+                                    path: expanded,
+                                    comment: comment.clone(),
+                                });
+                            }
+                        }
+                        (parsed_items, line_can_own_children)
+                    }
+                };
 
-                for expanded in expanded_paths {
-                    // Determine item type
-                    let item = if expanded == "..." {
-                        FilesystemItem::Placeholder {
-                            comment: comment.clone(),
-                        }
-                    } else if expanded.ends_with('/') {
-                        FilesystemItem::Directory {
-                            path: expanded
-                                .strip_suffix('/')
-                                .expect("ends_with established one directory marker")
-                                .to_string(),
-                            comment: comment.clone(),
-                            children: Vec::new(),
-                        }
-                    } else {
-                        // Could be a file or symlink - we'll treat as file for now
-                        FilesystemItem::File {
-                            path: expanded,
-                            comment: comment.clone(),
-                        }
-                    };
-
+                for item in parsed_items {
                     items.push(NavigationGuideLine {
                         line_number,
                         indent_level,
@@ -433,42 +471,101 @@ impl Parser {
         &self,
         content: &str,
         line_number: usize,
-    ) -> Result<(String, Option<String>)> {
+    ) -> Result<(ParsedPathExpression, Option<String>)> {
+        if content.starts_with('"') {
+            return Self::parse_quoted_path_comment(content, line_number);
+        }
+
         let (raw_path, raw_comment) = Self::split_path_comment(content);
-        let path = raw_path.trim().to_string();
-        let comment = raw_comment.and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
+        let path = raw_path.trim_end_matches(' ').to_string();
+        let comment = Self::normalize_comment(raw_comment);
 
-        // Validate path
         if path.is_empty() {
-            return Err(SyntaxError::InvalidPathFormat {
-                line: line_number,
-                path: String::new(),
-            }
-            .into());
+            return Err(Self::invalid_path_error(line_number, "").into());
         }
 
-        // Check for special directories (but allow "..." placeholder)
         if path == "..." {
-            // Allowed as placeholder
-        } else if path == "." || path == ".." || path == "./" || path == "../" {
-            return Err(SyntaxError::InvalidSpecialDirectory {
-                line: line_number,
-                path,
-            }
-            .into());
+            return Ok((ParsedPathExpression::Placeholder, comment));
         }
 
-        Ok((path, comment))
+        Ok((ParsedPathExpression::Bare(path), comment))
     }
 
-    /// Split a list item value into path and optional comment at the first unescaped `#`.
+    fn parse_quoted_path_comment(
+        content: &str,
+        line_number: usize,
+    ) -> Result<(ParsedPathExpression, Option<String>)> {
+        let mut decoded = String::new();
+        let mut chars = content.char_indices();
+        let Some((_, '"')) = chars.next() else {
+            unreachable!("caller established an opening quote");
+        };
+        let mut closing_end = None;
+
+        while let Some((index, ch)) = chars.next() {
+            match ch {
+                '"' => {
+                    closing_end = Some(index + ch.len_utf8());
+                    break;
+                }
+                '\\' => {
+                    let Some((_, escaped)) = chars.next() else {
+                        return Err(Self::invalid_path_error(line_number, content).into());
+                    };
+                    if !matches!(escaped, '"' | '\\') {
+                        return Err(Self::invalid_path_error(line_number, content).into());
+                    }
+                    decoded.push(escaped);
+                }
+                '\r' | '\n' => {
+                    return Err(Self::invalid_path_error(line_number, content).into());
+                }
+                _ => decoded.push(ch),
+            }
+        }
+
+        let Some(closing_end) = closing_end else {
+            return Err(Self::invalid_path_error(line_number, content).into());
+        };
+        if decoded.is_empty() {
+            return Err(Self::invalid_path_error(line_number, "").into());
+        }
+
+        let mut remainder = &content[closing_end..];
+        let directory = remainder.starts_with('/');
+        if directory {
+            remainder = &remainder[1..];
+        }
+        remainder = remainder.trim_start_matches(' ');
+
+        let comment = if remainder.is_empty() {
+            None
+        } else if let Some(comment) = remainder.strip_prefix('#') {
+            Self::normalize_comment(Some(comment))
+        } else {
+            return Err(Self::invalid_path_error(line_number, content).into());
+        };
+
+        Ok((
+            ParsedPathExpression::Quoted {
+                path: decoded,
+                directory,
+            },
+            comment,
+        ))
+    }
+
+    fn normalize_comment(comment: Option<&str>) -> Option<String> {
+        comment.and_then(|value| {
+            let trimmed = value.trim_matches([' ', '\t']);
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+    }
+
+    /// Split a bare list item at the first unescaped `#`.
+    ///
+    /// Quotes inside a choice are not whole-path quotes and deliberately do
+    /// not suppress the outer comment delimiter.
     fn split_path_comment(content: &str) -> (&str, Option<&str>) {
         let mut escaped = false;
 
@@ -491,6 +588,21 @@ impl Parser {
         (content, None)
     }
 
+    fn invalid_path_error(line: usize, path: &str) -> SyntaxError {
+        SyntaxError::InvalidPathFormat {
+            line,
+            path: render_utf8_component(path),
+        }
+    }
+
+    fn invalid_wildcard_error(line: usize, path: &str, message: impl Into<String>) -> SyntaxError {
+        SyntaxError::InvalidWildcardSyntax {
+            line,
+            path: render_utf8_component(path),
+            message: message.into(),
+        }
+    }
+
     /// Process escape sequences in a string, converting escaped characters to their literal forms.
     ///
     /// Handles the following escape sequences:
@@ -500,6 +612,7 @@ impl Parser {
     /// - `\[` → `[`
     /// - `\]` → `]`
     /// - `\#` → `#`
+    /// - `\ ` → a literal U+0020 space
     ///
     /// # Arguments
     /// * `s` - The string containing escape sequences
@@ -569,7 +682,7 @@ impl Parser {
     /// ```
     #[cfg(test)]
     fn expand_wildcard_path(path: &str, line_number: usize) -> Result<Vec<String>> {
-        let (paths, _) = Self::expand_wildcard_path_with_kind(path, line_number)?;
+        let (paths, _) = Self::expand_wildcard_path_with_kind(path, line_number, true)?;
         Ok(paths)
     }
 
@@ -581,6 +694,7 @@ impl Parser {
     fn expand_wildcard_path_with_kind(
         path: &str,
         line_number: usize,
+        at_root: bool,
     ) -> Result<(Vec<String>, bool)> {
         let mut prefix = String::new();
         let mut suffix = String::new();
@@ -594,13 +708,21 @@ impl Parser {
         while let Some(ch) = iter.next() {
             match ch {
                 '\\' => {
-                    let next = iter
-                        .next()
-                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "incomplete escape sequence".to_string(),
-                        })?;
+                    let next = iter.next().ok_or_else(|| {
+                        Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "incomplete escape sequence",
+                        )
+                    })?;
+                    if !in_block && !Self::valid_unquoted_choice_escape(next) {
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "invalid escape in bare path",
+                        )
+                        .into());
+                    }
 
                     // Preserve escape sequences consistently across prefix, block, and suffix
                     if in_block {
@@ -616,12 +738,11 @@ impl Parser {
                 }
                 '[' if !in_block => {
                     if block_found {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "multiple wildcard choice blocks are not supported"
-                                .to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "multiple wildcard choice blocks are not supported",
+                        )
                         .into());
                     }
                     block_found = true;
@@ -636,16 +757,24 @@ impl Parser {
                     block_content.push(ch);
                 }
                 ']' => {
-                    return Err(SyntaxError::InvalidWildcardSyntax {
-                        line: line_number,
-                        path: path.to_string(),
-                        message: "unmatched closing bracket".to_string(),
-                    }
+                    return Err(Self::invalid_wildcard_error(
+                        line_number,
+                        path,
+                        "unmatched closing bracket",
+                    )
                     .into());
                 }
                 '"' if in_block => {
                     in_quotes = !in_quotes;
                     block_content.push(ch);
+                }
+                '"' => {
+                    return Err(Self::invalid_wildcard_error(
+                        line_number,
+                        path,
+                        "unescaped quote in bare path",
+                    )
+                    .into());
                 }
                 _ => {
                     if in_block {
@@ -660,11 +789,11 @@ impl Parser {
         }
 
         if in_block {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: "unterminated wildcard choice block".to_string(),
-            }
+            return Err(Self::invalid_wildcard_error(
+                line_number,
+                path,
+                "unterminated wildcard choice block",
+            )
             .into());
         }
 
@@ -689,12 +818,12 @@ impl Parser {
             expanded.push_str(&processed_choice);
             expanded.push_str(&processed_suffix);
 
-            if !Self::valid_choice_expansion(&expanded) {
-                return Err(SyntaxError::InvalidWildcardSyntax {
-                    line: line_number,
-                    path: path.to_string(),
-                    message: "choice expansions must be valid regular-file paths".to_string(),
-                }
+            if !Self::valid_choice_expansion(&expanded, at_root) {
+                return Err(Self::invalid_wildcard_error(
+                    line_number,
+                    path,
+                    "choice expansions must be valid regular-file paths",
+                )
                 .into());
             }
 
@@ -706,21 +835,21 @@ impl Parser {
                 .as_ref()
                 .is_some_and(|expected: &String| expected != &parent)
             {
-                return Err(SyntaxError::InvalidWildcardSyntax {
-                    line: line_number,
-                    path: path.to_string(),
-                    message: "choice expansions must be sibling files".to_string(),
-                }
+                return Err(Self::invalid_wildcard_error(
+                    line_number,
+                    path,
+                    "choice expansions must be sibling files",
+                )
                 .into());
             }
             expected_parent.get_or_insert(parent);
 
             if !unique_results.insert(expanded.clone()) {
-                return Err(SyntaxError::InvalidWildcardSyntax {
-                    line: line_number,
-                    path: path.to_string(),
-                    message: "choice expansions must be unique".to_string(),
-                }
+                return Err(Self::invalid_wildcard_error(
+                    line_number,
+                    path,
+                    "choice expansions must be unique",
+                )
                 .into());
             }
             results.push(expanded);
@@ -729,8 +858,13 @@ impl Parser {
         Ok((results, true))
     }
 
-    fn valid_choice_expansion(path: &str) -> bool {
-        if path.is_empty() || path == "..." || path.starts_with(['/', '\\']) || path.ends_with('/')
+    fn valid_choice_expansion(path: &str, at_root: bool) -> bool {
+        if path.is_empty()
+            || path == "..."
+            || path.starts_with('/')
+            || (at_root && path.starts_with('\\'))
+            || path.starts_with(' ')
+            || path.ends_with(['/', ' '])
         {
             return false;
         }
@@ -739,7 +873,7 @@ impl Parser {
         let Some(first) = components.next() else {
             return false;
         };
-        if Self::invalid_decoded_component(first) || Self::has_windows_drive_prefix(first) {
+        if Self::invalid_decoded_component(first) || (at_root && has_windows_drive_prefix(first)) {
             return false;
         }
 
@@ -752,9 +886,33 @@ impl Parser {
             || component.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}')
     }
 
-    fn has_windows_drive_prefix(component: &str) -> bool {
-        let bytes = component.as_bytes();
-        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    fn validate_bare_expansion(path: &str, line_number: usize, at_root: bool) -> Result<()> {
+        let decoded = path.strip_suffix('/').unwrap_or(path);
+        if decoded
+            .split('/')
+            .any(|component| matches!(component, "." | ".."))
+        {
+            return Err(SyntaxError::InvalidSpecialDirectory {
+                line: line_number,
+                path: render_utf8_component(decoded),
+            }
+            .into());
+        }
+
+        let mut components = decoded.split('/');
+        let first = components.next().unwrap_or_default();
+        let invalid = decoded.is_empty()
+            || decoded.starts_with('/')
+            || (at_root && decoded.starts_with('\\'))
+            || decoded.starts_with(' ')
+            || decoded.ends_with(' ')
+            || Self::invalid_decoded_component(first)
+            || (at_root && has_windows_drive_prefix(first))
+            || components.any(Self::invalid_decoded_component);
+        if invalid {
+            return Err(Self::invalid_path_error(line_number, decoded).into());
+        }
+        Ok(())
     }
 
     /// Parse the contents of a wildcard choice block into individual options.
@@ -812,20 +970,19 @@ impl Parser {
                     )?,
                     '"' => state = ChoiceState::Quoted,
                     '\\' => {
-                        let next =
-                            chars
-                                .next()
-                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                                    line: line_number,
-                                    path: path.to_string(),
-                                    message: "incomplete escape sequence".to_string(),
-                                })?;
+                        let next = chars.next().ok_or_else(|| {
+                            Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "incomplete escape sequence",
+                            )
+                        })?;
                         if !Self::valid_unquoted_choice_escape(next) {
-                            return Err(SyntaxError::InvalidWildcardSyntax {
-                                line: line_number,
-                                path: path.to_string(),
-                                message: "invalid escape in unquoted choice".to_string(),
-                            }
+                            return Err(Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "invalid escape in unquoted choice",
+                            )
                             .into());
                         }
                         current.push('\\');
@@ -833,11 +990,11 @@ impl Parser {
                         state = ChoiceState::Unquoted;
                     }
                     '[' | ']' => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "unescaped bracket in unquoted choice".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "unescaped bracket in unquoted choice",
+                        )
                         .into());
                     }
                     _ => {
@@ -858,20 +1015,19 @@ impl Parser {
                     }
                     ' ' | '\t' => pending_layout.push(ch),
                     '\\' => {
-                        let next =
-                            chars
-                                .next()
-                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                                    line: line_number,
-                                    path: path.to_string(),
-                                    message: "incomplete escape sequence".to_string(),
-                                })?;
+                        let next = chars.next().ok_or_else(|| {
+                            Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "incomplete escape sequence",
+                            )
+                        })?;
                         if !Self::valid_unquoted_choice_escape(next) {
-                            return Err(SyntaxError::InvalidWildcardSyntax {
-                                line: line_number,
-                                path: path.to_string(),
-                                message: "invalid escape in unquoted choice".to_string(),
-                            }
+                            return Err(Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "invalid escape in unquoted choice",
+                            )
                             .into());
                         }
                         current.push_str(&pending_layout);
@@ -880,19 +1036,19 @@ impl Parser {
                         current.push(next);
                     }
                     '"' => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "quote must begin a choice alternative".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "quote must begin a choice alternative",
+                        )
                         .into());
                     }
                     '[' | ']' => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "unescaped bracket in unquoted choice".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "unescaped bracket in unquoted choice",
+                        )
                         .into());
                     }
                     _ => {
@@ -904,20 +1060,19 @@ impl Parser {
                 ChoiceState::Quoted => match ch {
                     '"' => state = ChoiceState::QuotedClosed,
                     '\\' => {
-                        let next =
-                            chars
-                                .next()
-                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                                    line: line_number,
-                                    path: path.to_string(),
-                                    message: "incomplete escape sequence".to_string(),
-                                })?;
+                        let next = chars.next().ok_or_else(|| {
+                            Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "incomplete escape sequence",
+                            )
+                        })?;
                         if !matches!(next, '"' | '\\' | '#') {
-                            return Err(SyntaxError::InvalidWildcardSyntax {
-                                line: line_number,
-                                path: path.to_string(),
-                                message: "invalid escape in quoted choice".to_string(),
-                            }
+                            return Err(Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "invalid escape in quoted choice",
+                            )
                             .into());
                         }
                         current.push('\\');
@@ -937,11 +1092,11 @@ impl Parser {
                         state = ChoiceState::LeadingLayout;
                     }
                     _ => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "quoted choice must end before the separator".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "quoted choice must end before the separator",
+                        )
                         .into());
                     }
                 },
@@ -949,11 +1104,11 @@ impl Parser {
         }
 
         if matches!(state, ChoiceState::Quoted) {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: "unterminated quoted string in wildcard choices".to_string(),
-            }
+            return Err(Self::invalid_wildcard_error(
+                line_number,
+                path,
+                "unterminated quoted string in wildcard choices",
+            )
             .into());
         }
 
@@ -965,11 +1120,11 @@ impl Parser {
 
         // Validate that the choice block is not empty
         if choices.is_empty() || choices.iter().all(|c| c.is_empty()) {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: "choice block cannot be empty".to_string(),
-            }
+            return Err(Self::invalid_wildcard_error(
+                line_number,
+                path,
+                "choice block cannot be empty",
+            )
             .into());
         }
 
@@ -997,14 +1152,14 @@ impl Parser {
     }
 
     fn choice_count_error(path: &str, line_number: usize) -> SyntaxError {
-        SyntaxError::InvalidWildcardSyntax {
-            line: line_number,
-            path: path.to_string(),
-            message: format!(
+        Self::invalid_wildcard_error(
+            line_number,
+            path,
+            format!(
                 "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
                  {MAX_CHOICE_ALTERNATIVES} alternatives"
             ),
-        }
+        )
     }
 
     fn valid_unquoted_choice_escape(ch: char) -> bool {
