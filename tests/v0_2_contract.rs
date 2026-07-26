@@ -2123,6 +2123,30 @@ fn issue_41_rejected_name_diagnostics_are_reversible_and_double_quoted() {
             "diagnostic used a lossy replacement character: {diagnostics}"
         );
     }
+
+    fs::write(
+        &guide_path,
+        "<agentic-navigation-guide>\n- \"a\\\"b\"\n- \"a\\\"b\"\n</agentic-navigation-guide>",
+    )
+    .expect("write duplicate rejected-name guide");
+    let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+        .arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .output()
+        .expect("run check with duplicate quote-bearing name");
+    let mut diagnostics = output.stdout;
+    diagnostics.extend_from_slice(&output.stderr);
+    let diagnostics =
+        String::from_utf8(diagnostics).expect("duplicate-name diagnostic must be UTF-8");
+    assert!(
+        !output.status.success(),
+        "check accepted duplicate quote-bearing names"
+    );
+    assert!(
+        diagnostics.contains("\"a\\\"b\""),
+        "duplicate-name diagnostic was not reversible:\n{diagnostics}"
+    );
 }
 
 #[cfg(unix)]
