@@ -677,20 +677,32 @@ pub(super) const CASES: &[ContractCase] = &[
     },
     ContractCase {
         id: "choice-quoted-whitespace",
-        source: "<agentic-navigation-guide>\n- x[\" foo \"]y\n</agentic-navigation-guide>",
+        source: "<agentic-navigation-guide>\n- x[\" foo \", bar]y\n</agentic-navigation-guide>",
         normative: ExpectedResult::Accept {
             ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "x foo y",
-            }]),
+            items: Some(&[
+                ExpectedItem {
+                    kind: ItemKind::File,
+                    path: "x foo y",
+                },
+                ExpectedItem {
+                    kind: ItemKind::File,
+                    path: "xbary",
+                },
+            ]),
         },
         current: ExpectedResult::Accept {
             ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "xfooy",
-            }]),
+            items: Some(&[
+                ExpectedItem {
+                    kind: ItemKind::File,
+                    path: "xfooy",
+                },
+                ExpectedItem {
+                    kind: ItemKind::File,
+                    path: "xbary",
+                },
+            ]),
         },
         pending_issue: Some(40),
     },
