@@ -17,7 +17,7 @@ pub struct DumpArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    /// Maximum logical depth, 0 through 256; 0 selects root children; omitted depth rejects deeper input
+    /// Maximum logical depth, 0 through 256; 0 selects root children; omission rejects depth above 256
     #[arg(short, long, value_parser = parse_depth)]
     pub depth: Option<usize>,
 
@@ -25,7 +25,7 @@ pub struct DumpArgs {
     #[arg(short, long)]
     pub exclude: Vec<String>,
 
-    /// Number of spaces per level, 1 through 16 (default: 2)
+    /// Number of spaces per level, 1 through 16
     #[arg(short, long, default_value = "2", value_parser = parse_indent)]
     pub indent: usize,
 

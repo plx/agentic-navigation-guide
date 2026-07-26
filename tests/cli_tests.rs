@@ -303,6 +303,7 @@ fn issue_43_cli_numeric_boundaries_and_help_are_exact() {
             "1 through 16",
             "0 through 256",
             "root children",
+            "depth above 256",
             "empty or fully excluded",
         ] {
             assert!(
