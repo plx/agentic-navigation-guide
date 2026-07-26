@@ -1999,7 +1999,9 @@ fn issue_41_parser_diagnostics_escape_rejected_controls() {
     let temp = TempDir::new().expect("temporary issue-41 parser diagnostic fixture");
     let guide_path = temp.path().join("guide.md");
     for (path, rejected, expected) in [
+        ("nul\0name.txt", '\0', "\"nul\\0name.txt\""),
         ("tab\tname.txt", '\t', "\"tab\\tname.txt\""),
+        ("esc\u{1b}name.txt", '\u{1b}', "\"esc\\u{001B}name.txt\""),
         ("x[a\tb, c]y", '\t', "\"x[a\\tb, c]y\""),
         (
             "x[\"a\u{7f}b\", c]y",

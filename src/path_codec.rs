@@ -95,3 +95,20 @@ pub(crate) fn render_os_component(value: &OsStr) -> String {
         compile_error!("exact non-UTF-8 name rendering requires a Unix or Windows target");
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::render_os_component;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    #[test]
+    fn ill_formed_windows_name_diagnostic_preserves_every_utf16_unit() {
+        let name = OsString::from_wide(&[0x0062, 0xD800, 0x0061, 0xDC00]);
+
+        assert_eq!(
+            render_os_component(&name),
+            "\"\\u{0062}\\u{D800}\\u{0061}\\u{DC00}\""
+        );
+    }
+}

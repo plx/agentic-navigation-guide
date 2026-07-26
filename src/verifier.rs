@@ -1165,12 +1165,21 @@ mod tests {
             ignore: false,
         };
 
-        let result = verifier.verify(&guide);
+        let error = verifier
+            .verify(&guide)
+            .expect_err("placeholder enumeration must reject a non-UTF-8 name");
         assert!(matches!(
-            result,
-            Err(crate::errors::AppError::Semantic(
-                SemanticError::NonUtf8Path { .. }
-            ))
+            &error,
+            crate::errors::AppError::Semantic(SemanticError::NonUtf8Path { .. })
         ));
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains("\"\\x62\\x61\\x64\\x2D\\xFF\\x2D\\x66\\x69\\x6C\\x65\""),
+            "diagnostic did not preserve every raw byte: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains('\u{fffd}'),
+            "diagnostic used a lossy replacement character: {diagnostic}"
+        );
     }
 }
