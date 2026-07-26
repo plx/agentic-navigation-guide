@@ -2934,6 +2934,15 @@ fn test_recursive_verify_preserves_failed_and_ignored_counts() {
             diagnostics.contains("missing.txt") && diagnostics.contains("ignore=true"),
             "mixed failed/ignored run did not finish classifying both guides:\n{diagnostics}"
         );
+        if deny_ignored {
+            assert!(
+                diagnostics.contains(
+                    "Some guides failed verification, and --deny-ignored rejected the run because \
+                     1 ignored navigation guide was discovered"
+                ),
+                "mixed failed/ignored denial did not report both failure reasons:\n{diagnostics}"
+            );
+        }
     }
 }
 
