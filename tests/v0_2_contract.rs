@@ -1610,6 +1610,389 @@ fn issue_40_duplicate_full_paths_are_executable() {
 }
 
 #[test]
+fn issue_41_owned_contract_rows_are_executable() {
+    const IDS: [&str; 8] = [
+        "path-quoted-sensitive",
+        "path-quoted-ellipsis",
+        "path-bare-nested-ellipsis",
+        "path-quoted-nested-ellipsis",
+        "path-quoted-directory",
+        "path-quoted-trailing-separator",
+        "path-unknown-escape",
+        "path-empty-quoted",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = fixture(id);
+            let observed = observe(case.source);
+            (!matches_expected(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #41 contract mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
+#[test]
+fn issue_41_owned_operations_are_executable() {
+    const IDS: [&str; 2] = ["operation-dump-hash-name", "operation-parse-tab-name"];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = operation_fixtures::CASES
+                .iter()
+                .find(|case| case.id == *id)
+                .unwrap_or_else(|| panic!("missing operation fixture '{id}'"));
+            let observed = run_operation(case.kind);
+            (!matches_expected_operation(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #41 operation mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
+#[test]
+fn issue_41_path_lexer_boundaries_are_executable() {
+    assert_eq!(
+        observe(
+            "<agentic-navigation-guide>\n- \" report#draft[final], \\\"copy\\\" \\\\ \" # note\n</agentic-navigation-guide>"
+        ),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::File,
+                path: " report#draft[final], \"copy\" \\ ".to_string(),
+            }],
+        }
+    );
+    assert_eq!(
+        observe(
+            "<agentic-navigation-guide>\n- bare\\#hash\\[x\\]\\,quote\\\"space\\ name\\\\tail\n</agentic-navigation-guide>"
+        ),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::File,
+                path: "bare#hash[x],quote\"space name\\tail".to_string(),
+            }],
+        }
+    );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- \u{a0}edge\u{a0}\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::File,
+                path: "\u{a0}edge\u{a0}".to_string(),
+            }],
+        },
+        "only unescaped U+0020 is line padding; Unicode whitespace is path data"
+    );
+
+    for source in [
+        "<agentic-navigation-guide>\n- \"unterminated\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \"bad\\q\"\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \"name\"junk\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- bad\"quote\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- bad\\q\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- src/.../file\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- tab\tname\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \"tab\tname\"\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- nul\0name\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- esc\u{1b}name\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- del\u{7f}name\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \\ leading\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- trailing\\ \n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \"\"\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \"src/\"\n</agentic-navigation-guide>",
+    ] {
+        assert_eq!(observe(source), ObservedResult::Reject, "{source}");
+    }
+}
+
+#[test]
+fn issue_41_supported_filesystem_names_round_trip_canonically() {
+    let temp = TempDir::new().expect("temporary issue-41 supported-name root");
+    let root = temp.path();
+    let mut expected = BTreeMap::new();
+
+    for name in [
+        "Foo[bar].txt",
+        "comma,name.txt",
+        "quote\"name.txt",
+        "report",
+        "report#draft",
+        "...",
+        "emoji-🧭.txt",
+    ] {
+        fs::write(root.join(name), "").unwrap_or_else(|error| panic!("create '{name}': {error}"));
+        expected.insert(name.to_string(), ItemKind::File);
+    }
+
+    for name in [" leading.txt", "trailing.txt "] {
+        let probe = TempDir::new().expect("temporary edge-space capability probe");
+        if fs::write(probe.path().join(name), "").is_ok()
+            && fs::read_dir(probe.path())
+                .expect("enumerate edge-space probe")
+                .filter_map(std::result::Result::ok)
+                .any(|entry| entry.file_name() == std::ffi::OsStr::new(name))
+        {
+            fs::write(root.join(name), "").expect("create supported edge-space name");
+            expected.insert(name.to_string(), ItemKind::File);
+        }
+    }
+
+    let unicode_probe = TempDir::new().expect("temporary Unicode identity capability probe");
+    let unicode_pair = ["café.txt", "cafe\u{301}.txt"];
+    let unicode_pair_created = unicode_pair.iter().all(|name| {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(unicode_probe.path().join(name))
+            .is_ok()
+    });
+    let enumerated_unicode = fs::read_dir(unicode_probe.path())
+        .expect("enumerate Unicode capability probe")
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.file_name())
+        .collect::<Vec<_>>();
+    if unicode_pair_created
+        && unicode_pair.iter().all(|name| {
+            enumerated_unicode
+                .iter()
+                .any(|actual| actual == std::ffi::OsStr::new(name))
+        })
+    {
+        for name in unicode_pair {
+            fs::write(root.join(name), "").expect("create exact Unicode identity fixture");
+            expected.insert(name.to_string(), ItemKind::File);
+        }
+    }
+
+    fs::create_dir(root.join("ordinary")).expect("ordinary nested directory");
+    fs::write(root.join("ordinary/nested.txt"), "").expect("ordinary nested control");
+    expected.insert("ordinary".to_string(), ItemKind::Directory);
+    expected.insert("ordinary/nested.txt".to_string(), ItemKind::File);
+
+    #[cfg(unix)]
+    {
+        fs::write(root.join("ordinary/C:notes"), "").expect("later drive-looking component");
+        fs::write(root.join("ordinary/\\later"), "").expect("later backslash-leading component");
+        expected.insert("ordinary/C:notes".to_string(), ItemKind::File);
+        expected.insert("ordinary/\\later".to_string(), ItemKind::File);
+    }
+
+    let source = Dumper::new(root)
+        .dump_with_wrapper()
+        .expect("all supported names must serialize");
+    assert!(source.contains("- \"Foo[bar].txt\"\n"), "{source}");
+    assert!(source.contains("- \"comma,name.txt\"\n"), "{source}");
+    assert!(source.contains("- \"quote\\\"name.txt\"\n"), "{source}");
+    assert!(source.contains("- \"report#draft\"\n"), "{source}");
+    assert!(source.contains("- \"...\"\n"), "{source}");
+
+    let guide = Parser::new()
+        .parse(&source)
+        .expect("canonical generated guide must parse");
+    Validator::new()
+        .validate_syntax(&guide)
+        .expect("canonical generated guide must validate");
+    Verifier::new(root)
+        .verify(&guide)
+        .expect("canonical generated guide must resolve exact original names");
+
+    let root_paths = guide
+        .items
+        .iter()
+        .map(|item| item.path().to_string())
+        .collect::<Vec<_>>();
+    let mut expected_root_paths = expected
+        .keys()
+        .filter(|path| !path.contains('/'))
+        .cloned()
+        .collect::<Vec<_>>();
+    expected_root_paths.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    assert_eq!(
+        root_paths, expected_root_paths,
+        "canonical siblings must use ascending UTF-8 byte order"
+    );
+
+    let mut observed_items = Vec::new();
+    flatten_items(&guide.items, "", &mut observed_items);
+    let observed = observed_items
+        .into_iter()
+        .map(|item| (item.path, item.kind))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(observed, expected);
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_41_generation_is_all_or_nothing_and_diagnostics_are_control_safe() {
+    let temp = TempDir::new().expect("temporary issue-41 rejected-name parent");
+    let root = temp.path().join("root");
+    fs::create_dir(&root).expect("rejected-name root");
+    fs::write(root.join("safe.txt"), "").expect("ordinary sibling");
+    let rejected_name = "bad\nname.txt";
+    fs::write(root.join(rejected_name), "").expect("newline-name fixture");
+
+    let dump = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+        .arg("dump")
+        .arg("--root")
+        .arg(&root)
+        .output()
+        .expect("run dump with rejected name");
+    let destination = temp.path().join("generated.md");
+    let init = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+        .arg("init")
+        .arg("--root")
+        .arg(&root)
+        .arg("--output")
+        .arg(&destination)
+        .arg("--include-vcs-directories")
+        .output()
+        .expect("run init with rejected name");
+
+    for (command, output) in [("dump", dump), ("init", init)] {
+        let mut diagnostics = output.stdout.clone();
+        diagnostics.extend_from_slice(&output.stderr);
+        assert!(
+            !output.status.success(),
+            "{command} accepted a newline name"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{command} emitted plausible partial guide bytes"
+        );
+        assert!(
+            !diagnostics
+                .windows(rejected_name.len())
+                .any(|window| window == rejected_name.as_bytes()),
+            "{command} emitted a raw rejected control-bearing name"
+        );
+        let diagnostics = String::from_utf8(diagnostics).expect("control-safe UTF-8 diagnostic");
+        assert!(
+            diagnostics.contains("\"bad\\nname.txt\""),
+            "{command} did not reversibly escape the rejected name:\n{diagnostics}"
+        );
+        assert!(
+            !diagnostics.contains('\u{fffd}'),
+            "{command} used a lossy replacement character"
+        );
+    }
+    assert!(
+        !destination.exists(),
+        "init created its destination before serializer preflight completed"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_41_control_name_diagnostics_use_exact_reversible_escapes() {
+    for (name, expected) in [
+        ("bad\tname", "\"bad\\tname\""),
+        ("bad\nname", "\"bad\\nname\""),
+        ("bad\rname", "\"bad\\rname\""),
+        ("bad\u{1b}name", "\"bad\\u{001B}name\""),
+        ("bad\u{7f}name", "\"bad\\u{007F}name\""),
+    ] {
+        let temp = TempDir::new().expect("temporary issue-41 control-name fixture");
+        fs::write(temp.path().join(name), "")
+            .unwrap_or_else(|error| panic!("create control-name fixture: {error}"));
+        let error = match Dumper::new(temp.path()).dump() {
+            Ok(output) => panic!("control-bearing name serialized:\n{output}"),
+            Err(error) => error,
+        };
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains(expected),
+            "diagnostic did not preserve {expected}: {diagnostic}"
+        );
+        assert!(
+            !diagnostic
+                .chars()
+                .any(|ch| ch <= '\u{1f}' || ch == '\u{7f}'),
+            "diagnostic emitted a raw control: {diagnostic:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_41_root_prefixes_reject_but_later_components_round_trip() {
+    for name in ["C:root", "\\root"] {
+        let temp = TempDir::new().expect("temporary issue-41 root-prefix fixture");
+        fs::write(temp.path().join(name), "").unwrap_or_else(|error| {
+            panic!("create root-prefix fixture '{name}': {error}");
+        });
+        let error = match Dumper::new(temp.path()).dump() {
+            Ok(output) => panic!("root-prefix name '{name}' serialized:\n{output}"),
+            Err(error) => error,
+        };
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains(&format!("\"{}\"", name.replace('\\', "\\\\"))),
+            "root-prefix diagnostic was not reversible: {diagnostic}"
+        );
+    }
+
+    let temp = TempDir::new().expect("temporary issue-41 later-component fixture");
+    fs::create_dir(temp.path().join("parent")).expect("later-component parent");
+    fs::write(temp.path().join("parent/C:notes"), "").expect("later drive-looking name");
+    fs::write(temp.path().join("parent/\\notes"), "").expect("later backslash-leading name");
+    let source = Dumper::new(temp.path())
+        .dump_with_wrapper()
+        .expect("later drive/backslash spellings must serialize");
+    let guide = Parser::new()
+        .parse(&source)
+        .expect("later drive/backslash guide must parse");
+    Validator::new()
+        .validate_syntax(&guide)
+        .expect("later drive/backslash guide must validate");
+    Verifier::new(temp.path())
+        .verify(&guide)
+        .expect("later drive/backslash names must verify exactly");
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_41_non_utf8_rejection_diagnostic_preserves_every_byte() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let temp = TempDir::new().expect("temporary issue-41 non-UTF-8 fixture");
+    let name = OsString::from_vec(b"bad-\xFF".to_vec());
+    if fs::write(temp.path().join(&name), "").is_err() {
+        return;
+    }
+
+    let diagnostic = Dumper::new(temp.path())
+        .dump()
+        .expect_err("non-UTF-8 name must reject")
+        .to_string();
+    assert!(
+        diagnostic.contains("\"\\x62\\x61\\x64\\x2D\\xFF\""),
+        "diagnostic did not preserve every raw byte: {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains('\u{fffd}'),
+        "diagnostic used a lossy replacement character: {diagnostic}"
+    );
+}
+
+#[test]
 fn generated_depth_boundary_is_executable() {
     const MAX_LOGICAL_DEPTH: usize = 256;
 
