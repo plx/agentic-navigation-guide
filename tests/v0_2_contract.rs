@@ -1099,8 +1099,9 @@ fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
     );
 
     let contract = include_str!("../docs/v0.2-contract.md");
+    let normalized_contract = contract.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        contract.contains(
+        normalized_contract.contains(
             "#52 has now implemented this disposition while preserving the historical inventory row"
         ),
         "the normative inventory must distinguish the realized removal from ledger deletion"
