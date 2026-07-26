@@ -1994,6 +1994,40 @@ fn issue_41_control_name_diagnostics_use_exact_reversible_escapes() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn issue_41_placeholder_verification_rejects_control_bearing_names() {
+    let temp = TempDir::new().expect("temporary issue-41 placeholder control-name fixture");
+    let name = "bad\nname.txt";
+    if fs::write(temp.path().join(name), "").is_err() {
+        return;
+    }
+    let source = "<agentic-navigation-guide>\n- ...\n</agentic-navigation-guide>";
+    let guide = Parser::new()
+        .parse(source)
+        .expect("placeholder guide must parse");
+    Validator::new()
+        .validate_syntax(&guide)
+        .expect("placeholder guide must validate");
+
+    let error = Verifier::new(temp.path())
+        .verify(&guide)
+        .expect_err("placeholder enumeration must reject a control-bearing name");
+    let diagnostic = error.to_string();
+    assert!(
+        diagnostic.contains("\"bad\\nname.txt\""),
+        "diagnostic did not preserve the rejected name: {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains(name),
+        "diagnostic emitted the rejected name with a raw control: {diagnostic:?}"
+    );
+    assert!(
+        !diagnostic.contains('\u{fffd}'),
+        "diagnostic used a lossy replacement character: {diagnostic}"
+    );
+}
+
 #[test]
 fn issue_41_parser_diagnostics_escape_rejected_controls() {
     let temp = TempDir::new().expect("temporary issue-41 parser diagnostic fixture");
