@@ -380,6 +380,9 @@ impl PreparedOutput {
         let created_identity = match handle_identity(&file) {
             Ok(identity) => identity,
             Err(source) => {
+                // Without a stable identity there is no safe basis for
+                // path-based cleanup, so deliberately leave and report the
+                // residual instead of risking deletion of another entry.
                 let failure = delivery_failure(DeliveryStage::ValidateCreatedHandle, source);
                 drop(file);
                 return Err(OutputError::CleanupFailed {
@@ -594,6 +597,10 @@ fn ensure_writable_parent(parent: &Path, requested_path: &Path) -> Result<(), Ou
         use std::os::unix::fs::PermissionsExt;
 
         let mode = metadata.permissions().mode();
+        // Treat a directory with no declared write or search permission as
+        // contractually read-only even if a privileged identity could bypass
+        // discretionary access control. `access` below separately checks the
+        // current identity and ACLs when the mode admits creation.
         if mode & 0o222 == 0 || mode & 0o111 == 0 {
             return Err(OutputError::ParentNotWritable {
                 path: requested_path.to_path_buf(),

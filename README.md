@@ -62,6 +62,11 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   privatize the audited current-source surface in focused changes. The
   immutable published `0.1.4` artifact is #64's separate migration baseline.
   Neither library is part of the supported v0.2 product.
+- **2026-07-25 — File output is intentionally create-only.** Unlike `0.1.4`,
+  v0.2 `dump --output` does not overwrite an existing destination; it shares
+  `init`'s create-new policy and has no force mode. This breaking CLI change
+  prevents scripts or races from silently replacing a file. Callers that
+  intentionally replace output must remove or rename the old entry first.
 
 ## Navigation Guide Format
 
@@ -293,10 +298,14 @@ command succeeds. The parent directory is not synchronized, so no crash
 durability across an immediate power or kernel failure is promised.
 
 On Unix and macOS, final entries and in-root descendants are inspected without
-following links and creation uses exclusive, no-follow semantics. On Windows,
-link-like reparse descendants, alternate data streams, device and named-pipe
-namespaces, reserved DOS device aliases, and unsupported verbatim prefixes are
-rejected; a newly created handle must be a regular non-reparse disk file.
+following links and creation uses exclusive, no-follow semantics. A parent
+whose mode exposes no write bit or no search bit is treated as read-only even
+when a privileged identity could bypass discretionary access control; an
+otherwise eligible parent must also pass the current identity's access check.
+On Windows, link-like reparse descendants, alternate data streams, device and
+named-pipe namespaces, reserved DOS device aliases, and unsupported verbatim
+prefixes are rejected; a newly created handle must be a regular non-reparse
+disk file.
 
 ## Post-Tool-Use Hook
 
