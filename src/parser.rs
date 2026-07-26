@@ -325,7 +325,7 @@ impl Parser {
                 }
                 let indent = indent_text.len();
                 let content = captures.get(2).unwrap().as_str();
-                if content.starts_with(' ') {
+                if content.starts_with(' ') || content.starts_with('\t') {
                     return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
                 }
 
