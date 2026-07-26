@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::{Command, Output};
+use syn::visit::Visit;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
@@ -70,19 +71,33 @@ fn public_visibility_failures(label: &str, source_root: &Path) -> Vec<String> {
 
         let source = std::fs::read_to_string(entry.path())
             .unwrap_or_else(|error| panic!("read {}: {error}", entry.path().display()));
-        for (index, line) in source.lines().enumerate() {
-            let trimmed = line.trim_start();
-            if trimmed == "pub" || trimmed.starts_with("pub ") || trimmed.starts_with("pub\t") {
-                failures.push(format!(
-                    "{label} contains externally public Rust visibility at {}:{}",
-                    entry.path().display(),
-                    index + 1
-                ));
-            }
+        let syntax = syn::parse_file(&source)
+            .unwrap_or_else(|error| panic!("parse {}: {error}", entry.path().display()));
+        let mut visitor = PublicVisibilityVisitor::default();
+        visitor.visit_file(&syntax);
+        if visitor.count > 0 {
+            failures.push(format!(
+                "{label} contains {} externally public Rust visibilities in {}",
+                visitor.count,
+                entry.path().display()
+            ));
         }
     }
 
     failures
+}
+
+#[derive(Default)]
+struct PublicVisibilityVisitor {
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for PublicVisibilityVisitor {
+    fn visit_visibility(&mut self, visibility: &'ast syn::Visibility) {
+        if matches!(visibility, syn::Visibility::Public(_)) {
+            self.count += 1;
+        }
+    }
 }
 
 #[test]

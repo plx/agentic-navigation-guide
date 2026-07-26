@@ -1276,7 +1276,7 @@ fn assert_binary_crate_root_has_no_public_items() {
             _ => None,
         };
         assert!(
-            visibility.as_ref().is_none_or(|vis| !is_public(vis)),
+            visibility.as_ref().map_or(true, |vis| !is_public(vis)),
             "src/main.rs contains a top-level externally public Rust item; \
              issue_54_binary_only_package checks visibility across the complete source tree"
         );

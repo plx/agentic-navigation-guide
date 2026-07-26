@@ -22,6 +22,9 @@ pub(crate) fn cli_binary() -> &'static Path {
             ));
 
             if !binary.is_file() {
+                // Cargo exposes CARGO_BIN_EXE_* to integration tests and benches, not to
+                // this binary crate's embedded unit tests. Reuse the active profile and
+                // target directory when an ad hoc unit-test command has not built the CLI.
                 let profile_directory = binary
                     .parent()
                     .and_then(Path::file_name)
