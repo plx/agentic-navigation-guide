@@ -4,14 +4,15 @@ Date: 2026-07-26
 
 ## Status
 
-PRELIMINARY PASS — the local aggregate evidence satisfies the issue #27
-component-gate criteria for candidate
+PASS — the aggregate evidence satisfies the issue #27 component-gate criteria
+for component baseline
 `69a94c1b522b269d50a5f4b34b18d49f2cfa70bd`.
 
-The evidence PR that carries this record also adds a focused
-logical-backslash regression to the existing three-OS build matrix. The final
-component verdict is withheld until that exact test has executed successfully
-on hosted Windows and the PR's exact-head checks are green.
+The three-OS hosted matrix succeeded for evidence head
+`459c02c9ec567ae0ed9bfebff0ec2778b5d902b9`, including the focused
+logical-backslash regression and ill-formed UTF-16 diagnostic on Windows. The
+finalization commit changes this record only; the resulting exact head must
+still retain green checks before merge.
 
 This is a component-gate result only. It is not the independent
 production-readiness verdict assigned to issue #72, and it does not authorize
@@ -24,6 +25,7 @@ release or distribution.
 | Repository | `plx/agentic-navigation-guide` |
 | Candidate | `69a94c1b522b269d50a5f4b34b18d49f2cfa70bd` |
 | Branch point | `origin/main` at the candidate commit |
+| Tested evidence head | `459c02c9ec567ae0ed9bfebff0ec2778b5d902b9` |
 | Rust | `rustc 1.90.0 (1159e78c4 2025-09-14)` |
 | Host | macOS 27.0 build 26A5378n, arm64 |
 | Hardware | Apple M4 Max, 64 GiB RAM |
@@ -210,6 +212,31 @@ Three independent read-only reviews covered gate-claim precision, the
 logical-backslash regression, and CI/Windows portability. They reported no
 unresolved blocker.
 
+## Hosted Validation
+
+The
+[initial CI run](https://github.com/plx/agentic-navigation-guide/actions/runs/30213529418)
+succeeded for exact evidence head
+`459c02c9ec567ae0ed9bfebff0ec2778b5d902b9`. All ten PR checks were green,
+including the three operating-system jobs and the automated review.
+
+The
+[Windows job](https://github.com/plx/agentic-navigation-guide/actions/runs/30213529418/job/89823660578)
+executed these steps successfully:
+
+- the binding all-owner guide contract;
+- the focused logical-backslash regression, with its one intended test
+  discovered and passed;
+- the focused syntax-sensitive-name suite; and
+- the Windows-only ill-formed UTF-16 diagnostic, with its one intended test
+  discovered and passed.
+
+The
+[automated review](https://github.com/plx/agentic-navigation-guide/pull/100#issuecomment-5084691701)
+reported no blocking issue, and PR #100 had zero inline review threads on the
+tested evidence head. The final record-only head remains subject to the same
+exact-head check and review requirements before merge.
+
 ## Post-Merge Review Lineage
 
 Three gate-relevant review findings arrived after their subject PRs had
@@ -249,8 +276,8 @@ coverage and are not waived acceptance gaps.
 
 ## Residual Scope
 
-- Hosted Windows execution and the evidence PR's exact-head checks remain
-  required before the status can become a final component PASS.
+- PR #100 must retain green checks and clean review state on the final
+  record-only head before merge.
 - Issue #53 owns the incomplete unsupported symlink model, including the late
   PR #99 Windows finding.
 - Issue #54 still owns removal of the unsupported legacy library target; this
