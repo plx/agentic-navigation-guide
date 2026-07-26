@@ -1,19 +1,66 @@
 //! Filesystem verification for navigation guides
 
-use crate::entry_type::{classify_path, SupportedEntryKind};
+use crate::entry_type::{
+    classify_path, EntryClassification, SupportedEntryKind, UnsupportedEntryKind,
+};
 use crate::errors::{AppError, Result, SemanticError};
 use crate::path_codec::{
     contains_forbidden_control, has_windows_drive_prefix, render_os_component,
     render_utf8_component,
 };
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+fn read_directory(path: &Path) -> std::io::Result<std::fs::ReadDir> {
+    #[cfg(test)]
+    DIRECTORY_ENUMERATION_COUNTS.with(|counts| {
+        *counts.borrow_mut().entry(path.to_path_buf()).or_insert(0) += 1;
+    });
+
+    std::fs::read_dir(path)
+}
+
+#[cfg(test)]
+thread_local! {
+    static DIRECTORY_ENUMERATION_COUNTS:
+        std::cell::RefCell<std::collections::BTreeMap<PathBuf, usize>> =
+            const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+#[cfg(test)]
+fn reset_directory_enumeration_counts() {
+    DIRECTORY_ENUMERATION_COUNTS.with(|counts| counts.borrow_mut().clear());
+}
+
+#[cfg(test)]
+fn directory_enumeration_counts() -> std::collections::BTreeMap<PathBuf, usize> {
+    DIRECTORY_ENUMERATION_COUNTS.with(|counts| counts.borrow().clone())
+}
 
 /// Verifier for navigation guides against filesystem
 pub struct Verifier {
     /// Root path for verification
     root_path: PathBuf,
+}
+
+#[derive(Debug)]
+struct SnapshotEntry {
+    path: PathBuf,
+    classification: EntryClassification,
+}
+
+#[derive(Debug)]
+struct DirectorySnapshot {
+    entries: BTreeMap<String, SnapshotEntry>,
+}
+
+struct VerificationRun<'a> {
+    verifier: &'a Verifier,
+    canonical_root_path: PathBuf,
+    snapshots: HashMap<PathBuf, Rc<DirectorySnapshot>>,
 }
 
 impl Verifier {
@@ -30,199 +77,11 @@ impl Verifier {
         crate::validator::Validator::new().validate_syntax(guide)?;
         let canonical_root_path = self.canonicalize_root_path()?;
 
-        // Collect mentioned root-level names for placeholder verification
-        let mut mentioned_names = std::collections::HashSet::new();
-        for item in &guide.items {
-            if !item.is_placeholder() {
-                mentioned_names.insert(item.path().to_string());
-            }
-        }
-
-        // Then verify each item against the filesystem
-        for item in &guide.items {
-            if item.is_placeholder() {
-                self.verify_placeholder_with_context(
-                    item,
-                    &self.root_path,
-                    &mentioned_names,
-                    true,
-                )?;
-            } else {
-                self.verify_item(item, &self.root_path, &canonical_root_path)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Verify a single item against the filesystem
-    fn verify_item(
-        &self,
-        item: &NavigationGuideLine,
-        parent_path: &Path,
-        canonical_root_path: &Path,
-    ) -> Result<()> {
-        // Handle placeholders specially
-        if item.is_placeholder() {
-            return self.verify_placeholder(item, parent_path);
-        }
-
-        let item_path = parent_path.join(item.path());
-        // The textual format never grants authority to follow its final
-        // component. Resolve only the parent for containment, then classify
-        // the final entry with non-following metadata below.
-        let resolved_path =
-            self.resolve_for_containment(&item_path, false, item.line_number, item.path())?;
-
-        if !resolved_path.starts_with(canonical_root_path) {
-            return Err(SemanticError::PathEscapesRoot {
-                line: item.line_number,
-                path: item.path().to_string(),
-                root: canonical_root_path.to_path_buf(),
-                resolved: resolved_path,
-            }
-            .into());
-        }
-
-        // Preserve the legacy programmatic Symlink variant until its #53
-        // removal. Its existing dangling-link behavior is deliberately not
-        // part of textual file/directory classification.
-        if matches!(&item.item, FilesystemItem::Symlink { .. }) && !item_path.exists() {
-            return Err(SemanticError::ItemNotFound {
-                line: item.line_number,
-                item_type: self.get_item_type_string(item),
-                path: item.path().to_string(),
-                full_path: item_path,
-            }
-            .into());
-        }
-
-        // Check if the item type matches
-        match &item.item {
-            FilesystemItem::Directory { children, .. } => {
-                self.require_textual_entry_kind(item, &item_path, SupportedEntryKind::Directory)?;
-
-                // Verify children recursively
-                let mut mentioned_names = std::collections::HashSet::new();
-                for child in children {
-                    if !child.is_placeholder() {
-                        mentioned_names.insert(child.path().to_string());
-                    }
-                }
-
-                for child in children {
-                    if child.is_placeholder() {
-                        self.verify_placeholder_with_context(
-                            child,
-                            &item_path,
-                            &mentioned_names,
-                            false,
-                        )?;
-                    } else {
-                        self.verify_item(child, &item_path, canonical_root_path)?;
-                    }
-                }
-            }
-            FilesystemItem::File { .. } => {
-                self.require_textual_entry_kind(item, &item_path, SupportedEntryKind::RegularFile)?;
-            }
-            FilesystemItem::Symlink { target, .. } => {
-                let metadata = match std::fs::symlink_metadata(&item_path) {
-                    Ok(m) => m,
-                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                        return Err(SemanticError::PermissionDenied {
-                            line: item.line_number,
-                            path: item.path().to_string(),
-                        }
-                        .into());
-                    }
-                    Err(e) => return Err(e.into()),
-                };
-
-                if !metadata.is_symlink() {
-                    return Err(SemanticError::TypeMismatch {
-                        line: item.line_number,
-                        expected: "symlink".to_string(),
-                        found: if item_path.is_dir() {
-                            "directory".to_string()
-                        } else {
-                            "file".to_string()
-                        },
-                        path: item.path().to_string(),
-                    }
-                    .into());
-                }
-
-                // Verify symlink target if specified
-                if let Some(expected_target) = target {
-                    if let Ok(actual_target) = std::fs::read_link(&item_path) {
-                        if actual_target.to_string_lossy() != *expected_target {
-                            return Err(SemanticError::SymlinkTargetMismatch {
-                                line: item.line_number,
-                                path: item.path().to_string(),
-                                expected: expected_target.clone(),
-                                actual: actual_target.to_string_lossy().to_string(),
-                            }
-                            .into());
-                        }
-                    }
-                }
-            }
-            FilesystemItem::Placeholder { .. } => {
-                // This case should never be reached because we handle placeholders
-                // at the beginning of the function, but we need it for exhaustiveness
-                unreachable!("Placeholder should have been handled earlier");
-            }
-        }
-
-        Ok(())
-    }
-
-    fn require_textual_entry_kind(
-        &self,
-        item: &NavigationGuideLine,
-        item_path: &Path,
-        expected: SupportedEntryKind,
-    ) -> Result<()> {
-        let classification = match classify_path(item_path) {
-            Ok(classification) => classification,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(SemanticError::ItemNotFound {
-                    line: item.line_number,
-                    item_type: self.get_item_type_string(item),
-                    path: item.path().to_string(),
-                    full_path: item_path.to_path_buf(),
-                }
-                .into());
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-                return Err(SemanticError::PermissionDenied {
-                    line: item.line_number,
-                    path: item.path().to_string(),
-                }
-                .into());
-            }
-            Err(error) => return Err(error.into()),
-        };
-
-        let found = match classification {
-            Ok(actual) if actual == expected => return Ok(()),
-            Ok(SupportedEntryKind::RegularFile) => "file".to_string(),
-            Ok(SupportedEntryKind::Directory) => "directory".to_string(),
-            Err(unsupported) => unsupported.to_string(),
-        };
-        let expected = match expected {
-            SupportedEntryKind::RegularFile => "file",
-            SupportedEntryKind::Directory => "directory",
-        };
-
-        Err(SemanticError::TypeMismatch {
-            line: item.line_number,
-            expected: expected.to_string(),
-            found,
-            path: item.path().to_string(),
-        }
-        .into())
+        VerificationRun::new(self, canonical_root_path).verify_siblings(
+            &guide.items,
+            &self.root_path,
+            true,
+        )
     }
 
     /// Canonicalize root path once before verification
@@ -321,100 +180,410 @@ impl Verifier {
         }
     }
 
-    /// Verify a placeholder at the root level
-    fn verify_placeholder(&self, item: &NavigationGuideLine, parent_path: &Path) -> Result<()> {
-        // For root-level placeholders, we need to check that there's at least one item
-        // in the parent directory that isn't mentioned in the guide
-        let mentioned_names = std::collections::HashSet::new();
-        self.verify_placeholder_with_context(
-            item,
-            parent_path,
-            &mentioned_names,
-            parent_path == self.root_path,
-        )
+    fn placeholder_has_meaningful_comment(item: &NavigationGuideLine) -> bool {
+        item.comment()
+            .map(|comment| !comment.trim().is_empty())
+            .unwrap_or(false)
+    }
+}
+
+impl<'a> VerificationRun<'a> {
+    fn new(verifier: &'a Verifier, canonical_root_path: PathBuf) -> Self {
+        Self {
+            verifier,
+            canonical_root_path,
+            snapshots: HashMap::new(),
+        }
     }
 
-    /// Verify a placeholder with context of mentioned sibling items
-    fn verify_placeholder_with_context(
-        &self,
-        item: &NavigationGuideLine,
+    fn verify_siblings(
+        &mut self,
+        items: &[NavigationGuideLine],
         parent_path: &Path,
-        mentioned_names: &std::collections::HashSet<String>,
         at_root: bool,
     ) -> Result<()> {
-        // Check that the parent directory has at least one item not in mentioned_names
-        let entries = match std::fs::read_dir(parent_path) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                return Err(SemanticError::PermissionDenied {
-                    line: item.line_number,
-                    path: parent_path.to_string_lossy().to_string(),
-                }
-                .into());
-            }
-            Err(e) => return Err(e.into()),
+        let Some(snapshot_line) = items.iter().map(|item| item.line_number).min() else {
+            return Ok(());
         };
+        let snapshot = self.snapshot(parent_path, snapshot_line, at_root)?;
+        let mentioned_names = items
+            .iter()
+            .filter(|item| !item.is_placeholder())
+            .filter_map(|item| item.path().split('/').next())
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        let has_unmentioned_item = snapshot
+            .entries
+            .keys()
+            .any(|name| !mentioned_names.contains(name));
 
-        // Count unmentioned items
-        let mut unmentioned_count = 0;
-        for entry_result in entries {
-            let entry = match entry_result {
-                Ok(entry) => entry,
-                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                    return Err(SemanticError::PermissionDenied {
+        for item in items {
+            if item.is_placeholder() {
+                if !has_unmentioned_item && !Verifier::placeholder_has_meaningful_comment(item) {
+                    return Err(SemanticError::PlaceholderNoUnmentionedItems {
                         line: item.line_number,
-                        path: parent_path.to_string_lossy().to_string(),
+                        parent: parent_path.to_string_lossy().to_string(),
                     }
                     .into());
                 }
-                Err(e) => return Err(e.into()),
-            };
-
-            let name = entry.file_name();
-            let name = name.to_str().ok_or_else(|| SemanticError::NonUtf8Path {
-                line: item.line_number,
-                path: PathBuf::from(render_os_component(&name)),
-            })?;
-            if contains_forbidden_control(name) {
-                return Err(AppError::Other(format!(
-                    "line {}: unsupported control-bearing filesystem name {}",
-                    item.line_number,
-                    render_utf8_component(name)
-                )));
+            } else {
+                self.verify_item(item, parent_path, at_root)?;
             }
-            if at_root && (name.starts_with('\\') || has_windows_drive_prefix(name)) {
-                return Err(AppError::Other(format!(
-                    "line {}: unsupported rooted or drive-prefixed filesystem name {}",
-                    item.line_number,
-                    render_utf8_component(name)
-                )));
-            }
-
-            if !mentioned_names.contains(name) {
-                unmentioned_count += 1;
-            }
-        }
-
-        if unmentioned_count == 0 {
-            // Only require unmentioned items if the placeholder has no comment.
-            // Placeholders with comments can represent future items that don't yet exist.
-            if !Self::placeholder_has_meaningful_comment(item) {
-                return Err(SemanticError::PlaceholderNoUnmentionedItems {
-                    line: item.line_number,
-                    parent: parent_path.to_string_lossy().to_string(),
-                }
-                .into());
-            }
-            // Placeholders with comments are allowed even without unmentioned items
         }
 
         Ok(())
     }
 
-    fn placeholder_has_meaningful_comment(item: &NavigationGuideLine) -> bool {
-        item.comment()
-            .map(|comment| !comment.trim().is_empty())
-            .unwrap_or(false)
+    fn verify_item(
+        &mut self,
+        item: &NavigationGuideLine,
+        parent_path: &Path,
+        at_root: bool,
+    ) -> Result<()> {
+        // Reject every observable host alias before native containment
+        // resolution can follow or otherwise inspect a differently spelled
+        // intermediate entry. Stop at an exact non-directory component so the
+        // established containment/type precedence for exact symlinks and
+        // special entries remains unchanged.
+        self.preflight_exact_identity(item, parent_path, at_root)?;
+
+        let candidate_path = parent_path.join(item.path());
+        // Preserve the existing containment boundary check. Filesystem
+        // identity and type decisions below come only from exact snapshots;
+        // this resolution is solely the separate containment policy.
+        let resolved_path = self.verifier.resolve_for_containment(
+            &candidate_path,
+            false,
+            item.line_number,
+            item.path(),
+        )?;
+        if !resolved_path.starts_with(&self.canonical_root_path) {
+            return Err(SemanticError::PathEscapesRoot {
+                line: item.line_number,
+                path: item.path().to_string(),
+                root: self.canonical_root_path.clone(),
+                resolved: resolved_path,
+            }
+            .into());
+        }
+
+        let (item_path, classification) =
+            self.resolve_exact_item_path(item, parent_path, at_root)?;
+
+        // Preserve the legacy programmatic Symlink variant until its #53
+        // removal. Its existing dangling-link behavior is deliberately not
+        // part of textual file/directory classification.
+        if matches!(&item.item, FilesystemItem::Symlink { .. }) && !item_path.exists() {
+            return Err(SemanticError::ItemNotFound {
+                line: item.line_number,
+                item_type: self.verifier.get_item_type_string(item),
+                path: item.path().to_string(),
+                full_path: item_path,
+            }
+            .into());
+        }
+
+        match &item.item {
+            FilesystemItem::Directory { children, .. } => {
+                Self::require_entry_kind(item, classification, SupportedEntryKind::Directory)?;
+                self.verify_siblings(children, &item_path, false)?;
+            }
+            FilesystemItem::File { .. } => {
+                Self::require_entry_kind(item, classification, SupportedEntryKind::RegularFile)?;
+            }
+            FilesystemItem::Symlink { target, .. } => {
+                if classification != Err(UnsupportedEntryKind::SymbolicLink) {
+                    return Err(SemanticError::TypeMismatch {
+                        line: item.line_number,
+                        expected: "symlink".to_string(),
+                        found: Self::classification_name(classification),
+                        path: item.path().to_string(),
+                    }
+                    .into());
+                }
+
+                if let Some(expected_target) = target {
+                    if let Ok(actual_target) = std::fs::read_link(&item_path) {
+                        if actual_target.to_string_lossy() != *expected_target {
+                            return Err(SemanticError::SymlinkTargetMismatch {
+                                line: item.line_number,
+                                path: item.path().to_string(),
+                                expected: expected_target.clone(),
+                                actual: actual_target.to_string_lossy().to_string(),
+                            }
+                            .into());
+                        }
+                    }
+                }
+            }
+            FilesystemItem::Placeholder { .. } => {
+                unreachable!("placeholder items are handled as sibling assertions")
+            }
+        }
+
+        Ok(())
+    }
+
+    fn preflight_exact_identity(
+        &mut self,
+        item: &NavigationGuideLine,
+        parent_path: &Path,
+        at_root: bool,
+    ) -> Result<()> {
+        let components = item.path().split('/').collect::<Vec<_>>();
+        let full_path = parent_path.join(item.path());
+        let mut current_parent = parent_path.to_path_buf();
+        let mut current_at_root = at_root;
+
+        for (index, component) in components.iter().enumerate() {
+            let snapshot = self.snapshot(&current_parent, item.line_number, current_at_root)?;
+            let exact_entry = snapshot
+                .entries
+                .get(*component)
+                .map(|entry| (entry.path.clone(), entry.classification));
+            let Some((entry_path, classification)) = exact_entry else {
+                return self
+                    .missing_exact_component(item, &current_parent, component, &full_path)
+                    .map(|_| ());
+            };
+
+            if index + 1 == components.len() || classification != Ok(SupportedEntryKind::Directory)
+            {
+                return Ok(());
+            }
+
+            current_parent = entry_path;
+            current_at_root = false;
+        }
+
+        Ok(())
+    }
+
+    fn resolve_exact_item_path(
+        &mut self,
+        item: &NavigationGuideLine,
+        parent_path: &Path,
+        at_root: bool,
+    ) -> Result<(PathBuf, EntryClassification)> {
+        let components = item.path().split('/').collect::<Vec<_>>();
+        let full_path = parent_path.join(item.path());
+        let mut current_parent = parent_path.to_path_buf();
+        let mut current_at_root = at_root;
+
+        for (index, component) in components.iter().enumerate() {
+            let snapshot = self.snapshot(&current_parent, item.line_number, current_at_root)?;
+            let exact_entry = snapshot
+                .entries
+                .get(*component)
+                .map(|entry| (entry.path.clone(), entry.classification));
+            let Some((entry_path, classification)) = exact_entry else {
+                return self.missing_exact_component(item, &current_parent, component, &full_path);
+            };
+
+            if index + 1 == components.len() {
+                return Ok((entry_path, classification));
+            }
+            if classification != Ok(SupportedEntryKind::Directory) {
+                return Err(SemanticError::TypeMismatch {
+                    line: item.line_number,
+                    expected: "directory".to_string(),
+                    found: Self::classification_name(classification),
+                    path: components[..=index].join("/"),
+                }
+                .into());
+            }
+
+            current_parent = entry_path;
+            current_at_root = false;
+        }
+
+        unreachable!("validated filesystem item paths contain at least one component")
+    }
+
+    fn missing_exact_component(
+        &self,
+        item: &NavigationGuideLine,
+        parent_path: &Path,
+        component: &str,
+        full_path: &Path,
+    ) -> Result<(PathBuf, EntryClassification)> {
+        if Self::is_single_host_component(component) {
+            match std::fs::symlink_metadata(parent_path.join(component)) {
+                Ok(_) => {
+                    return Err(AppError::Other(format!(
+                        "line {}: path component {} is not an exact filesystem name \
+                         (host lookup resolved a spelling absent from the directory snapshot)",
+                        item.line_number,
+                        render_utf8_component(component)
+                    )));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(SemanticError::PermissionDenied {
+                        line: item.line_number,
+                        path: item.path().to_string(),
+                    }
+                    .into());
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+
+        Err(SemanticError::ItemNotFound {
+            line: item.line_number,
+            item_type: self.verifier.get_item_type_string(item),
+            path: item.path().to_string(),
+            full_path: full_path.to_path_buf(),
+        }
+        .into())
+    }
+
+    fn is_single_host_component(component: &str) -> bool {
+        let mut components = Path::new(component).components();
+        matches!(
+            (components.next(), components.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        )
+    }
+
+    fn require_entry_kind(
+        item: &NavigationGuideLine,
+        classification: EntryClassification,
+        expected: SupportedEntryKind,
+    ) -> Result<()> {
+        if classification == Ok(expected) {
+            return Ok(());
+        }
+
+        Err(SemanticError::TypeMismatch {
+            line: item.line_number,
+            expected: match expected {
+                SupportedEntryKind::RegularFile => "file",
+                SupportedEntryKind::Directory => "directory",
+            }
+            .to_string(),
+            found: Self::classification_name(classification),
+            path: item.path().to_string(),
+        }
+        .into())
+    }
+
+    fn classification_name(classification: EntryClassification) -> String {
+        match classification {
+            Ok(SupportedEntryKind::RegularFile) => "file".to_string(),
+            Ok(SupportedEntryKind::Directory) => "directory".to_string(),
+            Err(unsupported) => unsupported.to_string(),
+        }
+    }
+
+    fn snapshot(
+        &mut self,
+        parent_path: &Path,
+        line: usize,
+        at_root: bool,
+    ) -> Result<Rc<DirectorySnapshot>> {
+        if let Some(snapshot) = self.snapshots.get(parent_path) {
+            return Ok(Rc::clone(snapshot));
+        }
+
+        let snapshot = Rc::new(Self::build_snapshot(parent_path, line, at_root)?);
+        self.snapshots
+            .insert(parent_path.to_path_buf(), Rc::clone(&snapshot));
+        Ok(snapshot)
+    }
+
+    fn build_snapshot(parent_path: &Path, line: usize, at_root: bool) -> Result<DirectorySnapshot> {
+        let entries = match read_directory(parent_path) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Err(SemanticError::PermissionDenied {
+                    line,
+                    path: parent_path.to_string_lossy().to_string(),
+                }
+                .into());
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        let mut observed_entries = Vec::new();
+        for entry_result in entries {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(SemanticError::PermissionDenied {
+                        line,
+                        path: parent_path.to_string_lossy().to_string(),
+                    }
+                    .into());
+                }
+                Err(error) => return Err(error.into()),
+            };
+            observed_entries.push((entry.file_name(), entry.path()));
+        }
+
+        Self::build_snapshot_from_observations(line, at_root, observed_entries)
+    }
+
+    fn build_snapshot_from_observations(
+        line: usize,
+        at_root: bool,
+        mut observed_entries: Vec<(OsString, PathBuf)>,
+    ) -> Result<DirectorySnapshot> {
+        observed_entries.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut snapshot_entries = BTreeMap::new();
+        for (name, path) in observed_entries {
+            let utf8_name = name.to_str().ok_or_else(|| SemanticError::NonUtf8Path {
+                line,
+                path: PathBuf::from(render_os_component(&name)),
+            })?;
+            if contains_forbidden_control(utf8_name) {
+                return Err(AppError::Other(format!(
+                    "line {line}: unsupported control-bearing filesystem name {}",
+                    render_utf8_component(utf8_name)
+                )));
+            }
+            if at_root && (utf8_name.starts_with('\\') || has_windows_drive_prefix(utf8_name)) {
+                return Err(AppError::Other(format!(
+                    "line {line}: unsupported rooted or drive-prefixed filesystem name {}",
+                    render_utf8_component(utf8_name)
+                )));
+            }
+
+            let classification = match classify_path(&path) {
+                Ok(classification) => classification,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(SemanticError::PermissionDenied {
+                        line,
+                        path: utf8_name.to_string(),
+                    }
+                    .into());
+                }
+                Err(error) => {
+                    return Err(AppError::Other(format!(
+                        "line {line}: could not classify filesystem name {}: {error}",
+                        render_utf8_component(utf8_name)
+                    )));
+                }
+            };
+            let previous = snapshot_entries.insert(
+                utf8_name.to_string(),
+                SnapshotEntry {
+                    path,
+                    classification,
+                },
+            );
+            if previous.is_some() {
+                return Err(AppError::Other(format!(
+                    "line {line}: ambiguous duplicate exact filesystem name {}",
+                    render_utf8_component(utf8_name)
+                )));
+            }
+        }
+
+        Ok(DirectorySnapshot {
+            entries: snapshot_entries,
+        })
     }
 }
 
@@ -1262,6 +1431,148 @@ mod tests {
         assert!(
             !diagnostic.contains('\u{fffd}'),
             "diagnostic used a lossy replacement character: {diagnostic}"
+        );
+    }
+
+    #[test]
+    fn issue_50_flat_path_mentions_its_first_component() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::create_dir(temp_dir.path().join("src")).unwrap();
+        std::fs::write(temp_dir.path().join("src/main.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n\
+                 - src/main.rs\n\
+                 - ...\n\
+                 </agentic-navigation-guide>",
+            )
+            .unwrap();
+        let result = Verifier::new(temp_dir.path()).verify(&guide);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PlaceholderNoUnmentionedItems { line: 3, .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn issue_50_repeated_placeholders_enumerate_the_parent_once() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n\
+                 - ... # before\n\
+                 - main.rs\n\
+                 - ... # after\n\
+                 </agentic-navigation-guide>",
+            )
+            .unwrap();
+
+        reset_directory_enumeration_counts();
+        Verifier::new(temp_dir.path()).verify(&guide).unwrap();
+
+        assert_eq!(
+            directory_enumeration_counts(),
+            std::collections::BTreeMap::from([(temp_dir.path().to_path_buf(), 1)]),
+            "listed lookup, type classification, and every placeholder must share one snapshot"
+        );
+    }
+
+    #[test]
+    fn issue_50_root_and_nested_parents_are_each_enumerated_once() {
+        let temp_dir = TempDir::new().unwrap();
+        let src = temp_dir.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n- src/\n  - ... # before\n  - main.rs\n  - ... # after\n</agentic-navigation-guide>",
+            )
+            .unwrap();
+
+        reset_directory_enumeration_counts();
+        Verifier::new(temp_dir.path()).verify(&guide).unwrap();
+
+        assert_eq!(
+            directory_enumeration_counts(),
+            std::collections::BTreeMap::from([(temp_dir.path().to_path_buf(), 1), (src, 1),]),
+            "each visited parent must have exactly one per-verification snapshot"
+        );
+    }
+
+    #[test]
+    fn issue_50_flat_siblings_share_each_component_snapshot() {
+        let temp_dir = TempDir::new().unwrap();
+        let src = temp_dir.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "").unwrap();
+        std::fs::write(src.join("lib.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n- src/main.rs\n- src/lib.rs\n</agentic-navigation-guide>",
+            )
+            .unwrap();
+
+        reset_directory_enumeration_counts();
+        Verifier::new(temp_dir.path()).verify(&guide).unwrap();
+
+        assert_eq!(
+            directory_enumeration_counts(),
+            std::collections::BTreeMap::from([(temp_dir.path().to_path_buf(), 1), (src, 1),]),
+            "flat siblings must reuse every shared parent snapshot"
+        );
+    }
+
+    #[test]
+    fn issue_50_ambiguous_exact_snapshot_names_fail_closed() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("actual.txt");
+        std::fs::write(&path, "").unwrap();
+        let observations = vec![
+            (OsString::from("duplicate.txt"), path.clone()),
+            (OsString::from("duplicate.txt"), path),
+        ];
+
+        let error = VerificationRun::build_snapshot_from_observations(17, true, observations)
+            .expect_err("duplicate exact observations must be ambiguous");
+        assert_eq!(
+            error.to_string(),
+            "line 17: ambiguous duplicate exact filesystem name \"duplicate.txt\""
+        );
+    }
+
+    #[test]
+    fn issue_50_snapshot_name_diagnostics_are_order_independent() {
+        let temp_dir = TempDir::new().unwrap();
+        let first = vec![
+            (
+                OsString::from("bad\nname"),
+                temp_dir.path().join("bad\nname"),
+            ),
+            (
+                OsString::from("bad\tname"),
+                temp_dir.path().join("bad\tname"),
+            ),
+        ];
+        let mut reversed = first.clone();
+        reversed.reverse();
+
+        let first_error = VerificationRun::build_snapshot_from_observations(23, true, first)
+            .expect_err("control-bearing snapshot must fail");
+        let reversed_error = VerificationRun::build_snapshot_from_observations(23, true, reversed)
+            .expect_err("reversed control-bearing snapshot must fail identically");
+
+        assert_eq!(first_error.to_string(), reversed_error.to_string());
+        assert_eq!(
+            first_error.to_string(),
+            "line 23: unsupported control-bearing filesystem name \"bad\\tname\""
         );
     }
 }

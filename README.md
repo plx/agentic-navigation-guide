@@ -107,6 +107,12 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   consistently CLI, then environment, then built-in default; genuine
   CLI-vs-CLI conflicts remain usage errors. This corrects the precedence bug
   under #46.
+- **2026-07-26 — Verification uses exact enumerated filesystem identities.**
+  Unlike `0.1.4`, a case or Unicode-normalization alias accepted by the host
+  filesystem does not satisfy a differently spelled guide entry. Each visited
+  parent is enumerated once per verification and that snapshot drives exact
+  component lookup, type classification, and placeholder accounting. This
+  corrects the identity and repeated-scan bugs under #50.
 
 ## Navigation Guide Format
 
@@ -223,7 +229,18 @@ against hostile concurrent replacement.
 
 - UTF-8 paths are supported, including non-ASCII names.
 - Non-UTF-8 filesystem names are explicitly out of scope.
-- Commands that enumerate filesystem entries (for example `dump`, or placeholder checks during `verify`) will return an error if they encounter non-UTF-8 names.
+- Commands that enumerate filesystem entries, including every parent visited
+  by `verify`, return an error if they encounter non-UTF-8 names.
+
+### Filesystem Identity During Verification
+
+Guide components match the exact UTF-8 scalar sequence returned while
+enumerating their parent directory. Matching is case-sensitive on every host
+and performs no Unicode normalization, even when ordinary host path lookup
+would accept an alias. Each visited parent is enumerated at most once in one
+verification; the resulting immediate-child names and types are reused for
+listed lookup, recursion, and placeholder accounting. A later verification
+constructs fresh snapshots.
 
 ### Placeholder Entries
 
@@ -253,6 +270,10 @@ Rules for placeholders:
 - **With a comment**: Allowed in any directory, even if all items are listed or the directory is empty (useful for indicating future items)
 - **Without a comment**: Must refer to at least one unlisted item in the parent directory (useful for omitting existing items)
 - Cannot be adjacent to another `...` entry (must have at least one non-placeholder between them)
+- Multiple nonadjacent placeholders in one parent share the same snapshot and
+  do not consume unlisted entries.
+- A listed multi-component path such as `src/main.rs` mentions `src` in the
+  current parent.
 
 The distinction between commented and uncommented placeholders enables two important use cases:
 

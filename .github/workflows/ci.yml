@@ -87,6 +87,10 @@ jobs:
       run: cargo test --locked issue_44 -- --nocapture
     - name: Run focused environment-precedence tests
       run: cargo test --locked issue_46 -- --nocapture
+    - name: Run focused filesystem-identity tests
+      run: cargo test --locked issue_50 -- --nocapture
+    - name: Run focused filesystem-identity tests in release mode
+      run: cargo test --release --locked issue_50 -- --nocapture
 
   third-party-licenses:
     name: Third-Party Licenses

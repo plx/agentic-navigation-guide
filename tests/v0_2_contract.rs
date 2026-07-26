@@ -11,7 +11,7 @@ use tempfile::TempDir;
 #[path = "../src/entry_type.rs"]
 mod issue_42_entry_type;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -105,13 +105,11 @@ enum ExpectedOperationResult {
     Rejected,
     GeneratedPaths(&'static [&'static str]),
     GeneratedItems(&'static [ExpectedItem]),
-    Verified,
     CliIgnoredAllowed,
     CliIgnoredDenied,
     NoSupportedLibraryFacade,
     CapabilityRejected,
     CapabilityExactIdentityRejected,
-    CapabilityLegacyHostIdentity,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1758,6 +1756,34 @@ fn issue_44_owned_operations_are_executable() {
     );
 }
 
+#[test]
+fn issue_50_owned_operations_are_executable() {
+    const IDS: [&str; 3] = [
+        "operation-verify-case-alias",
+        "operation-verify-unicode-alias",
+        "operation-verify-placeholder-first-component",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = operation_fixtures::CASES
+                .iter()
+                .find(|case| case.id == *id)
+                .unwrap_or_else(|| panic!("missing operation fixture '{id}'"));
+            let observed = run_operation(case.kind);
+            (!matches_expected_operation(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #50 operation mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn issue_42_link_rejection_does_not_disclose_targets() {
@@ -2609,7 +2635,6 @@ fn matches_expected_operation(
 ) -> bool {
     match (observed, expected) {
         (ObservedOperationResult::Rejected, ExpectedOperationResult::Rejected)
-        | (ObservedOperationResult::Verified, ExpectedOperationResult::Verified)
         | (
             ObservedOperationResult::CliIgnoredAllowed,
             ExpectedOperationResult::CliIgnoredAllowed,
@@ -2623,8 +2648,7 @@ fn matches_expected_operation(
         | (
             ObservedOperationResult::CapabilityUnavailable,
             ExpectedOperationResult::CapabilityRejected
-            | ExpectedOperationResult::CapabilityExactIdentityRejected
-            | ExpectedOperationResult::CapabilityLegacyHostIdentity,
+            | ExpectedOperationResult::CapabilityExactIdentityRejected,
         )
         | (
             ObservedOperationResult::Identity {
@@ -2651,13 +2675,6 @@ fn matches_expected_operation(
             ObservedOperationResult::GeneratedItems(actual),
             ExpectedOperationResult::GeneratedItems(expected),
         ) => exact_items_match(actual, expected),
-        (
-            ObservedOperationResult::Identity {
-                host_aliases: true,
-                verified: true,
-            },
-            ExpectedOperationResult::CapabilityLegacyHostIdentity,
-        ) => true,
         _ => false,
     }
 }
