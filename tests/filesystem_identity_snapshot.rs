@@ -107,6 +107,25 @@ fn issue_50_case_identity_is_exact_in_later_components() {
 }
 
 #[test]
+fn issue_50_case_identity_is_exact_in_first_directory_components() {
+    let temp = TempDir::new().expect("temporary directory case-identity root");
+    fs::create_dir(temp.path().join("src")).expect("directory case fixture");
+    fs::write(temp.path().join("src/main.rs"), "").expect("directory case fixture file");
+
+    if temp.path().join("SRC").is_dir() {
+        let error = verify_lines(temp.path(), "- SRC/main.rs\n")
+            .expect_err("a first-component directory alias must not verify");
+        assert_exact_identity_mismatch(&error, 2, "SRC");
+    } else {
+        fs::create_dir(temp.path().join("SRC")).expect("case-distinct directory control");
+        fs::write(temp.path().join("SRC/main.rs"), "")
+            .expect("case-distinct directory control file");
+        verify_lines(temp.path(), "- src/main.rs\n- SRC/main.rs\n")
+            .expect("case-distinct first directory components must remain distinct");
+    }
+}
+
+#[test]
 fn issue_50_unicode_identity_is_exact_or_capability_is_explicit() {
     let temp = TempDir::new().expect("temporary Unicode-identity root");
     fs::write(temp.path().join(PRECOMPOSED), "").expect("Unicode identity fixture");
@@ -248,6 +267,51 @@ fn issue_50_snapshot_cache_lives_for_one_verification_only() {
             ..
         }))
     ));
+
+    fs::remove_file(temp.path().join("after.txt")).expect("remove file between runs");
+    fs::create_dir(temp.path().join("after.txt")).expect("replace file with directory");
+    verifier
+        .verify(&parse_guide("- after.txt/\n"))
+        .expect("a later verification must refresh snapshotted type");
+}
+
+#[test]
+fn issue_50_hard_links_keep_distinct_textual_names() {
+    let temp = TempDir::new().expect("temporary hard-link identity root");
+    fs::write(temp.path().join("first.txt"), "").expect("hard-link source");
+    fs::hard_link(
+        temp.path().join("first.txt"),
+        temp.path().join("second.txt"),
+    )
+    .expect("hard-link alias");
+
+    verify_lines(temp.path(), "- first.txt\n- ...\n")
+        .expect("the second hard-link name remains an unlisted textual identity");
+    assert!(matches!(
+        verify_lines(temp.path(), "- first.txt\n- second.txt\n- ...\n"),
+        Err(AppError::Semantic(
+            SemanticError::PlaceholderNoUnmentionedItems { line: 4, .. }
+        ))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_50_unlisted_control_name_rejects_without_a_placeholder() {
+    let temp = TempDir::new().expect("temporary control-name root");
+    fs::write(temp.path().join("listed.txt"), "").expect("listed fixture");
+    let control_name = "bad\nname.txt";
+    if fs::write(temp.path().join(control_name), "").is_err() {
+        return;
+    }
+
+    let error = verify_lines(temp.path(), "- listed.txt\n")
+        .expect_err("every visited parent snapshot must reject a control-bearing sibling");
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("line 2:"));
+    assert!(diagnostic.contains("\"bad\\nname.txt\""));
+    assert!(!diagnostic.contains(control_name));
+    assert!(!diagnostic.contains('\u{fffd}'));
 }
 
 #[test]
