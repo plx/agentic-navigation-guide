@@ -17,6 +17,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Treat immutable published `0.1.4` as the historical library baseline,
   distinct from current source. Preserve the frozen export-ledger IDs,
   signatures, and implementation owners in `tests/fixtures/v0_2_api.rs`.
+- Treat `release/identity.toml` as the machine-readable prepared release
+  intent. Keep its `0.1.4` migration evidence distinct from later compatible
+  `0.2.x` baselines, and preserve the canonical published-API fixture in
+  `tests/fixtures/v0_1_4_published_api.tsv`.
+- `CHANGELOG.md` is the complete published-`0.1.4` migration record.
+  `LICENSING.md` is the fact-only historical licensing clarification and
+  maintainer yank-decision record; do not infer a legal conclusion from it.
 - Treat repositories and guide text as untrusted, but do not describe the
   verifier as a sandbox or as hostile-concurrent-mutation safe.
 - Implementation plus tests define realized unreleased source behavior while
@@ -61,6 +68,10 @@ just get-next-production-readiness-issue --exclude 34 --exclude 35
 
 # Run the selector's offline regression suite
 just test-production-readiness-selector
+
+# Check the prepared 0.2.0 identity and its fail-closed regressions
+just check-release-identity
+just test-release-identity
 ```
 
 ### Running the CLI Tool

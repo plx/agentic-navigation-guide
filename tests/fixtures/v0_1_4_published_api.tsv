@@ -1,0 +1,137 @@
+# published_version=0.1.4
+# artifact_sha256=d08fefac88faf8d737eea273f86bfbc80aaac1eb80ff3a57bde5add824fe5da0
+# vcs_revision=560ce399e1e28e8e0d6b87988956893796d2dfab
+# normalized_manifest_sha256=1dc83730531459a1fcae387cc5e5f625a3ff498659915d58fa875dd14c9fab3b
+# library_source_sha256=c2107c1948025e592e4af33a39b8f80ce7f02b8160d48c12acf6a4c67963d656
+# ordered_id_sha256=3b1fa66f32a32aa48430993d9e69a7fa0b9566942efd17f8dfe657b6d1e8ddb7
+# ordered_symbol_sha256=7d6f9b7f320cb6394bfbf4b54657e4bddece662b15cc5b24cd1e409aab39ef88
+# ordered_row_sha256=ab476288fae6998d16ee2a500825cf04a26b5564c3e59a9ed95824ed0193611f
+id|kind|symbol
+api-target-library|PackageTarget|agentic_navigation_guide (lib)
+api-module-dumper|Module|dumper
+api-module-errors|Module|errors
+api-module-parser|Module|parser
+api-module-recursive|Module|recursive
+api-module-types|Module|types
+api-module-validator|Module|validator
+api-module-verifier|Module|verifier
+api-reexport-dumper|ReExport|crate::Dumper
+api-reexport-app-error|ReExport|crate::AppError
+api-reexport-result|ReExport|crate::Result
+api-reexport-semantic-error|ReExport|crate::SemanticError
+api-reexport-syntax-error|ReExport|crate::SyntaxError
+api-reexport-parser|ReExport|crate::Parser
+api-reexport-find-guides|ReExport|crate::find_guides
+api-reexport-verify-guides|ReExport|crate::verify_guides
+api-reexport-guide-location|ReExport|crate::GuideLocation
+api-reexport-guide-verification-result|ReExport|crate::GuideVerificationResult
+api-reexport-execution-mode|ReExport|crate::ExecutionMode
+api-reexport-filesystem-item|ReExport|crate::FilesystemItem
+api-reexport-log-level|ReExport|crate::LogLevel
+api-reexport-navigation-guide|ReExport|crate::NavigationGuide
+api-reexport-navigation-guide-line|ReExport|crate::NavigationGuideLine
+api-reexport-validator|ReExport|crate::Validator
+api-reexport-verifier|ReExport|crate::Verifier
+api-alias-result|TypeAlias|errors::Result<T> = std::result::Result<T,AppError>
+api-struct-dumper|Struct|dumper::Dumper
+api-struct-error-formatter|Struct|errors::ErrorFormatter
+api-struct-parser|Struct|parser::Parser
+api-struct-guide-location|Struct|recursive::GuideLocation
+api-struct-guide-verification-result|Struct|recursive::GuideVerificationResult
+api-struct-navigation-guide-line|Struct|types::NavigationGuideLine
+api-struct-navigation-guide|Struct|types::NavigationGuide
+api-struct-config|Struct|types::Config
+api-struct-validator|Struct|validator::Validator
+api-struct-verifier|Struct|verifier::Verifier
+api-enum-app-error|Enum|errors::AppError
+api-enum-syntax-error|Enum|errors::SyntaxError
+api-enum-semantic-error|Enum|errors::SemanticError
+api-enum-filesystem-item|Enum|types::FilesystemItem
+api-enum-execution-mode|Enum|types::ExecutionMode
+api-enum-log-level|Enum|types::LogLevel
+api-variant-app-error-syntax|Variant|AppError::Syntax(SyntaxError)
+api-variant-app-error-semantic|Variant|AppError::Semantic(SemanticError)
+api-variant-app-error-io|Variant|AppError::Io(std::io::Error)
+api-variant-app-error-glob-pattern|Variant|AppError::GlobPattern(globset::Error)
+api-variant-app-error-walk-dir|Variant|AppError::WalkDir(walkdir::Error)
+api-variant-app-error-other|Variant|AppError::Other(String)
+api-variant-syntax-error-missing-opening-marker|Variant|SyntaxError::MissingOpeningMarker { line: usize }
+api-variant-syntax-error-missing-closing-marker|Variant|SyntaxError::MissingClosingMarker { line: usize }
+api-variant-syntax-error-multiple-guide-blocks|Variant|SyntaxError::MultipleGuideBlocks { line: usize }
+api-variant-syntax-error-empty-guide-block|Variant|SyntaxError::EmptyGuideBlock
+api-variant-syntax-error-invalid-list-format|Variant|SyntaxError::InvalidListFormat { line: usize }
+api-variant-syntax-error-directory-missing-slash|Variant|SyntaxError::DirectoryMissingSlash { line: usize, path: String }
+api-variant-syntax-error-invalid-special-directory|Variant|SyntaxError::InvalidSpecialDirectory { line: usize, path: String }
+api-variant-syntax-error-inconsistent-indentation|Variant|SyntaxError::InconsistentIndentation { line: usize, expected: usize, found: usize }
+api-variant-syntax-error-invalid-indentation-level|Variant|SyntaxError::InvalidIndentationLevel { line: usize }
+api-variant-syntax-error-blank-line-in-guide|Variant|SyntaxError::BlankLineInGuide { line: usize }
+api-variant-syntax-error-invalid-path-format|Variant|SyntaxError::InvalidPathFormat { line: usize, path: String }
+api-variant-syntax-error-invalid-wildcard-syntax|Variant|SyntaxError::InvalidWildcardSyntax { line: usize, path: String, message: String }
+api-variant-syntax-error-invalid-comment-format|Variant|SyntaxError::InvalidCommentFormat { line: usize }
+api-variant-syntax-error-adjacent-placeholders|Variant|SyntaxError::AdjacentPlaceholders { line: usize }
+api-variant-syntax-error-placeholder-with-children|Variant|SyntaxError::PlaceholderWithChildren { line: usize }
+api-variant-semantic-error-item-not-found|Variant|SemanticError::ItemNotFound { line: usize, item_type: String, path: String, full_path: PathBuf }
+api-variant-semantic-error-type-mismatch|Variant|SemanticError::TypeMismatch { line: usize, expected: String, found: String, path: String }
+api-variant-semantic-error-invalid-nesting|Variant|SemanticError::InvalidNesting { line: usize, child: String, parent: String }
+api-variant-semantic-error-symlink-target-mismatch|Variant|SemanticError::SymlinkTargetMismatch { line: usize, path: String, expected: String, actual: String }
+api-variant-semantic-error-permission-denied|Variant|SemanticError::PermissionDenied { line: usize, path: String }
+api-variant-semantic-error-placeholder-no-unmentioned-items|Variant|SemanticError::PlaceholderNoUnmentionedItems { line: usize, parent: String }
+api-variant-filesystem-item-file|Variant|FilesystemItem::File { path: String, comment: Option<String> }
+api-variant-filesystem-item-directory|Variant|FilesystemItem::Directory { path: String, comment: Option<String>, children: Vec<NavigationGuideLine> }
+api-variant-filesystem-item-symlink|Variant|FilesystemItem::Symlink { path: String, comment: Option<String>, target: Option<String> }
+api-variant-filesystem-item-placeholder|Variant|FilesystemItem::Placeholder { comment: Option<String> }
+api-variant-execution-mode-default|Variant|ExecutionMode::Default
+api-variant-execution-mode-post-tool-use|Variant|ExecutionMode::PostToolUse
+api-variant-execution-mode-pre-commit-hook|Variant|ExecutionMode::PreCommitHook
+api-variant-execution-mode-github-actions|Variant|ExecutionMode::GitHubActions
+api-variant-log-level-quiet|Variant|LogLevel::Quiet
+api-variant-log-level-default|Variant|LogLevel::Default
+api-variant-log-level-verbose|Variant|LogLevel::Verbose
+api-field-guide-location-guide-path|Field|GuideLocation::guide_path: PathBuf
+api-field-guide-location-root-path|Field|GuideLocation::root_path: PathBuf
+api-field-guide-verification-result-location|Field|GuideVerificationResult::location: GuideLocation
+api-field-guide-verification-result-success|Field|GuideVerificationResult::success: bool
+api-field-guide-verification-result-error|Field|GuideVerificationResult::error: Option<String>
+api-field-guide-verification-result-ignored|Field|GuideVerificationResult::ignored: bool
+api-field-navigation-guide-line-line-number|Field|NavigationGuideLine::line_number: usize
+api-field-navigation-guide-line-indent-level|Field|NavigationGuideLine::indent_level: usize
+api-field-navigation-guide-line-item|Field|NavigationGuideLine::item: FilesystemItem
+api-field-navigation-guide-items|Field|NavigationGuide::items: Vec<NavigationGuideLine>
+api-field-navigation-guide-prologue|Field|NavigationGuide::prologue: Option<String>
+api-field-navigation-guide-epilogue|Field|NavigationGuide::epilogue: Option<String>
+api-field-navigation-guide-ignore|Field|NavigationGuide::ignore: bool
+api-field-config-execution-mode|Field|Config::execution_mode: ExecutionMode
+api-field-config-log-level|Field|Config::log_level: LogLevel
+api-field-config-root-path|Field|Config::root_path: Option<PathBuf>
+api-field-config-guide-path|Field|Config::guide_path: Option<PathBuf>
+api-field-config-original-guide-path|Field|Config::original_guide_path: Option<String>
+api-field-config-original-root-path|Field|Config::original_root_path: Option<String>
+api-function-parse-navigation-guide|Function|crate::parse_navigation_guide(content: &str) -> Result<NavigationGuide>
+api-function-check-syntax|Function|crate::check_syntax(guide: &NavigationGuide) -> Result<()>
+api-function-verify-guide|Function|crate::verify_guide(guide: &NavigationGuide, root_path: &std::path::Path) -> Result<()>
+api-function-dump-directory|Function|crate::dump_directory(root_path: &std::path::Path, max_depth: Option<usize>, exclude_patterns: &[String], indent_size: usize) -> Result<String>
+api-function-find-guides|Function|recursive::find_guides(root: &Path, guide_name: &str, exclude_patterns: &[String]) -> Result<Vec<GuideLocation>>
+api-function-verify-guides|Function|recursive::verify_guides(guides: &[GuideLocation], config: &Config) -> Result<Vec<GuideVerificationResult>>
+api-function-display-results|Function|recursive::display_results(results: &[GuideVerificationResult], config: &Config) -> bool
+api-method-dumper-new|Method|Dumper::new(root_path: &Path) -> Self
+api-method-dumper-with-max-depth|Method|Dumper::with_max_depth(self, max_depth: Option<usize>) -> Self
+api-method-dumper-with-exclude-patterns|Method|Dumper::with_exclude_patterns(self, patterns: &[String]) -> Result<Self>
+api-method-dumper-with-indent-size|Method|Dumper::with_indent_size(self, indent_size: usize) -> Self
+api-method-dumper-dump|Method|Dumper::dump(&self) -> Result<String>
+api-method-dumper-dump-with-wrapper|Method|Dumper::dump_with_wrapper(&self) -> Result<String>
+api-method-syntax-error-line-number|Method|SyntaxError::line_number(&self) -> Option<usize>
+api-method-semantic-error-line-number|Method|SemanticError::line_number(&self) -> usize
+api-method-error-formatter-format-with-context|Method|ErrorFormatter::format_with_context(error: &AppError, file_content: Option<&str>) -> String
+api-method-parser-new|Method|Parser::new() -> Self
+api-method-parser-parse|Method|Parser::parse(&self, content: &str) -> Result<NavigationGuide>
+api-method-navigation-guide-line-path|Method|NavigationGuideLine::path(&self) -> &str
+api-method-navigation-guide-line-comment|Method|NavigationGuideLine::comment(&self) -> Option<&str>
+api-method-navigation-guide-line-is-directory|Method|NavigationGuideLine::is_directory(&self) -> bool
+api-method-navigation-guide-line-is-placeholder|Method|NavigationGuideLine::is_placeholder(&self) -> bool
+api-method-navigation-guide-line-children|Method|NavigationGuideLine::children(&self) -> Option<&[NavigationGuideLine]>
+api-method-navigation-guide-new|Method|NavigationGuide::new() -> Self
+api-method-navigation-guide-get-full-path|Method|NavigationGuide::get_full_path(&self, item: &NavigationGuideLine) -> PathBuf
+api-method-validator-new|Method|Validator::new() -> Self
+api-method-validator-validate-syntax|Method|Validator::validate_syntax(&self, guide: &NavigationGuide) -> Result<()>
+api-method-verifier-new|Method|Verifier::new(root_path: &Path) -> Self
+api-method-verifier-verify|Method|Verifier::verify(&self, guide: &NavigationGuide) -> Result<()>

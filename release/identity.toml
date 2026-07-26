@@ -1,0 +1,44 @@
+schema = 1
+package = "agentic-navigation-guide"
+version = "0.2.0"
+binary = "agentic-navigation-guide"
+tag_prefix = "v"
+changelog_status = "Unreleased"
+license = "MIT OR Apache-2.0"
+supported_product = "cli"
+linkable_rust_targets = 0
+
+[migration_baseline]
+published_version = "0.1.4"
+artifact_sha256 = "d08fefac88faf8d737eea273f86bfbc80aaac1eb80ff3a57bde5add824fe5da0"
+vcs_revision = "560ce399e1e28e8e0d6b87988956893796d2dfab"
+normalized_manifest_sha256 = "1dc83730531459a1fcae387cc5e5f625a3ff498659915d58fa875dd14c9fab3b"
+library_source_sha256 = "c2107c1948025e592e4af33a39b8f80ce7f02b8160d48c12acf6a4c67963d656"
+published_api_fixture = "tests/fixtures/v0_1_4_published_api.tsv"
+last_linkable_revision = "e34399c14683878064cad18e9506186cd7e4fef1"
+semver_report_audit = "audits/2026-07-26-issue-54-binary-only-package.md"
+semver_report_audit_sha256 = "b7db882a03c3f19bf2b194c6fcf2f1ab504a99cbd8425cbde6327d86ad7c2313"
+semver_checks_version = "0.49.0"
+semver_checks_executable_sha256 = "dd13a57b19aaedcb9d520f3d0cfc6af0005c04b4e1521ac9d81cdc513a13ec16"
+rust_version = "1.93.0"
+cargo_version = "1.93.0"
+exit_code = 100
+evaluated_checks = 196
+passed_checks = 192
+major_failures = 4
+inapplicable_checks = 57
+major_lints = [
+    "enum_no_repr_variant_discriminant_changed",
+    "enum_variant_added",
+    "enum_variant_missing",
+    "inherent_method_missing",
+]
+
+[future_compatibility]
+compatibility_line = "0.2.x"
+next_breaking_version = "0.3.0"
+compatible_baseline_policy = "most-recent-preceding-non-yanked-release-in-the-same-compatibility-line"
+breaking_line_baseline_policy = "latest-non-yanked-published-predecessor-plus-approved-migration-record"
+comparison_surface = "documented-cli-contract-and-package-target-shape"
+compatible_break_policy = "fail-all-incompatibilities-release-notes-do-not-authorize"
+security_exception = "restore-not-redefine"
