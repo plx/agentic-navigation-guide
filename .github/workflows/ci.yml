@@ -106,7 +106,9 @@ jobs:
     - name: Run binding all-owner guide contract
       env:
         GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
-      run: cargo test --bin agentic-navigation-guide --locked v0_2_contract_tests:: -- --nocapture
+      run: >-
+        cargo test --bin agentic-navigation-guide --locked
+        v0_2_contract_tests:: -- --nocapture
     - name: Run focused logical-backslash regression
       run: cargo test --locked issue_27 -- --nocapture
     - name: Run focused syntax-sensitive-name tests
