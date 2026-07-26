@@ -27,12 +27,9 @@ pub(super) const CASES: &[ContractCase] = &[
         },
         current: ExpectedResult::Accept {
             ignore: true,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
+            items: Some(&[]),
         },
-        pending_issue: Some(39),
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-ignore-quoted",
@@ -43,12 +40,9 @@ pub(super) const CASES: &[ContractCase] = &[
         },
         current: ExpectedResult::Accept {
             ignore: true,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
+            items: Some(&[]),
         },
-        pending_issue: Some(39),
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-outer-whitespace",
@@ -921,8 +915,11 @@ pub(super) const CASES: &[ContractCase] = &[
             ignore: true,
             items: Some(&[]),
         },
-        current: ExpectedResult::Reject,
-        pending_issue: Some(39),
+        current: ExpectedResult::Accept {
+            ignore: true,
+            items: Some(&[]),
+        },
+        pending_issue: None,
     },
     ContractCase {
         id: "ignore-empty-body",
@@ -931,7 +928,10 @@ pub(super) const CASES: &[ContractCase] = &[
             ignore: true,
             items: Some(&[]),
         },
-        current: ExpectedResult::Reject,
-        pending_issue: Some(39),
+        current: ExpectedResult::Accept {
+            ignore: true,
+            items: Some(&[]),
+        },
+        pending_issue: None,
     },
 ];

@@ -7,8 +7,42 @@ mod output;
 pub mod verify;
 
 use crate::guide_input::GuideInputError;
+use agentic_navigation_guide::errors::{AppError, Result};
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use clap::{Parser, Subcommand};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CommandOutcome {
+    Completed,
+    Ignored { count: usize },
+}
+
+pub(crate) fn finish_ignored_policy(
+    ignored_count: usize,
+    deny_ignored: bool,
+) -> Result<CommandOutcome> {
+    if ignored_count == 0 {
+        return Ok(CommandOutcome::Completed);
+    }
+
+    let outcome = CommandOutcome::Ignored {
+        count: ignored_count,
+    };
+    if !deny_ignored {
+        return Ok(outcome);
+    }
+
+    let noun = if ignored_count == 1 {
+        "navigation guide was"
+    } else {
+        "navigation guides were"
+    };
+    let message = format!(
+        "--deny-ignored rejected the run because {ignored_count} ignored {noun} discovered"
+    );
+    eprintln!("{message}");
+    Err(AppError::Other(message).reported())
+}
 
 /// CLI arguments structure
 #[derive(Parser, Debug)]

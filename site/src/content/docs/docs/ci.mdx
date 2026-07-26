@@ -25,20 +25,25 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
       - run: cargo install agentic-navigation-guide
-      - run: agentic-navigation-guide verify --github-actions-check
+      - run: agentic-navigation-guide verify --github-actions-check --deny-ignored
 ```
 
 The repository also uses a local verification workflow that builds the crate and runs:
 
 ```sh
-cargo run --release -- verify --github-actions-check
+cargo run --release -- verify --github-actions-check --deny-ignored
 ```
 
 For a monorepo, require recursive discovery as part of the gate:
 
 ```yaml
-- run: agentic-navigation-guide verify --recursive --github-actions-check
+- run: agentic-navigation-guide verify --recursive --github-actions-check --deny-ignored
 ```
+
+These required checks pass `--deny-ignored` explicitly. An ignored guide is a
+successful, separately reported outcome by default, and selecting a hook or CI
+execution mode does not silently change that policy. Omit the flag only when
+the workflow intentionally permits ignored examples or templates.
 
 Do not add `--allow-empty` to a required CI check. Recursive verification
 fails when it discovers zero guides, which keeps a wrong root or guide name,

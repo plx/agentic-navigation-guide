@@ -6,7 +6,7 @@ use clap::Parser;
 mod cli;
 #[allow(dead_code)]
 mod guide_input;
-use cli::{Cli, Command};
+use cli::{Cli, Command, CommandOutcome};
 
 fn main() {
     // Parse CLI arguments
@@ -20,15 +20,19 @@ fn main() {
 
     // Execute the command
     let result = match cli.command {
-        Command::Dump(args) => args.execute(&config),
-        Command::Init(args) => args.execute(&config),
+        Command::Dump(args) => args.execute(&config).map(|()| CommandOutcome::Completed),
+        Command::Init(args) => args.execute(&config).map(|()| CommandOutcome::Completed),
         Command::Check(args) => args.execute(&mut config),
         Command::Verify(args) => args.execute(&mut config),
     };
 
     // Handle the result and exit with appropriate code
     match result {
-        Ok(()) => std::process::exit(0),
+        Ok(CommandOutcome::Completed) => std::process::exit(0),
+        Ok(CommandOutcome::Ignored { count }) => {
+            debug_assert_ne!(count, 0);
+            std::process::exit(0);
+        }
         Err(e) => {
             if !e.is_reported() {
                 let formatted = ErrorFormatter::format_with_context(e.root_cause(), None);

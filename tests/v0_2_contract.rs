@@ -7,7 +7,7 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[39, 40, 41, 42, 43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[40, 41, 42, 43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -97,13 +97,6 @@ enum OperationKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LibraryIgnoredObservation {
-    DistinctIgnored,
-    SuccessWithoutOutcome,
-    Rejected,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExpectedOperationResult {
     Rejected,
     GeneratedInvalid,
@@ -111,11 +104,8 @@ enum ExpectedOperationResult {
     GeneratedItems(&'static [ExpectedItem]),
     Verified,
     CliIgnoredAllowed,
-    CliIgnoredAllowedWithRecursiveFalseSuccess,
     CliIgnoredDenied,
-    CliOptionUnknown,
     NoSupportedLibraryFacade,
-    LibraryOutcomes([LibraryIgnoredObservation; 2]),
     CapabilityRejected,
     CapabilityGeneratedPaths(&'static [&'static str]),
     CapabilityGeneratedItems(&'static [ExpectedItem]),
@@ -319,10 +309,7 @@ mod fixtures {
 }
 
 mod operation_fixtures {
-    use super::{
-        ExpectedItem, ExpectedOperationResult, ItemKind, LibraryIgnoredObservation, OperationCase,
-        OperationKind,
-    };
+    use super::{ExpectedItem, ExpectedOperationResult, ItemKind, OperationCase, OperationKind};
 
     include!("fixtures/v0_2_operations.rs");
 }
@@ -366,7 +353,6 @@ enum ObservedOperationResult {
     CliIgnoredDenied,
     CliOptionUnknown,
     NoSupportedLibraryFacade,
-    LibraryOutcomes([LibraryIgnoredObservation; 2]),
     CapabilityUnavailable,
     Identity { host_aliases: bool, verified: bool },
 }
@@ -1481,12 +1467,12 @@ fn marker_line_endings_are_platform_independent() {
 #[test]
 fn conformance_request_rejects_unknown_owners() {
     assert_eq!(
-        parse_conformance_request("39"),
-        ConformanceRequest::Owner(39)
+        parse_conformance_request("40"),
+        ConformanceRequest::Owner(40)
     );
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "37", "38", "99"] {
+    for invalid in ["ALL", "owner", "36", "37", "38", "39", "99"] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"
@@ -1500,10 +1486,6 @@ fn library_ignored_gate_requires_non_vacuous_absence_of_supported_facades() {
         api_fixtures::CASES.len(),
         132,
         "the supported-facade assertion must inspect the complete pinned API inventory"
-    );
-    assert!(
-        !api_fixtures::CASES.is_empty(),
-        "an empty API inventory cannot prove that the supported facade is empty"
     );
     assert_eq!(
         supported_v0_2_facade_ids(),
@@ -1542,12 +1524,7 @@ fn matches_expected_operation(
             ObservedOperationResult::CliIgnoredAllowed,
             ExpectedOperationResult::CliIgnoredAllowed,
         )
-        | (
-            ObservedOperationResult::CliIgnoredAllowedWithRecursiveFalseSuccess,
-            ExpectedOperationResult::CliIgnoredAllowedWithRecursiveFalseSuccess,
-        )
         | (ObservedOperationResult::CliIgnoredDenied, ExpectedOperationResult::CliIgnoredDenied)
-        | (ObservedOperationResult::CliOptionUnknown, ExpectedOperationResult::CliOptionUnknown)
         | (
             ObservedOperationResult::NoSupportedLibraryFacade,
             ExpectedOperationResult::NoSupportedLibraryFacade,
@@ -1592,10 +1569,6 @@ fn matches_expected_operation(
             ObservedOperationResult::GeneratedItems(actual),
             ExpectedOperationResult::GeneratedItems(expected),
         ) => exact_items_match(actual, expected),
-        (
-            ObservedOperationResult::LibraryOutcomes(actual),
-            ExpectedOperationResult::LibraryOutcomes(expected),
-        ) => *actual == expected,
         (
             ObservedOperationResult::GeneratedPaths(actual),
             ExpectedOperationResult::CapabilityGeneratedPaths(expected),

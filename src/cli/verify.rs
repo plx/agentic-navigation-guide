@@ -3,7 +3,7 @@
 use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
-use agentic_navigation_guide::recursive::{self, GuideLocation};
+use agentic_navigation_guide::recursive::{self, GuideLocation, GuideVerificationResult};
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use agentic_navigation_guide::validator::Validator;
 use agentic_navigation_guide::verifier::Verifier;
@@ -30,6 +30,20 @@ impl RecursiveAggregate {
             // This is one absent-search outcome, not a count of files that
             // might have been expected to exist.
             absent: 1,
+        }
+    }
+
+    fn from_results(results: &[GuideVerificationResult]) -> Self {
+        let discovered = results.len();
+        Self {
+            discovered,
+            passed: results
+                .iter()
+                .filter(|result| result.success && !result.ignored)
+                .count(),
+            failed: results.iter().filter(|result| !result.success).count(),
+            ignored: results.iter().filter(|result| result.ignored).count(),
+            absent: usize::from(discovered == 0),
         }
     }
 }
@@ -111,6 +125,10 @@ pub struct VerifyArgs {
     )]
     pub guide: Option<PathBuf>,
 
+    /// Fail when any discovered guide is marked with ignore=true
+    #[arg(long)]
+    pub deny_ignored: bool,
+
     /// Root directory for verification
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
@@ -146,7 +164,7 @@ pub struct VerifyArgs {
 
 impl VerifyArgs {
     /// Execute the verify command
-    pub fn execute(self, config: &mut Config) -> Result<()> {
+    pub fn execute(self, config: &mut Config) -> Result<super::CommandOutcome> {
         // Update execution mode based on flags
         if self.post_tool_use_hook {
             config.execution_mode = ExecutionMode::PostToolUse;
@@ -249,7 +267,7 @@ impl VerifyArgs {
                 }
             }
 
-            return Ok(());
+            return super::finish_ignored_policy(1, self.deny_ignored);
         }
 
         // First validate syntax
@@ -282,7 +300,7 @@ impl VerifyArgs {
                         }
                     }
                 }
-                Ok(())
+                super::finish_ignored_policy(0, self.deny_ignored)
             }
             Err(e) => {
                 if config.execution_mode == ExecutionMode::PostToolUse {
@@ -301,7 +319,7 @@ impl VerifyArgs {
     }
 
     /// Execute verification in recursive mode
-    fn execute_recursive(self, config: &Config) -> Result<()> {
+    fn execute_recursive(self, config: &Config) -> Result<super::CommandOutcome> {
         // Determine the root path for recursive search
         let search_root = match self.root {
             Some(root) => root,
@@ -325,7 +343,8 @@ impl VerifyArgs {
             match RecursiveDiscovery::classify(guides, search_root.clone(), guide_name.clone()) {
                 RecursiveDiscovery::Found(guides) => guides,
                 RecursiveDiscovery::Absent(error) => {
-                    return finish_empty_discovery(error, self.allow_empty, config);
+                    return finish_empty_discovery(error, self.allow_empty, config)
+                        .map(|()| super::CommandOutcome::Completed);
                 }
             };
 
@@ -346,14 +365,24 @@ impl VerifyArgs {
 
         // Verify all guides
         let results = recursive::verify_guides(&guides, config)?;
+        let aggregate = RecursiveAggregate::from_results(&results);
 
         // Display results and determine exit status
         let all_passed = recursive::display_results(&results, config);
 
-        if all_passed {
-            Ok(())
-        } else {
+        if self.deny_ignored && aggregate.ignored != 0 {
+            // Quiet suppresses ordinary success chatter, not the aggregate
+            // attached to a policy failure.
+            if config.log_level == LogLevel::Quiet {
+                eprintln!("  {aggregate}");
+            }
+            return super::finish_ignored_policy(aggregate.ignored, true);
+        }
+
+        if !all_passed {
             Err(AppError::Other("Some guides failed verification".to_string()).reported())
+        } else {
+            super::finish_ignored_policy(aggregate.ignored, false)
         }
     }
 }

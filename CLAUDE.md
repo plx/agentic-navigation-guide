@@ -72,17 +72,19 @@ cargo run -- dump --depth 2 --exclude target --exclude .git
 # Check navigation guide syntax
 cargo run -- check
 cargo run -- check --guide path/to/guide.md
+cargo run -- check --deny-ignored
 
 # Verify guide against filesystem
 cargo run -- verify
 cargo run -- verify --guide path/to/guide.md --root /path/to/root
 
 # Verify in GitHub Actions mode (concise output, file:line format)
-cargo run -- verify --github-actions-check
+cargo run -- verify --github-actions-check --deny-ignored
 
 # Recursively verify all navigation guides (for monorepos)
 cargo run -- verify --recursive
 cargo run -- verify --recursive --guide-name GUIDE.md --exclude target --exclude node_modules
+cargo run -- verify --recursive --deny-ignored
 
 # Only for an intentionally optional recursive search; required CI must omit it
 cargo run -- verify --recursive --allow-empty
@@ -97,7 +99,10 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 ### Core Components
 
-1. **Parser** (`src/parser.rs`): Extracts navigation guide blocks from markdown files and parses the hierarchical structure. Uses regex to parse individual lines and builds a tree structure based on indentation levels.
+1. **Parser** (`src/parser.rs`): Extracts navigation guide blocks and always
+   validates the exact envelope plus global marker-candidate scan. Active
+   bodies are parsed into a hierarchy. A valid `ignore=true` body is opaque,
+   may be empty, and produces no parsed items.
 
 2. **Validator** (`src/validator.rs`): Performs syntax validation on parsed guides, checking for proper formatting, consistent indentation, and valid path formats.
 
@@ -136,10 +141,16 @@ shared validation. CLI and recursive formatters must not pass guide content to
 - `FilesystemItem`: Enum representing File, Directory, or Symlink
 - `NavigationGuideLine`: Parsed line with indent level and filesystem item
 - `NavigationGuide`: Complete guide with items, optional prologue/epilogue, and ignore flag
-  - The `ignore` field indicates whether the guide should be skipped during verification
+  - The `ignore` field represents a distinct internal ignored outcome, not checked or verified success
   - Set using `<agentic-navigation-guide ignore=true>` in the opening tag
-  - Useful for documentation examples that shouldn't be validated
+  - The exact envelope is still validated; its body skips list, validator, and filesystem checks
+- `CommandOutcome` (binary-private): Distinguishes completed work from one or more ignored guides
 - `ExecutionMode`: Default, PostToolUse (exit code 2), PreCommitHook, or GitHubActions
+
+`check` and `verify` allow ignored guides by default and report them in
+non-quiet modes. Required hooks and CI must pass `--deny-ignored` explicitly;
+execution mode and quiet mode do not change the policy. Recursive totals count
+ignored guides separately from passed, failed, and absent outcomes.
 
 ### Error Handling
 

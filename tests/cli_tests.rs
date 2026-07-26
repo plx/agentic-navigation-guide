@@ -11,6 +11,7 @@ fn get_command() -> Command {
 }
 
 const GUIDE_SOURCE_SENTINEL: &str = "ISSUE49_SECRET_7f4a2d909b6c";
+const ISSUE39_OPAQUE_BODY_SENTINEL: &str = "ISSUE39_OPAQUE_SECRET_0c6248a7";
 
 fn isolated_command() -> Command {
     let mut command = get_command();
@@ -370,7 +371,7 @@ impl Issue39Body {
             ),
             Self::InvalidChoice => (
                 "<agentic-navigation-guide ignore=true>",
-                "- empty-choice[].txt",
+                "- ISSUE39_OPAQUE_SECRET_0c6248a7[].txt",
             ),
             Self::InvalidPlaceholder => (
                 "<agentic-navigation-guide ignore=true>",
@@ -2833,6 +2834,8 @@ fn test_recursive_verify_with_invalid_glob_pattern_reports_error() {
 
 #[test]
 fn test_recursive_verify_with_ignored_guides() {
+    const MIXED_SUMMARY: &str =
+        "Total: 2, Discovered: 2, Passed: 1, Failed: 0, Ignored: 1, Absent: 0";
     let temp_dir = TempDir::new().unwrap();
     let root = temp_dir.path();
 
@@ -2867,7 +2870,71 @@ fn test_recursive_verify_with_ignored_guides() {
         .arg(root)
         .assert()
         .success()
+        .stdout(predicate::str::contains(MIXED_SUMMARY))
+        .stdout(predicate::str::contains("All navigation guides").not())
         .stderr(predicate::str::contains("ignore=true"));
+
+    // The explicit deny policy preserves the same categorization and counts
+    // while changing only the command outcome.
+    let mut denied = get_command();
+    denied
+        .arg("verify")
+        .arg("--recursive")
+        .arg("--deny-ignored")
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(MIXED_SUMMARY))
+        .stdout(predicate::str::contains("All navigation guides").not())
+        .stderr(predicate::str::contains("--deny-ignored"))
+        .stderr(predicate::str::contains("ignored"));
+}
+
+#[test]
+fn test_recursive_verify_preserves_failed_and_ignored_counts() {
+    const MIXED_FAILURE_SUMMARY: &str =
+        "Total: 2, Discovered: 2, Passed: 0, Failed: 1, Ignored: 1, Absent: 0";
+
+    let temp = TempDir::new().unwrap();
+    let ignored_root = temp.path().join("ignored");
+    let failed_root = temp.path().join("failed");
+    fs::create_dir(&ignored_root).unwrap();
+    fs::create_dir(&failed_root).unwrap();
+    fs::write(
+        ignored_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+        "<agentic-navigation-guide ignore=true>\nopaque body\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+    fs::write(
+        failed_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+        "<agentic-navigation-guide>\n- missing.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    for deny_ignored in [false, true] {
+        let mut command = isolated_command();
+        command
+            .arg("verify")
+            .arg("--recursive")
+            .arg("--root")
+            .arg(temp.path());
+        if deny_ignored {
+            command.arg("--deny-ignored");
+        }
+        let output = command.output().unwrap();
+        let diagnostics = combined_output(&output);
+
+        assert_eq!(output.status.code(), Some(1), "{diagnostics}");
+        assert!(
+            diagnostics.contains(MIXED_FAILURE_SUMMARY),
+            "mixed failed/ignored run lost a category:\n{diagnostics}"
+        );
+        assert!(
+            diagnostics.contains("missing.txt") && diagnostics.contains("ignore=true"),
+            "mixed failed/ignored run did not finish classifying both guides:\n{diagnostics}"
+        );
+    }
 }
 
 #[test]
@@ -2925,6 +2992,10 @@ fn test_issue39_ignored_body_and_policy_matrix() {
                     }
 
                     assert_no_issue39_false_success(&diagnostics, &context);
+                    assert!(
+                        !diagnostics.contains(ISSUE39_OPAQUE_BODY_SENTINEL),
+                        "{context} parsed or disclosed the opaque body:\n{diagnostics}"
+                    );
 
                     if surface.is_recursive() && (!mode.is_quiet() || deny_ignored) {
                         assert!(
@@ -2945,7 +3016,7 @@ fn test_issue39_ignored_body_and_policy_matrix() {
 #[test]
 fn test_issue39_malformed_marker_never_activates_ignore() {
     const MALFORMED_SOURCE: &str = "<agentic-navigation-guide ignore=false>\n\
-                                    this body would otherwise be opaque\n\
+                                    ISSUE39_OPAQUE_SECRET_0c6248a7\n\
                                     </agentic-navigation-guide>";
 
     let temp = TempDir::new().unwrap();
@@ -2975,6 +3046,10 @@ fn test_issue39_malformed_marker_never_activates_ignore() {
                     !lowercase.contains("skipping")
                         && !lowercase.contains("denied by --deny-ignored"),
                     "{context} allowed the malformed marker to activate ignore:\n{diagnostics}"
+                );
+                assert!(
+                    !diagnostics.contains(ISSUE39_OPAQUE_BODY_SENTINEL),
+                    "{context} disclosed the body of a rejected document:\n{diagnostics}"
                 );
             }
         }
@@ -3148,6 +3223,20 @@ fn test_allow_empty_requires_recursive() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_check_and_verify_help_document_deny_ignored() {
+    for subcommand in ["check", "verify"] {
+        let mut command = isolated_command();
+        command
+            .arg(subcommand)
+            .arg("--help")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("--deny-ignored"))
+            .stdout(predicate::str::contains("ignore=true"));
+    }
 }
 
 #[test]
