@@ -11,7 +11,7 @@ use tempfile::TempDir;
 #[path = "../src/entry_type.rs"]
 mod issue_42_entry_type;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[42, 43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -111,10 +111,6 @@ enum ExpectedOperationResult {
     CliIgnoredDenied,
     NoSupportedLibraryFacade,
     CapabilityRejected,
-    CapabilityGeneratedPaths(&'static [&'static str]),
-    CapabilityGeneratedItems(&'static [ExpectedItem]),
-    CapabilityVerified,
-    CapabilityUnavailable,
     CapabilityExactIdentityRejected,
     CapabilityLegacyHostIdentity,
 }
@@ -2509,7 +2505,9 @@ fn marker_line_endings_are_platform_independent() {
 fn conformance_request_rejects_unknown_owners() {
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "37", "38", "39", "40", "41", "99"] {
+    for invalid in [
+        "ALL", "owner", "36", "37", "38", "39", "40", "41", "42", "99",
+    ] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"
@@ -2567,17 +2565,9 @@ fn matches_expected_operation(
             ExpectedOperationResult::NoSupportedLibraryFacade,
         )
         | (ObservedOperationResult::Rejected, ExpectedOperationResult::CapabilityRejected)
-        | (ObservedOperationResult::Verified, ExpectedOperationResult::CapabilityVerified)
-        | (
-            ObservedOperationResult::CapabilityUnavailable,
-            ExpectedOperationResult::CapabilityUnavailable,
-        )
         | (
             ObservedOperationResult::CapabilityUnavailable,
             ExpectedOperationResult::CapabilityRejected
-            | ExpectedOperationResult::CapabilityGeneratedPaths(_)
-            | ExpectedOperationResult::CapabilityGeneratedItems(_)
-            | ExpectedOperationResult::CapabilityVerified
             | ExpectedOperationResult::CapabilityExactIdentityRejected
             | ExpectedOperationResult::CapabilityLegacyHostIdentity,
         )
@@ -2605,24 +2595,6 @@ fn matches_expected_operation(
         (
             ObservedOperationResult::GeneratedItems(actual),
             ExpectedOperationResult::GeneratedItems(expected),
-        ) => exact_items_match(actual, expected),
-        (
-            ObservedOperationResult::GeneratedPaths(actual),
-            ExpectedOperationResult::CapabilityGeneratedPaths(expected),
-        ) => actual
-            .iter()
-            .map(String::as_str)
-            .eq(expected.iter().copied()),
-        (
-            ObservedOperationResult::GeneratedItems(actual),
-            ExpectedOperationResult::CapabilityGeneratedPaths(expected),
-        ) => actual
-            .iter()
-            .map(|item| item.path.as_str())
-            .eq(expected.iter().copied()),
-        (
-            ObservedOperationResult::GeneratedItems(actual),
-            ExpectedOperationResult::CapabilityGeneratedItems(expected),
         ) => exact_items_match(actual, expected),
         (
             ObservedOperationResult::Identity {
