@@ -9,7 +9,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Documentation Alignment
 
 - `docs/v0.2-contract.md` is the normative v0.2 guide-language,
-  filesystem-representation, and stable-filesystem trust-boundary target.
+  filesystem-representation, stable-filesystem trust-boundary, and
+  supported-product target.
+- The installed CLI is the sole supported v0.2 product. The package becomes
+  binary-only; do not add or preserve a public Rust facade during focused API
+  cleanup.
+- Treat the current-source library as a legacy migration surface, distinct
+  from the immutable published `0.1.4` baseline. Preserve the exact
+  export-ledger IDs, signatures, and implementation owners in
+  `tests/fixtures/v0_2_api.rs`.
 - Treat repositories and guide text as untrusted, but do not describe the
   verifier as a sandbox or as hostile-concurrent-mutation safe.
 - Implementation plus tests define realized `0.1.4` behavior while explicitly

@@ -286,10 +286,7 @@ pub(super) const CASES: &[OperationCase] = &[
     OperationCase {
         id: "operation-library-ignored",
         kind: OperationKind::LibraryIgnored,
-        normative: ExpectedOperationResult::LibraryOutcomes([
-            LibraryIgnoredObservation::DistinctIgnored,
-            LibraryIgnoredObservation::DistinctIgnored,
-        ]),
+        normative: ExpectedOperationResult::NoSupportedLibraryFacade,
         current: ExpectedOperationResult::LibraryOutcomes([
             LibraryIgnoredObservation::Rejected,
             LibraryIgnoredObservation::DistinctIgnored,

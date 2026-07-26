@@ -1,8 +1,13 @@
 //! # Agentic Navigation Guide
 //!
-//! A library for verifying hand-written navigation guides against filesystem structure.
+//! Legacy Rust surface for verifying hand-written navigation guides.
 //!
-//! This library provides functionality to:
+//! The installed CLI is the sole supported v0.2 product. This linkable
+//! `0.1.4` library remains temporarily so the audited legacy exports can be
+//! removed or made private by focused migration issues; it is not a supported
+//! v0.2 integration facade. New Rust consumers should not depend on it.
+//!
+//! The legacy surface currently provides functionality to:
 //! - Parse navigation guides from markdown files
 //! - Validate syntax of navigation guides
 //! - Verify guides against actual filesystem state
