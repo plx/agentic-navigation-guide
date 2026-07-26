@@ -834,4 +834,34 @@ mod tests {
             .verify(&guide)
             .expect("root-alias generation must remain checkable");
     }
+
+    #[test]
+    fn issue_44_nested_exclusion_prunes_before_classification() {
+        let root = TempDir::new().unwrap();
+        fs::create_dir_all(root.path().join("project/target/deep")).unwrap();
+        fs::write(root.path().join("project/keep.txt"), "").unwrap();
+        fs::write(root.path().join("project/target/deep/poison.txt"), "").unwrap();
+
+        let patterns = vec!["target".to_string()];
+        let dumper = Dumper::new(root.path())
+            .with_exclude_patterns(&patterns)
+            .expect("valid basename exclusion");
+        let mut classified = Vec::new();
+        let mut classifier = |path: &Path| {
+            classified.push(
+                path.file_name()
+                    .and_then(OsStr::to_str)
+                    .expect("UTF-8 fixture")
+                    .to_string(),
+            );
+            classify_path(path)
+        };
+
+        let entries = dumper
+            .collect_entries_with(&mut classifier)
+            .expect("excluded subtree must not be classified");
+
+        assert_eq!(classified, ["project", "keep.txt"]);
+        assert_eq!(entries.len(), 2);
+    }
 }

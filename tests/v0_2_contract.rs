@@ -1731,6 +1731,33 @@ fn issue_43_owned_operations_are_executable() {
     );
 }
 
+#[test]
+fn issue_44_owned_operations_are_executable() {
+    const IDS: [&str; 2] = [
+        "operation-dump-nested-basename-exclusion",
+        "operation-dump-invalid-exclusion",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = operation_fixtures::CASES
+                .iter()
+                .find(|case| case.id == *id)
+                .unwrap_or_else(|| panic!("missing operation fixture '{id}'"));
+            let observed = run_operation(case.kind);
+            (!matches_expected_operation(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #44 operation mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn issue_42_link_rejection_does_not_disclose_targets() {
