@@ -13,6 +13,7 @@
     - mod.rs
     - check.rs # check subcommand
     - dump.rs # dump subcommand
+    - generation_options.rs # bounded depth and indentation parsing
     - init.rs # init subcommand
     - output.rs # shared exclusive filesystem-output sink
     - verify.rs # verify subcommand
