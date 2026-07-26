@@ -1,5 +1,6 @@
 //! Verify subcommand implementation
 
+use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
 use agentic_navigation_guide::recursive::{self, GuideLocation};
@@ -9,7 +10,6 @@ use agentic_navigation_guide::verifier::Verifier;
 use clap::Args;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RecursiveAggregate {
@@ -44,17 +44,27 @@ impl fmt::Display for RecursiveAggregate {
     }
 }
 
-#[derive(Debug, Error)]
-#[error(
-    "zero navigation guides were verified: no files named {guide_name:?} were discovered under \
-     {search_root:?}. Check --root, --guide-name, and --exclude; pass --allow-empty only when an \
-     empty recursive search is intentional."
-)]
+#[derive(Debug)]
 struct NoGuidesFound {
     search_root: PathBuf,
     guide_name: String,
     aggregate: RecursiveAggregate,
 }
+
+impl fmt::Display for NoGuidesFound {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "zero navigation guides were verified: no files named {} were discovered under {}. \
+             Check --root, --guide-name, and --exclude; pass --allow-empty only when an empty \
+             recursive search is intentional.",
+            guide_input::render_path(Path::new(&self.guide_name)),
+            guide_input::render_path(&self.search_root)
+        )
+    }
+}
+
+impl std::error::Error for NoGuidesFound {}
 
 enum RecursiveDiscovery {
     Found(Vec<GuideLocation>),
@@ -151,42 +161,41 @@ impl VerifyArgs {
             return self.execute_recursive(config);
         }
 
-        // Store original paths for error messages
-        config.original_guide_path = self
-            .guide
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .or_else(|| std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME").ok());
-
-        config.original_root_path = self.root.as_ref().map(|p| p.display().to_string());
-
-        // Determine guide/root paths
+        // Resolve the effective root first: an implicit single-guide verify
+        // finds its default guide beneath this root, not beneath an unrelated
+        // current working directory.
         let current_dir = std::env::current_dir()?;
-        let guide_path = match self.guide {
-            Some(path) => path,
-            None => match std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME") {
-                Ok(name) => current_dir.join(name),
-                Err(_) => current_dir.join("AGENTIC_NAVIGATION_GUIDE.md"),
-            },
-        };
-
         let root_path = self.root.unwrap_or_else(|| current_dir.clone());
+        let (guide_path, logical_path, authority) = match self.guide {
+            Some(path) => {
+                guide_input::validate_explicit_path(&path).map_err(report_guide_input_error)?;
+                (path.clone(), path, GuideAuthority::Explicit)
+            }
+            None => {
+                let name = super::implicit_guide_name().map_err(report_guide_input_error)?;
+                guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
+                (
+                    root_path.join(&name),
+                    PathBuf::from(name),
+                    GuideAuthority::Implicit,
+                )
+            }
+        };
+        let anchor = GuideAnchor::new(&root_path).map_err(report_guide_input_error)?;
+
+        // Store control-safe caller-facing spellings for hook diagnostics.
+        config.original_guide_path = Some(guide_input::render_path(&logical_path));
+        config.original_root_path = Some(guide_input::render_path(&root_path));
 
         log::debug!(
             "Verifying navigation guide: {} against root: {}",
-            guide_path.display(),
-            root_path.display()
+            guide_input::render_path(&logical_path),
+            guide_input::render_path(&root_path)
         );
 
-        // Read the file
-        let content = match std::fs::read_to_string(&guide_path) {
-            Ok(content) => content,
-            Err(e) => {
-                eprintln!("Error reading file {}: {}", guide_path.display(), e);
-                let err: AppError = e.into();
-                return Err(err.reported());
-            }
-        };
+        let content = anchor
+            .read(&guide_path, &logical_path, authority)
+            .map_err(report_guide_input_error)?;
 
         // Parse the guide
         let parser = Parser::new();
@@ -194,20 +203,13 @@ impl VerifyArgs {
             Ok(guide) => guide,
             Err(e) => {
                 if config.execution_mode == ExecutionMode::PostToolUse {
-                    let formatted = format_post_tool_use_error(
-                        &e,
-                        &guide_path,
-                        &root_path,
-                        config,
-                        Some(&content),
-                    );
+                    let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config);
                     eprintln!("{formatted}");
                 } else if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted =
-                        format_github_actions_error(&e, &guide_path, Some(&content), config);
+                    let formatted = format_github_actions_error(&e, &guide_path, config);
                     eprintln!("{formatted}");
                 } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                    let formatted = ErrorFormatter::format_with_context(&e, None);
                     eprintln!("{formatted}");
                 }
                 return Err(e.reported());
@@ -254,15 +256,13 @@ impl VerifyArgs {
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
             if config.execution_mode == ExecutionMode::PostToolUse {
-                let formatted =
-                    format_post_tool_use_error(&e, &guide_path, &root_path, config, Some(&content));
+                let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config);
                 eprintln!("{formatted}");
             } else if config.execution_mode == ExecutionMode::GitHubActions {
-                let formatted =
-                    format_github_actions_error(&e, &guide_path, Some(&content), config);
+                let formatted = format_github_actions_error(&e, &guide_path, config);
                 eprintln!("{formatted}");
             } else {
-                let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                let formatted = ErrorFormatter::format_with_context(&e, None);
                 eprintln!("{formatted}");
             }
             return Err(e.reported());
@@ -286,20 +286,13 @@ impl VerifyArgs {
             }
             Err(e) => {
                 if config.execution_mode == ExecutionMode::PostToolUse {
-                    let formatted = format_post_tool_use_error(
-                        &e,
-                        &guide_path,
-                        &root_path,
-                        config,
-                        Some(&content),
-                    );
+                    let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config);
                     eprintln!("{formatted}");
                 } else if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted =
-                        format_github_actions_error(&e, &guide_path, Some(&content), config);
+                    let formatted = format_github_actions_error(&e, &guide_path, config);
                     eprintln!("{formatted}");
                 } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                    let formatted = ErrorFormatter::format_with_context(&e, None);
                     eprintln!("{formatted}");
                 }
                 Err(e.reported())
@@ -321,9 +314,9 @@ impl VerifyArgs {
             .unwrap_or_else(|| "AGENTIC_NAVIGATION_GUIDE.md".to_string());
 
         log::debug!(
-            "Recursively searching for {:?} guides in {:?}",
-            guide_name,
-            search_root
+            "Recursively searching for {} guides in {}",
+            guide_input::render_path(Path::new(&guide_name)),
+            guide_input::render_path(&search_root)
         );
 
         // Find all guide files
@@ -345,7 +338,7 @@ impl VerifyArgs {
                     println!(
                         "Found {} navigation guide(s) to verify in {}",
                         guides.len(),
-                        search_root.display()
+                        guide_input::render_path(&search_root)
                     );
                 }
             }
@@ -371,7 +364,6 @@ fn format_post_tool_use_error(
     _guide_path: &Path,
     _root_path: &Path,
     config: &Config,
-    file_content: Option<&str>,
 ) -> String {
     use agentic_navigation_guide::errors::AppError;
 
@@ -385,8 +377,7 @@ fn format_post_tool_use_error(
 
     match error {
         AppError::Syntax(_) => {
-            // Get the basic error message with context
-            let error_detail = ErrorFormatter::format_with_context(error, file_content);
+            let error_detail = ErrorFormatter::format_with_context(error, None);
 
             format!(
                 "The agentic navigation guide at {display_guide_path} has a syntax error:\n\n{error_detail}"
@@ -403,10 +394,7 @@ fn format_post_tool_use_error(
                 - details:\n  - {error_detail}"
             )
         }
-        _ => {
-            // For other errors, use standard formatting
-            ErrorFormatter::format_with_context(error, file_content)
-        }
+        _ => ErrorFormatter::format_with_context(error, None),
     }
 }
 
@@ -414,7 +402,6 @@ fn format_post_tool_use_error(
 fn format_github_actions_error(
     error: &agentic_navigation_guide::errors::AppError,
     _guide_path: &Path,
-    file_content: Option<&str>,
     config: &Config,
 ) -> String {
     use agentic_navigation_guide::errors::AppError;
@@ -441,17 +428,14 @@ fn format_github_actions_error(
         output.push_str(&format!("{display_guide_path}:{line_num}: "));
         output.push_str(&error.to_string());
         output.push('\n');
-
-        // Show the actual line content if available
-        if let Some(content) = file_content {
-            if let Some(line) = content.lines().nth(line_num.saturating_sub(1)) {
-                let trimmed_line = line.trim_end();
-                output.push_str(&format!("  {trimmed_line}\n"));
-            }
-        }
     } else {
         output.push_str(&format!("{display_guide_path}: {error}\n"));
     }
 
     output
+}
+
+fn report_guide_input_error(error: GuideInputError) -> AppError {
+    eprintln!("{error}");
+    AppError::Other(error.to_string()).reported()
 }

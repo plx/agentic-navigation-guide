@@ -1,14 +1,15 @@
 //! Recursive navigation guide discovery and verification
 
 use crate::errors::{AppError, ErrorFormatter, Result};
+use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use crate::parser::Parser;
 use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
 use crate::verifier::Verifier;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 use walkdir::WalkDir;
 
 /// Represents a single guide file to be verified
@@ -69,12 +70,6 @@ impl fmt::Display for VerificationAggregate {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("recursive search root {root:?} is not a directory")]
-struct InvalidRecursiveRoot {
-    root: PathBuf,
-}
-
 /// Recursively find all navigation guide files
 pub fn find_guides(
     root: &Path,
@@ -82,6 +77,8 @@ pub fn find_guides(
     exclude_patterns: &[String],
 ) -> Result<Vec<GuideLocation>> {
     let mut guides = Vec::new();
+
+    guide_input::validate_implicit_name(guide_name).map_err(map_guide_input_error)?;
 
     // Build exclusion glob set
     let exclude_globs = if exclude_patterns.is_empty() {
@@ -94,40 +91,64 @@ pub fn find_guides(
         Some(builder.build()?)
     };
 
-    // Validate a root whose metadata is available after validating the
-    // exclusion configuration. Following metadata deliberately permits a
-    // caller-selected symlink or junction alias to a directory; descendant
-    // link policy remains separately owned.
-    if let Ok(metadata) = std::fs::metadata(root) {
-        if !metadata.is_dir() {
-            let error = InvalidRecursiveRoot {
-                root: root.to_path_buf(),
-            };
-            return Err(AppError::Other(error.to_string()));
-        }
+    // Walk the selected root without following descendant links. WalkDir
+    // follows a root link by default, which permits a caller-selected root
+    // alias while the checks below reject link/reparse entries beneath it.
+    let mut walker = WalkDir::new(root).follow_links(false).into_iter();
+    // Preserve traversal failures as traversal failures (rather than empty
+    // discovery) while still validating names and globs before root access.
+    if let Some(root_entry) = walker.next() {
+        root_entry?;
     }
+    let anchor = GuideAnchor::new(root).map_err(map_guide_input_error)?;
 
-    // Walk directory tree
-    let walker = WalkDir::new(root).follow_links(false).into_iter();
-
-    for entry in walker.filter_entry(|e| should_include_entry(e, root, &exclude_globs)) {
+    while let Some(entry) = walker.next() {
         let entry = entry?;
         let path = entry.path();
 
-        // Check if this is a guide file
-        if path.is_file() {
-            if let Some(file_name) = path.file_name() {
-                if file_name == guide_name {
-                    // The root for this guide is its parent directory
-                    let root_path = path.parent().unwrap_or(root).to_path_buf();
-
-                    guides.push(GuideLocation {
-                        guide_path: path.to_path_buf(),
-                        root_path,
-                    });
-                }
+        // Explicit exclusions win before unsafe matching-entry
+        // classification, and excluded directories are pruned pre-descent.
+        if !should_include_entry(&entry, root, &exclude_globs) {
+            if entry.file_type().is_dir() {
+                walker.skip_current_dir();
             }
+            continue;
         }
+        if entry.depth() == 0 {
+            continue;
+        }
+
+        let matches_guide_name = entry.file_name() == OsStr::new(guide_name);
+        let metadata = std::fs::symlink_metadata(path)?;
+        if guide_input::is_link_like(&metadata) {
+            if guide_input::is_directory_like(&metadata) {
+                walker.skip_current_dir();
+            }
+            if matches_guide_name {
+                let logical_path = path.strip_prefix(root).unwrap_or(path);
+                anchor
+                    .validate_implicit(path, logical_path)
+                    .map_err(map_guide_input_error)?;
+            }
+            continue;
+        }
+        if !matches_guide_name {
+            continue;
+        }
+
+        let logical_path = path.strip_prefix(root).unwrap_or(path);
+        anchor
+            .validate_implicit(path, logical_path)
+            .map_err(map_guide_input_error)?;
+
+        // Preserve the caller-facing spelling for diagnostics and root-alias
+        // behavior. GuideAnchor and Verifier canonicalize this already
+        // validated real containing directory internally.
+        let root_path = path.parent().unwrap_or(root).to_path_buf();
+        guides.push(GuideLocation {
+            guide_path: path.to_path_buf(),
+            root_path,
+        });
     }
 
     Ok(guides)
@@ -177,17 +198,23 @@ pub fn verify_guides(
 
 /// Verify a single guide and return the result
 fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerificationResult {
-    // Read the file
-    let content = match std::fs::read_to_string(&location.guide_path) {
+    if let Err(error) = guide_input::validate_explicit_path(&location.guide_path) {
+        return failed_guide_input(location, error);
+    }
+    let anchor = match GuideAnchor::new(&location.root_path) {
+        Ok(anchor) => anchor,
+        Err(error) => return failed_guide_input(location, error),
+    };
+    let logical_path = location
+        .guide_path
+        .strip_prefix(&location.root_path)
+        .unwrap_or(&location.guide_path);
+
+    // Revalidate and open without following the final entry. This protects
+    // both normal discovery and manually constructed legacy GuideLocations.
+    let content = match anchor.read(&location.guide_path, logical_path, GuideAuthority::Implicit) {
         Ok(content) => content,
-        Err(e) => {
-            return GuideVerificationResult {
-                location: location.clone(),
-                success: false,
-                error: Some(format!("Error reading file: {e}")),
-                ignored: false,
-            };
-        }
+        Err(error) => return failed_guide_input(location, error),
     };
 
     // Parse the guide
@@ -195,7 +222,7 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
     let guide = match parser.parse(&content) {
         Ok(guide) => guide,
         Err(e) => {
-            let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+            let formatted = ErrorFormatter::format_with_context(&e, None);
             return GuideVerificationResult {
                 location: location.clone(),
                 success: false,
@@ -218,7 +245,7 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
     // Validate syntax
     let validator = Validator::new();
     if let Err(e) = validator.validate_syntax(&guide) {
-        let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+        let formatted = ErrorFormatter::format_with_context(&e, None);
         return GuideVerificationResult {
             location: location.clone(),
             success: false,
@@ -237,7 +264,7 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
             ignored: false,
         },
         Err(e) => {
-            let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+            let formatted = ErrorFormatter::format_with_context(&e, None);
             GuideVerificationResult {
                 location: location.clone(),
                 success: false,
@@ -246,6 +273,19 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
             }
         }
     }
+}
+
+fn failed_guide_input(location: &GuideLocation, error: GuideInputError) -> GuideVerificationResult {
+    GuideVerificationResult {
+        location: location.clone(),
+        success: false,
+        error: Some(error.to_string()),
+        ignored: false,
+    }
+}
+
+fn map_guide_input_error(error: GuideInputError) -> AppError {
+    AppError::Other(error.to_string())
 }
 
 /// Format and display verification results
@@ -304,19 +344,17 @@ pub fn display_results(results: &[GuideVerificationResult], config: &Config) -> 
 /// Display results for GitHub Actions mode
 fn display_github_actions_results(results: &[GuideVerificationResult], config: &Config) {
     for result in results {
+        let guide_path = render_location(&result.location);
         if result.ignored {
             if config.log_level != LogLevel::Quiet {
-                eprintln!(
-                    "⚠️  Skipping verification: guide at {} has ignore=true",
-                    result.location.guide_path.display()
-                );
+                eprintln!("⚠️  Skipping verification: guide at {guide_path} has ignore=true");
             }
         } else if result.success {
             if config.log_level != LogLevel::Quiet {
-                println!("✓ {}: verified", result.location.guide_path.display());
+                println!("✓ {guide_path}: verified");
             }
         } else if let Some(error) = &result.error {
-            eprintln!("❌ {}:", result.location.guide_path.display());
+            eprintln!("❌ {guide_path}:");
             eprintln!("{error}");
         }
     }
@@ -325,20 +363,16 @@ fn display_github_actions_results(results: &[GuideVerificationResult], config: &
 /// Display results for post-tool-use mode
 fn display_post_tool_use_results(results: &[GuideVerificationResult], config: &Config) {
     for result in results {
+        let guide_path = render_location(&result.location);
         if result.ignored {
             if config.log_level != LogLevel::Quiet {
                 eprintln!(
-                    "Warning: Skipping verification of {} (marked with ignore=true)",
-                    result.location.guide_path.display()
+                    "Warning: Skipping verification of {guide_path} (marked with ignore=true)"
                 );
             }
         } else if !result.success {
             if let Some(error) = &result.error {
-                eprintln!(
-                    "The agentic navigation guide at {} has errors:\n\n{}",
-                    result.location.guide_path.display(),
-                    error
-                );
+                eprintln!("The agentic navigation guide at {guide_path} has errors:\n\n{error}");
             }
         }
     }
@@ -347,23 +381,31 @@ fn display_post_tool_use_results(results: &[GuideVerificationResult], config: &C
 /// Display results for default mode
 fn display_default_results(results: &[GuideVerificationResult], config: &Config) {
     for result in results {
+        let guide_path = render_location(&result.location);
         if result.ignored {
             if config.log_level != LogLevel::Quiet {
                 eprintln!(
-                    "Warning: Skipping verification of {} (marked with ignore=true)",
-                    result.location.guide_path.display()
+                    "Warning: Skipping verification of {guide_path} (marked with ignore=true)"
                 );
             }
         } else if result.success {
             if config.log_level == LogLevel::Verbose {
-                println!("✓ {}: valid", result.location.guide_path.display());
+                println!("✓ {guide_path}: valid");
             }
         } else if let Some(error) = &result.error {
-            eprintln!("✗ {}:", result.location.guide_path.display());
+            eprintln!("✗ {guide_path}:");
             eprintln!("{error}");
             eprintln!();
         }
     }
+}
+
+fn render_location(location: &GuideLocation) -> String {
+    let logical_path = location
+        .guide_path
+        .strip_prefix(&location.root_path)
+        .unwrap_or(&location.guide_path);
+    guide_input::render_path(logical_path)
 }
 
 #[cfg(test)]

@@ -72,6 +72,12 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   guides, including when a root/name is wrong, exclusions remove every match,
   or the last guide was deleted. An intentionally optional search must opt in
   with `--allow-empty`; required CI gates must omit that flag.
+- **2026-07-25 — Guide files are opened fail-closed.** Unlike `0.1.4`, v0.2
+  never follows a final guide-file link or reparse entry, including an
+  explicitly selected or in-root link. Callers may still select an external
+  regular file directly. This breaking correction prevents an untrusted
+  checkout from redirecting guide reads and source-context diagnostics to a
+  different local file.
 
 ## Navigation Guide Format
 
@@ -271,6 +277,36 @@ If you're adding a navigation guide to your repository, I'd suggest:
 - commit the file to your repository
 - update your CLAUDE.md (etc.) to include the guide using the `@` syntax
 
+### Guide-Input Safety
+
+Default `check` treats the current working directory as its guide trust
+anchor. A default single-guide `verify` resolves the guide from its effective
+verification root, and recursive verification anchors discovery at its search
+root. An implicit guide name must be exactly one nonempty filename component.
+On Windows, stream syntax, device aliases and namespaces, and unsupported
+prefixes are rejected, and the implicit name must exactly match an enumerated
+entry.
+
+A guide's final entry must be a regular file opened without following links.
+Final symbolic links and link-like Windows reparse entries are rejected even
+when they are explicit, remain in-root, or point to a valid guide. Hard-linked
+regular files remain regular. A caller-selected root alias is accepted as the
+anchor; guide-path link or reparse ancestors below that anchor are rejected.
+An explicitly selected external regular guide may use its stable external
+ancestor chain because the exact configured path grants read authority.
+
+Recursive discovery does not traverse descendant links or reparse points. An
+explicit exclusion is applied before an unsafe matching entry is classified;
+without that exclusion, an unsafe match is an error rather than an empty
+search, and `--allow-empty` cannot suppress it.
+
+Guide-opening diagnostics use a bounded, control-safe logical path and reason
+without revealing rejected guide bytes or a resolved guide-link target.
+Complete guide source lines are not echoed by CLI parsing or validation
+errors. These checks assume a stable filesystem while the command runs. They
+are consistency protections, not a sandbox against hostile concurrent
+replacement.
+
 ### Filesystem Output Safety
 
 `init --output` and `dump --output` share the same create-new policy. The
@@ -411,6 +447,10 @@ matches. Missing, inaccessible, or non-directory roots, invalid exclusion
 patterns, traversal failures, and failures from a discovered guide remain
 nonzero. Non-quiet output still reports that zero guides were verified;
 `--quiet --allow-empty` succeeds silently.
+
+Unsafe matching guide entries also remain nonzero with `--allow-empty`.
+Excluded entries are pruned before unsafe-entry classification, while
+nonmatching descendant links are never traversed.
 
 ### Example Monorepo Structure
 

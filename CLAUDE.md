@@ -101,19 +101,35 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 2. **Validator** (`src/validator.rs`): Performs syntax validation on parsed guides, checking for proper formatting, consistent indentation, and valid path formats.
 
-3. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist and are of the correct type (file/directory).
+3. **Guide Input** (`src/guide_input.rs`): Privately shared by the CLI and
+   transitional library target. Validates path authority, anchors implicit
+   reads, rejects final links/reparse entries and unsafe descendants, and
+   opens regular guide handles without following the final entry.
 
-4. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
+4. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist and are of the correct type (file/directory).
 
-5. **Recursive** (`src/recursive.rs`): Provides recursive guide discovery and batch verification for monorepos with nested navigation guides. Uses WalkDir to find all guide files and verifies each relative to its parent directory.
+5. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
+
+6. **Recursive** (`src/recursive.rs`): Provides recursive guide discovery and batch verification for monorepos with nested navigation guides. Uses WalkDir to find all guide files and verifies each relative to its parent directory.
 
 ### Data Flow
 
-1. **Input**: Markdown files containing `<agentic-navigation-guide>` blocks
-2. **Parsing**: Extract guide content and parse into `NavigationGuide` structure
-3. **Validation**: Check syntax rules (paths ending with `/` for directories, proper indentation)
-4. **Verification**: Compare against filesystem (if using `verify` command)
-5. **Output**: Error messages to stderr, exit codes based on execution mode
+1. **Selection**: Resolve explicit versus implicit guide provenance and the
+   effective trust anchor.
+2. **Safe opening**: Validate the configured spelling, classify without
+   following links, and read only through a validated regular-file handle.
+3. **Parsing**: Extract guide content and parse into `NavigationGuide`
+   structure.
+4. **Validation**: Check syntax rules (paths ending with `/` for directories,
+   proper indentation).
+5. **Verification**: Compare against filesystem (if using `verify`).
+6. **Guide-input failures**: Report bounded logical locations and reasons
+   without complete source lines or rejected guide-link targets.
+
+Every guide-reading route must use `src/guide_input.rs`; do not add direct
+`read_to_string` calls for guide paths or reopen a discovered path without the
+shared validation. CLI and recursive formatters must not pass guide content to
+`ErrorFormatter::format_with_context`.
 
 ### Key Types
 

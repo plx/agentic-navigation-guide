@@ -1,5 +1,6 @@
 //! Check subcommand implementation
 
+use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
@@ -39,27 +40,35 @@ impl CheckArgs {
             config.execution_mode = ExecutionMode::GitHubActions;
         }
 
-        // Determine guide path
+        // Resolve path provenance before opening. `--guide` and its
+        // environment equivalent are explicit authority; the default/name
+        // selector remains implicit beneath the canonical current directory.
         let current_dir = std::env::current_dir()?;
-        let guide_path = match self.guide {
-            Some(path) => path,
-            None => match std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME") {
-                Ok(name) => current_dir.join(name),
-                Err(_) => current_dir.join("AGENTIC_NAVIGATION_GUIDE.md"),
-            },
-        };
-
-        log::debug!("Checking navigation guide: {}", guide_path.display());
-
-        // Read the file
-        let content = match std::fs::read_to_string(&guide_path) {
-            Ok(content) => content,
-            Err(e) => {
-                eprintln!("Error reading file {}: {}", guide_path.display(), e);
-                let err: AppError = e.into();
-                return Err(err.reported());
+        let (guide_path, logical_path, authority) = match self.guide {
+            Some(path) => {
+                guide_input::validate_explicit_path(&path).map_err(report_guide_input_error)?;
+                (path.clone(), path, GuideAuthority::Explicit)
+            }
+            None => {
+                let name = super::implicit_guide_name().map_err(report_guide_input_error)?;
+                guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
+                (
+                    current_dir.join(&name),
+                    PathBuf::from(name),
+                    GuideAuthority::Implicit,
+                )
             }
         };
+        let anchor = GuideAnchor::new(&current_dir).map_err(report_guide_input_error)?;
+
+        log::debug!(
+            "Checking navigation guide: {}",
+            guide_input::render_path(&logical_path)
+        );
+
+        let content = anchor
+            .read(&guide_path, &logical_path, authority)
+            .map_err(report_guide_input_error)?;
 
         // Parse the guide
         let parser = Parser::new();
@@ -67,10 +76,10 @@ impl CheckArgs {
             Ok(guide) => guide,
             Err(e) => {
                 if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &guide_path, Some(&content));
+                    let formatted = format_github_actions_error(&e, &logical_path);
                     eprintln!("{formatted}");
                 } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                    let formatted = ErrorFormatter::format_with_context(&e, None);
                     eprintln!("{formatted}");
                 }
                 return Err(e.reported());
@@ -79,7 +88,7 @@ impl CheckArgs {
 
         // Check if the guide should be ignored
         if guide.ignore {
-            let display_path = guide_path.display();
+            let display_path = guide_input::render_path(&logical_path);
 
             // Emit warning based on execution mode
             if config.log_level != LogLevel::Quiet {
@@ -128,10 +137,10 @@ impl CheckArgs {
             }
             Err(e) => {
                 if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &guide_path, Some(&content));
+                    let formatted = format_github_actions_error(&e, &logical_path);
                     eprintln!("{formatted}");
                 } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, Some(&content));
+                    let formatted = ErrorFormatter::format_with_context(&e, None);
                     eprintln!("{formatted}");
                 }
                 Err(e.reported())
@@ -143,8 +152,7 @@ impl CheckArgs {
 /// Format errors specifically for GitHub Actions mode
 fn format_github_actions_error(
     error: &agentic_navigation_guide::errors::AppError,
-    guide_path: &Path,
-    file_content: Option<&str>,
+    logical_path: &Path,
 ) -> String {
     use agentic_navigation_guide::errors::AppError;
 
@@ -161,23 +169,19 @@ fn format_github_actions_error(
     };
 
     // Format error with file:line if available
+    let guide_path = guide_input::render_path(logical_path);
     if let Some(line_num) = line_num {
-        let guide_path_str = guide_path.display();
-        output.push_str(&format!("{guide_path_str}:{line_num}: "));
+        output.push_str(&format!("{guide_path}:{line_num}: "));
         output.push_str(&error.to_string());
         output.push('\n');
-
-        // Show the actual line content if available
-        if let Some(content) = file_content {
-            if let Some(line) = content.lines().nth(line_num.saturating_sub(1)) {
-                let trimmed_line = line.trim_end();
-                output.push_str(&format!("  {trimmed_line}\n"));
-            }
-        }
     } else {
-        let guide_path_str = guide_path.display();
-        output.push_str(&format!("{guide_path_str}: {error}\n"));
+        output.push_str(&format!("{guide_path}: {error}\n"));
     }
 
     output
+}
+
+fn report_guide_input_error(error: GuideInputError) -> AppError {
+    eprintln!("{error}");
+    AppError::Other(error.to_string()).reported()
 }

@@ -6,6 +6,7 @@ pub mod init;
 mod output;
 pub mod verify;
 
+use crate::guide_input::GuideInputError;
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use clap::{Parser, Subcommand};
 
@@ -131,6 +132,17 @@ pub fn init_logging(config: &Config) {
         .target(Target::Stderr)
         .filter_level(level)
         .init();
+}
+
+fn implicit_guide_name() -> std::result::Result<String, GuideInputError> {
+    match std::env::var("AGENTIC_NAVIGATION_GUIDE_NAME") {
+        Ok(name) => Ok(name),
+        Err(std::env::VarError::NotPresent) => Ok("AGENTIC_NAVIGATION_GUIDE.md".to_string()),
+        Err(std::env::VarError::NotUnicode(_)) => Err(GuideInputError::InvalidName {
+            name: "AGENTIC_NAVIGATION_GUIDE_NAME environment value".to_string(),
+            reason: "the value is not valid UTF-8",
+        }),
+    }
 }
 
 /// Get the appropriate exit code based on execution mode
