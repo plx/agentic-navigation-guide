@@ -26,6 +26,7 @@
 )]
 
 pub mod dumper;
+mod entry_type;
 pub mod errors;
 mod guide_input;
 pub mod parser;

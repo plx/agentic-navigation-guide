@@ -1,5 +1,8 @@
 //! Directory dumping functionality for generating navigation guides
 
+use crate::entry_type::{
+    classify_path, EntryClassification, SupportedEntryKind, UnsupportedEntryKind,
+};
 use crate::errors::{AppError, Result};
 use crate::path_codec::{
     contains_forbidden_control, has_windows_drive_prefix, render_os_component,
@@ -7,8 +10,9 @@ use crate::path_codec::{
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::ffi::OsStr;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use walkdir::{DirEntry, WalkDir};
 
 /// Dumper for creating navigation guides from directory structures
 pub struct Dumper {
@@ -85,55 +89,135 @@ impl Dumper {
     }
 
     /// Collect all directory entries respecting depth and exclusion rules
-    fn collect_entries(&self) -> Result<Vec<DirEntry>> {
-        let mut walker = WalkDir::new(&self.root_path)
-            .min_depth(1) // Skip the root itself
-            .sort_by_file_name();
+    fn collect_entries(&self) -> Result<Vec<CollectedEntry>> {
+        let mut classify = classify_path;
+        self.collect_entries_with(&mut classify)
+    }
 
-        if let Some(max_depth) = self.max_depth {
-            walker = walker.max_depth(max_depth + 1); // +1 because we skip root
+    fn collect_entries_with<F>(&self, classify: &mut F) -> Result<Vec<CollectedEntry>>
+    where
+        F: FnMut(&Path) -> io::Result<EntryClassification>,
+    {
+        // Preserve the staged #43 behavior for a file selected as the root:
+        // it currently produces an empty generated body rather than a walk
+        // error. Root validation remains with that focused issue.
+        if !fs::metadata(&self.root_path)?.is_dir() {
+            return Ok(Vec::new());
         }
 
-        let exclude_globs = self.exclude_globs.clone();
-        let root_path = self.root_path.clone();
-
-        let walker = walker.into_iter().filter_entry(move |entry| {
-            // Check exclusion patterns
-            if let Some(ref globs) = exclude_globs {
-                let path = entry.path();
-                if let Ok(relative_path) = path.strip_prefix(&root_path) {
-                    // Check the full relative path
-                    if globs.is_match(relative_path) {
-                        return false;
-                    }
-
-                    // For directories, check if any parent component matches
-                    // This prevents descending into excluded directories
-                    let mut current_path = PathBuf::new();
-                    for component in relative_path.components() {
-                        current_path.push(component);
-                        if globs.is_match(&current_path) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            true
-        });
-
+        let maximum_entry_depth = self.max_depth.map(|depth| depth + 1);
         let mut entries = Vec::new();
-
-        for entry in walker {
-            let entry = entry?;
-            Self::validate_included_name(entry.file_name(), entry.depth() == 1)?;
-            entries.push(entry);
-        }
-
+        self.collect_directory(
+            &self.root_path,
+            Path::new(""),
+            0,
+            maximum_entry_depth,
+            classify,
+            &mut entries,
+        )?;
         Ok(entries)
     }
 
+    fn collect_directory<F>(
+        &self,
+        directory: &Path,
+        relative_directory: &Path,
+        directory_depth: usize,
+        maximum_entry_depth: Option<usize>,
+        classify: &mut F,
+        entries: &mut Vec<CollectedEntry>,
+    ) -> Result<()>
+    where
+        F: FnMut(&Path) -> io::Result<EntryClassification>,
+    {
+        let mut children = fs::read_dir(directory)?.collect::<io::Result<Vec<_>>>()?;
+        children.sort_by_key(fs::DirEntry::file_name);
+
+        for entry in children {
+            let relative_path = relative_directory.join(entry.file_name());
+            if self.is_excluded(&relative_path) {
+                continue;
+            }
+
+            let depth = directory_depth + 1;
+            Self::validate_included_name(&entry.file_name(), depth == 1)?;
+
+            let kind = match classify(&entry.path()) {
+                Ok(Ok(kind)) => kind,
+                Ok(Err(kind)) => {
+                    return Err(Self::unsupported_entry_error(&relative_path, kind));
+                }
+                Err(error) => {
+                    return Err(Self::classification_error(&relative_path, &error));
+                }
+            };
+            entries.push(CollectedEntry {
+                relative_path: relative_path.clone(),
+                kind,
+            });
+
+            if kind == SupportedEntryKind::Directory
+                && maximum_entry_depth.map_or(true, |maximum| depth < maximum)
+            {
+                self.collect_directory(
+                    &entry.path(),
+                    &relative_path,
+                    depth,
+                    maximum_entry_depth,
+                    classify,
+                    entries,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_excluded(&self, relative_path: &Path) -> bool {
+        let Some(globs) = &self.exclude_globs else {
+            return false;
+        };
+
+        if globs.is_match(relative_path) {
+            return true;
+        }
+
+        let mut current_path = PathBuf::new();
+        for component in relative_path.components() {
+            current_path.push(component);
+            if globs.is_match(&current_path) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn unsupported_entry_error(relative_path: &Path, kind: UnsupportedEntryKind) -> AppError {
+        AppError::Other(format!(
+            "unsupported included filesystem entry {}: {kind}",
+            Self::render_relative_path(relative_path)
+        ))
+    }
+
+    fn classification_error(relative_path: &Path, error: &io::Error) -> AppError {
+        AppError::Other(format!(
+            "could not classify included filesystem entry {} without following it ({:?})",
+            Self::render_relative_path(relative_path),
+            error.kind()
+        ))
+    }
+
+    fn render_relative_path(relative_path: &Path) -> String {
+        relative_path
+            .components()
+            .map(|component| render_os_component(component.as_os_str()))
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
     /// Build a tree structure from flat entries
-    fn build_tree(&self, entries: Vec<DirEntry>) -> Result<TreeNode> {
+    fn build_tree(&self, entries: Vec<CollectedEntry>) -> Result<TreeNode> {
         let mut root = TreeNode {
             name: String::new(),
             serialized_name: String::new(),
@@ -142,14 +226,12 @@ impl Dumper {
         };
 
         for entry in entries {
-            let path = entry.path();
-            let relative_path = path
-                .strip_prefix(&self.root_path)
-                .unwrap_or(path)
-                .to_path_buf();
-
-            self.ensure_utf8_relative_path(&relative_path)?;
-            self.insert_into_tree(&mut root, &relative_path, entry.file_type().is_dir())?;
+            self.ensure_utf8_relative_path(&entry.relative_path)?;
+            self.insert_into_tree(
+                &mut root,
+                &entry.relative_path,
+                entry.kind == SupportedEntryKind::Directory,
+            )?;
         }
 
         Ok(root)
@@ -281,6 +363,11 @@ impl Dumper {
     }
 }
 
+struct CollectedEntry {
+    relative_path: PathBuf,
+    kind: SupportedEntryKind,
+}
+
 /// Internal tree node structure
 struct TreeNode {
     name: String,
@@ -374,6 +461,60 @@ mod tests {
         assert!(
             !diagnostic.contains('\u{fffd}'),
             "diagnostic used a lossy replacement character: {diagnostic}"
+        );
+    }
+
+    #[test]
+    fn issue_42_injected_unknown_entry_type_fails_closed() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::write(temp_dir.path().join("unknown"), "").unwrap();
+        let dumper = Dumper::new(temp_dir.path());
+        let mut classifier = |_path: &Path| Ok(Err(UnsupportedEntryKind::Unknown));
+
+        let error = match dumper.collect_entries_with(&mut classifier) {
+            Ok(_) => panic!("an unknown included entry type must abort collection"),
+            Err(error) => error,
+        };
+        let diagnostic = error.to_string();
+
+        assert!(diagnostic.contains("\"unknown\""), "{diagnostic}");
+        assert!(
+            diagnostic.contains("unknown filesystem entry type"),
+            "{diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(&temp_dir.path().display().to_string()),
+            "diagnostic disclosed the physical root: {diagnostic}"
+        );
+    }
+
+    #[test]
+    fn issue_42_transient_classification_failure_aborts_collection() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::write(temp_dir.path().join("vanished.txt"), "").unwrap();
+        let dumper = Dumper::new(temp_dir.path());
+        let mut classifier = |_path: &Path| {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "ISSUE42_CLASSIFIER_INTERNAL_SENTINEL",
+            ))
+        };
+
+        let error = match dumper.collect_entries_with(&mut classifier) {
+            Ok(_) => panic!("a transient classification failure must abort collection"),
+            Err(error) => error,
+        };
+        let diagnostic = error.to_string();
+
+        assert!(diagnostic.contains("\"vanished.txt\""), "{diagnostic}");
+        assert!(diagnostic.contains("NotFound"), "{diagnostic}");
+        assert!(
+            !diagnostic.contains("ISSUE42_CLASSIFIER_INTERNAL_SENTINEL"),
+            "diagnostic disclosed an untrusted classifier detail: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(&temp_dir.path().display().to_string()),
+            "diagnostic disclosed the physical root: {diagnostic}"
         );
     }
 }

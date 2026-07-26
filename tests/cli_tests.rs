@@ -29,6 +29,74 @@ fn isolated_command() -> Command {
 }
 
 #[cfg(unix)]
+#[test]
+fn issue_42_dump_and_init_reject_unsupported_entries_all_or_nothing() {
+    use std::os::unix::fs::symlink;
+
+    const TARGET_SENTINEL: &str = "ISSUE42_CLI_TARGET_SECRET_e317a0c9";
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("keep.txt"), "").unwrap();
+    symlink(
+        temp.path().join(TARGET_SENTINEL),
+        root.join("unsupported-link"),
+    )
+    .unwrap();
+
+    let stdout_output = isolated_command()
+        .args(["dump", "--root"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(
+        !stdout_output.status.success(),
+        "dump stdout accepted an included link:\n{}",
+        String::from_utf8_lossy(&stdout_output.stdout)
+    );
+    assert!(
+        stdout_output.stdout.is_empty(),
+        "dump stdout delivered partial guide bytes:\n{}",
+        String::from_utf8_lossy(&stdout_output.stdout)
+    );
+
+    for command in ["dump", "init"] {
+        let destination = temp.path().join(format!("{command}-output.md"));
+        let output = isolated_command()
+            .arg(command)
+            .arg("--root")
+            .arg(&root)
+            .arg("--output")
+            .arg(&destination)
+            .output()
+            .unwrap();
+        let diagnostic = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            !output.status.success(),
+            "{command} --output accepted an included link"
+        );
+        assert!(
+            !destination.exists(),
+            "{command} --output created an artifact before classification failed"
+        );
+        assert!(
+            diagnostic.contains("unsupported-link"),
+            "{command} diagnostic omitted the logical included path: {diagnostic}"
+        );
+        assert!(
+            diagnostic.contains("symbolic link"),
+            "{command} diagnostic omitted the rejected kind: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(TARGET_SENTINEL),
+            "{command} diagnostic disclosed the link target: {diagnostic}"
+        );
+    }
+}
+
+#[cfg(unix)]
 fn create_guide_file_link(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).unwrap();
 }
@@ -786,8 +854,11 @@ fn test_verify_command_rejects_symlink_directory_escape() {
         .arg(&workspace_root)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("outside root boundary"))
-        .stderr(predicate::str::contains("linked"));
+        .stderr(predicate::str::contains(
+            "expected directory but found symbolic link",
+        ))
+        .stderr(predicate::str::contains("linked"))
+        .stderr(predicate::str::contains("outside root boundary").not());
 }
 
 #[test]
@@ -1167,6 +1238,8 @@ fn test_init_command() {
     cmd.arg("init")
         .arg("--output")
         .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
         .assert()
         .success();
 

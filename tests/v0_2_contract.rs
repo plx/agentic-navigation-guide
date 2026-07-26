@@ -7,7 +7,11 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[42, 43, 44, 50];
+#[allow(dead_code)]
+#[path = "../src/entry_type.rs"]
+mod issue_42_entry_type;
+
+const ALLOWED_PENDING_OWNERS: &[u32] = &[43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -107,10 +111,6 @@ enum ExpectedOperationResult {
     CliIgnoredDenied,
     NoSupportedLibraryFacade,
     CapabilityRejected,
-    CapabilityGeneratedPaths(&'static [&'static str]),
-    CapabilityGeneratedItems(&'static [ExpectedItem]),
-    CapabilityVerified,
-    CapabilityUnavailable,
     CapabilityExactIdentityRejected,
     CapabilityLegacyHostIdentity,
 }
@@ -1664,6 +1664,215 @@ fn issue_41_owned_operations_are_executable() {
 }
 
 #[test]
+fn issue_42_owned_operations_are_executable() {
+    const IDS: [&str; 14] = [
+        "operation-dump-file-symlink",
+        "operation-dump-directory-symlink",
+        "operation-dump-dangling-symlink",
+        "operation-dump-symlink-chain",
+        "operation-dump-symlink-loop",
+        "operation-verify-file-symlink",
+        "operation-verify-directory-symlink",
+        "operation-dump-fifo",
+        "operation-dump-unix-socket",
+        "operation-dump-character-device",
+        "operation-dump-block-device",
+        "operation-dump-windows-junction",
+        "operation-verify-windows-junction",
+        "operation-dump-unknown-entry-type",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = operation_fixtures::CASES
+                .iter()
+                .find(|case| case.id == *id)
+                .unwrap_or_else(|| panic!("missing operation fixture '{id}'"));
+            let observed = run_operation(case.kind);
+            (!matches_expected_operation(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #42 operation mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_link_rejection_does_not_disclose_targets() {
+    use std::os::unix::fs::symlink;
+
+    const TARGET_SENTINEL: &str = "ISSUE42_TARGET_SECRET_2a86b4dd";
+
+    for (name, target) in [
+        ("relative-link", format!("../{TARGET_SENTINEL}")),
+        (
+            "absolute-link",
+            format!("/definitely-absent/{TARGET_SENTINEL}"),
+        ),
+    ] {
+        let temp = TempDir::new().expect("temporary link-disclosure root");
+        symlink(&target, temp.path().join(name)).expect("dangling symlink fixture");
+
+        let diagnostic = Dumper::new(temp.path())
+            .dump()
+            .expect_err("an included dangling link must abort generation")
+            .to_string();
+
+        assert!(
+            diagnostic.contains(name),
+            "diagnostic omitted the logical included name: {diagnostic}"
+        );
+        assert!(
+            diagnostic.contains("symbolic link"),
+            "diagnostic omitted the rejected entry kind: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(TARGET_SENTINEL),
+            "diagnostic disclosed the link target: {diagnostic}"
+        );
+    }
+
+    let temp = TempDir::new().expect("temporary verifier-disclosure root");
+    let root = temp.path().join("root");
+    fs::create_dir(&root).expect("verification root");
+    let target = temp.path().join(TARGET_SENTINEL);
+    fs::write(&target, "private target").expect("external target");
+    symlink(&target, root.join("linked.txt")).expect("external file link");
+    let guide = Parser::new()
+        .parse("<agentic-navigation-guide>\n- linked.txt\n</agentic-navigation-guide>")
+        .expect("verification guide");
+
+    let diagnostic = Verifier::new(&root)
+        .verify(&guide)
+        .expect_err("a final textual file link must be rejected without following")
+        .to_string();
+    assert!(
+        diagnostic.contains("linked.txt"),
+        "diagnostic omitted the logical guide path: {diagnostic}"
+    );
+    assert!(
+        diagnostic.contains("symbolic link"),
+        "diagnostic omitted the rejected entry kind: {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains(TARGET_SENTINEL),
+        "verifier diagnostic disclosed the resolved target: {diagnostic}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_exclusion_precedes_unsupported_entry_classification() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary exclusion root");
+    fs::write(temp.path().join("keep.txt"), "").expect("regular control");
+    symlink("missing-target", temp.path().join("excluded-link"))
+        .expect("excluded unsupported entry");
+
+    let patterns = vec!["excluded-link".to_string()];
+    let output = Dumper::new(temp.path())
+        .with_exclude_patterns(&patterns)
+        .expect("valid exclusion")
+        .dump()
+        .expect("an excluded unsupported entry must be pruned before classification");
+
+    assert_eq!(output, "- keep.txt\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_directory_links_never_generate_non_round_trippable_guides() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary directory-link root");
+    let root = temp.path().join("root");
+    let target = temp.path().join("target");
+    fs::create_dir(&root).expect("generation root");
+    fs::create_dir(&target).expect("directory-link target");
+    fs::write(target.join("secret.txt"), "").expect("target child");
+    symlink(&target, root.join("linked")).expect("directory link");
+
+    let diagnostic = Dumper::new(&root)
+        .dump_with_wrapper()
+        .expect_err("generation must reject a directory link before emitting a guide")
+        .to_string();
+
+    assert!(diagnostic.contains("\"linked\""), "{diagnostic}");
+    assert!(diagnostic.contains("symbolic link"), "{diagnostic}");
+    assert!(
+        !diagnostic.contains("secret.txt"),
+        "generation traversed or disclosed the linked directory: {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains(&target.display().to_string()),
+        "generation disclosed the directory-link target: {diagnostic}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_regular_file_directory_and_hard_link_controls_remain_supported() {
+    let temp = TempDir::new().expect("temporary regular-entry root");
+    fs::create_dir(temp.path().join("directory")).expect("directory control");
+    fs::write(temp.path().join("first.txt"), "").expect("regular-file control");
+    fs::hard_link(
+        temp.path().join("first.txt"),
+        temp.path().join("second.txt"),
+    )
+    .expect("hard-link control");
+
+    assert_eq!(
+        Dumper::new(temp.path()).dump().expect("supported entries"),
+        "- directory/\n- first.txt\n- second.txt\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_textual_specials_reject_but_placeholders_remain_type_agnostic() {
+    use std::os::unix::net::UnixListener;
+
+    let temp = TempDir::new().expect("temporary special-entry root");
+    let fifo = Command::new("mkfifo")
+        .arg(temp.path().join("pipe"))
+        .output()
+        .expect("execute mkfifo");
+    assert!(
+        fifo.status.success(),
+        "mkfifo failed: {}",
+        String::from_utf8_lossy(&fifo.stderr)
+    );
+    let _listener =
+        UnixListener::bind(temp.path().join("socket")).expect("Unix-domain socket fixture");
+
+    for (path, kind) in [("pipe", "FIFO"), ("socket", "Unix-domain socket")] {
+        let source = format!("<agentic-navigation-guide>\n- {path}\n</agentic-navigation-guide>");
+        let guide = Parser::new().parse(&source).expect("special-entry guide");
+        let diagnostic = Verifier::new(temp.path())
+            .verify(&guide)
+            .expect_err("a textual file must not be satisfied by a special entry")
+            .to_string();
+
+        assert!(diagnostic.contains(path), "{diagnostic}");
+        assert!(diagnostic.contains(kind), "{diagnostic}");
+    }
+
+    let placeholder = Parser::new()
+        .parse("<agentic-navigation-guide>\n- ...\n</agentic-navigation-guide>")
+        .expect("placeholder guide");
+    Verifier::new(temp.path())
+        .verify(&placeholder)
+        .expect("a UTF-8-named special sibling may satisfy a type-agnostic placeholder");
+}
+
+#[test]
 fn issue_41_path_lexer_boundaries_are_executable() {
     assert_eq!(
         observe(
@@ -2296,7 +2505,9 @@ fn marker_line_endings_are_platform_independent() {
 fn conformance_request_rejects_unknown_owners() {
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "37", "38", "39", "40", "41", "99"] {
+    for invalid in [
+        "ALL", "owner", "36", "37", "38", "39", "40", "41", "42", "99",
+    ] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"
@@ -2354,17 +2565,9 @@ fn matches_expected_operation(
             ExpectedOperationResult::NoSupportedLibraryFacade,
         )
         | (ObservedOperationResult::Rejected, ExpectedOperationResult::CapabilityRejected)
-        | (ObservedOperationResult::Verified, ExpectedOperationResult::CapabilityVerified)
-        | (
-            ObservedOperationResult::CapabilityUnavailable,
-            ExpectedOperationResult::CapabilityUnavailable,
-        )
         | (
             ObservedOperationResult::CapabilityUnavailable,
             ExpectedOperationResult::CapabilityRejected
-            | ExpectedOperationResult::CapabilityGeneratedPaths(_)
-            | ExpectedOperationResult::CapabilityGeneratedItems(_)
-            | ExpectedOperationResult::CapabilityVerified
             | ExpectedOperationResult::CapabilityExactIdentityRejected
             | ExpectedOperationResult::CapabilityLegacyHostIdentity,
         )
@@ -2392,24 +2595,6 @@ fn matches_expected_operation(
         (
             ObservedOperationResult::GeneratedItems(actual),
             ExpectedOperationResult::GeneratedItems(expected),
-        ) => exact_items_match(actual, expected),
-        (
-            ObservedOperationResult::GeneratedPaths(actual),
-            ExpectedOperationResult::CapabilityGeneratedPaths(expected),
-        ) => actual
-            .iter()
-            .map(String::as_str)
-            .eq(expected.iter().copied()),
-        (
-            ObservedOperationResult::GeneratedItems(actual),
-            ExpectedOperationResult::CapabilityGeneratedPaths(expected),
-        ) => actual
-            .iter()
-            .map(|item| item.path.as_str())
-            .eq(expected.iter().copied()),
-        (
-            ObservedOperationResult::GeneratedItems(actual),
-            ExpectedOperationResult::CapabilityGeneratedItems(expected),
         ) => exact_items_match(actual, expected),
         (
             ObservedOperationResult::Identity {
@@ -2801,11 +2986,13 @@ fn observe_unreadable_directory_dump() -> ObservedOperationResult {
 }
 
 fn observe_unknown_entry_type() -> ObservedOperationResult {
-    // Host filesystem APIs do not provide a portable way to construct an
-    // entry whose classification is unknown. Issue #42 must replace this
-    // sentinel with an injected classifier observation before its owner gate
-    // can pass.
-    ObservedOperationResult::CapabilityUnavailable
+    let observation = issue_42_entry_type::EntryTypeObservation::default();
+    match issue_42_entry_type::classify_observation(observation) {
+        Err(issue_42_entry_type::UnsupportedEntryKind::Unknown) => {
+            ObservedOperationResult::Rejected
+        }
+        other => panic!("an unclassified observation did not fail closed: {other:?}"),
+    }
 }
 
 #[cfg(unix)]

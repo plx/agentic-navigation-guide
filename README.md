@@ -83,6 +83,11 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   The CLI reports a distinct ignored outcome instead of checked or verified
   success. Ignored guides are allowed by default; automation that forbids the
   opt-out must pass `--deny-ignored`.
+- **2026-07-26 — Generated and listed entry types fail closed.** Unlike
+  `0.1.4`, v0.2 never emits an included link, Windows reparse entry, FIFO,
+  socket, device, or unknown entry as a regular file. `dump` and `init` abort
+  before delivering guide bytes, and verification does not let a final link
+  satisfy a textual file or directory.
 
 ## Navigation Guide Format
 
@@ -155,6 +160,12 @@ scalar sequences are preserved exactly without normalization.
 syntax-sensitive component, an edge-space component, or literal `...` is
 whole quoted. Each physical line represents one immediate child, deeper
 components use indentation, and siblings are sorted by ascending UTF-8 bytes.
+Only regular files, directories, and hard-linked regular files are
+representable. After exclusions are applied, an included symbolic link,
+Windows reparse entry, FIFO, socket, device, unknown type, or transient
+classification failure aborts generation without following or traversing the
+entry. The complete included tree is classified before stdout or a new output
+file receives guide bytes.
 
 Names containing NUL, CR, LF, HTAB, another C0 character, or DEL are rejected,
 as are non-UTF-8 filesystem names. Rejected-name diagnostics are
@@ -185,6 +196,11 @@ You can use `...` as a placeholder to indicate that there are additional files o
   - ... # Additional documentation
 </agentic-navigation-guide>
 ```
+
+A placeholder asserts only that an unlisted UTF-8-named immediate child
+exists. It remains type-agnostic, so a special or link-like sibling may satisfy
+the placeholder even though that same entry cannot be listed as a textual file
+or directory and cannot be emitted by `dump` or `init`.
 
 Rules for placeholders:
 - Written as `...` (three dots)
