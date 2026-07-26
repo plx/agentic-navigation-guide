@@ -985,19 +985,25 @@ mod tests {
 
     #[test]
     fn test_rejects_child_after_physical_choice_line() {
-        let content = r#"<agentic-navigation-guide>
+        for content in [
+            r#"<agentic-navigation-guide>
 - root[a,b]/
   - child.txt
-</agentic-navigation-guide>"#;
+</agentic-navigation-guide>"#,
+            r#"<agentic-navigation-guide>
+- root[a]/
+  - child.txt
+</agentic-navigation-guide>"#,
+        ] {
+            let result = Parser::new().parse(content);
 
-        let result = Parser::new().parse(content);
-
-        assert!(matches!(
-            result,
-            Err(crate::errors::AppError::Syntax(
-                SyntaxError::InvalidIndentationLevel { line: 3 }
-            ))
-        ));
+            assert!(matches!(
+                result,
+                Err(crate::errors::AppError::Syntax(
+                    SyntaxError::InvalidIndentationLevel { line: 3 }
+                ))
+            ));
+        }
     }
 
     #[test]
