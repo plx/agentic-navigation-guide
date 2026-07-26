@@ -10,6 +10,32 @@ use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+fn read_directory(path: &Path) -> std::io::Result<std::fs::ReadDir> {
+    #[cfg(test)]
+    DIRECTORY_ENUMERATION_COUNTS.with(|counts| {
+        *counts.borrow_mut().entry(path.to_path_buf()).or_insert(0) += 1;
+    });
+
+    std::fs::read_dir(path)
+}
+
+#[cfg(test)]
+thread_local! {
+    static DIRECTORY_ENUMERATION_COUNTS:
+        std::cell::RefCell<std::collections::BTreeMap<PathBuf, usize>> =
+            std::cell::RefCell::new(std::collections::BTreeMap::new());
+}
+
+#[cfg(test)]
+fn reset_directory_enumeration_counts() {
+    DIRECTORY_ENUMERATION_COUNTS.with(|counts| counts.borrow_mut().clear());
+}
+
+#[cfg(test)]
+fn directory_enumeration_counts() -> std::collections::BTreeMap<PathBuf, usize> {
+    DIRECTORY_ENUMERATION_COUNTS.with(|counts| counts.borrow().clone())
+}
+
 /// Verifier for navigation guides against filesystem
 pub struct Verifier {
     /// Root path for verification
@@ -343,7 +369,7 @@ impl Verifier {
         at_root: bool,
     ) -> Result<()> {
         // Check that the parent directory has at least one item not in mentioned_names
-        let entries = match std::fs::read_dir(parent_path) {
+        let entries = match read_directory(parent_path) {
             Ok(entries) => entries,
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 return Err(SemanticError::PermissionDenied {
@@ -1262,6 +1288,78 @@ mod tests {
         assert!(
             !diagnostic.contains('\u{fffd}'),
             "diagnostic used a lossy replacement character: {diagnostic}"
+        );
+    }
+
+    #[test]
+    fn issue_50_flat_path_mentions_its_first_component() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::create_dir(temp_dir.path().join("src")).unwrap();
+        std::fs::write(temp_dir.path().join("src/main.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n\
+                 - src/main.rs\n\
+                 - ...\n\
+                 </agentic-navigation-guide>",
+            )
+            .unwrap();
+        let result = Verifier::new(temp_dir.path()).verify(&guide);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::PlaceholderNoUnmentionedItems { line: 3, .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn issue_50_repeated_placeholders_enumerate_the_parent_once() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(temp_dir.path().join("main.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n\
+                 - ... # before\n\
+                 - main.rs\n\
+                 - ... # after\n\
+                 </agentic-navigation-guide>",
+            )
+            .unwrap();
+
+        reset_directory_enumeration_counts();
+        Verifier::new(temp_dir.path()).verify(&guide).unwrap();
+
+        assert_eq!(
+            directory_enumeration_counts(),
+            std::collections::BTreeMap::from([(temp_dir.path().to_path_buf(), 1)]),
+            "listed lookup, type classification, and every placeholder must share one snapshot"
+        );
+    }
+
+    #[test]
+    fn issue_50_root_and_nested_parents_are_each_enumerated_once() {
+        let temp_dir = TempDir::new().unwrap();
+        let src = temp_dir.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "").unwrap();
+
+        let guide = crate::parser::Parser::new()
+            .parse(
+                "<agentic-navigation-guide>\n- src/\n  - ... # before\n  - main.rs\n  - ... # after\n</agentic-navigation-guide>",
+            )
+            .unwrap();
+
+        reset_directory_enumeration_counts();
+        Verifier::new(temp_dir.path()).verify(&guide).unwrap();
+
+        assert_eq!(
+            directory_enumeration_counts(),
+            std::collections::BTreeMap::from([(temp_dir.path().to_path_buf(), 1), (src, 1),]),
+            "each visited parent must have exactly one per-verification snapshot"
         );
     }
 }
