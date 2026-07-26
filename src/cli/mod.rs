@@ -2,6 +2,7 @@
 
 pub mod check;
 pub mod dump;
+mod generation_options;
 pub mod init;
 mod output;
 pub mod verify;

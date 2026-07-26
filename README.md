@@ -88,6 +88,13 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   socket, device, or unknown entry as a regular file. `dump` and `init` abort
   before delivering guide bytes, and verification does not let a final link
   satisfy a textual file or directory.
+- **2026-07-26 — Generation rejects invalid or empty inputs and unbounded
+  numeric options.** Unlike `0.1.4`, v0.2 requires a readable directory root
+  and at least one included, representable entry. Empty, fully excluded,
+  regular-file, missing, or unreadable roots fail before delivery.
+  `--indent` is limited to 1–16 and `--depth` to 0–256 instead of flattening,
+  wrapping, panicking, or allocating pathologically. This is an intentional
+  tightening under #43.
 
 ## Navigation Guide Format
 
@@ -174,6 +181,31 @@ double-quoted and reversible: valid UTF-8 uses `\"`, `\\`, `\0`, `\t`, `\n`,
 and ill-formed Windows names preserve every UTF-16 unit as uppercase
 `\u{XXXX}`. Generation validates the complete included name set before
 writing guide bytes or creating its destination.
+
+### Generation Preconditions and Bounds
+
+`dump` and `init` require an existing, readable directory root. A
+caller-selected root symbolic-link, junction, or reparse alias is resolved and
+accepted as the generation anchor; that exception does not authorize links
+among included descendants. Empty roots and roots left with no representable
+entry after depth and exclusion rules fail actionably. An included empty
+directory is itself a representable entry and therefore is not empty output.
+
+`--indent` accepts 1 through 16 spaces and defaults to 2. `--depth` accepts 0
+through 256; zero includes root children but not their children. An explicit
+depth intentionally produces a partial listing and does not inspect deeper
+entries. With no explicit depth, an included tree requiring logical depth 257
+fails instead of being silently truncated. Values outside either range are
+rejected during argument parsing, and the legacy library path also rejects
+them with an error rather than clamping, wrapping, panicking, flattening, or
+attempting an unbounded indentation allocation.
+
+All root, traversal, classification, name, depth, indentation, and
+serialization checks complete before stdout delivery or filesystem
+destination creation. Every successful generated body is nonempty and can be
+parsed and checked as an active guide. These checks assume a stable filesystem
+while the command runs; they are consistency protections, not a sandbox
+against hostile concurrent replacement.
 
 ### UTF-8 Scope
 
@@ -346,10 +378,12 @@ The advantage of this workflow is it keeps your navigation guide content physica
 
 The tool provides the following commands:
 
-- `init --output <path>`: initialize a new navigation guide file with the current directory structure
+- `init --output <path>`: initialize a new navigation guide file from a
+  nonempty, readable directory tree
 - `check`: check that the contents of a hand-written navigation guide are *syntactically* correct (i.e. adhere to the format specified above)
 - `verify`: verify that the contents of a hand-written navigation guide accurately reflect the current state of the file system
-- `dump [--output <path>]`: dump the current directory contents in the intended markdown format, to stdout by default
+- `dump [--output <path>]`: dump a nonempty, readable directory tree in the
+  intended markdown format, to stdout by default
 
 If you're adding a navigation guide to your repository, I'd suggest:
 

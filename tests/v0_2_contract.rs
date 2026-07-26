@@ -11,7 +11,7 @@ use tempfile::TempDir;
 #[path = "../src/entry_type.rs"]
 mod issue_42_entry_type;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -103,7 +103,6 @@ enum OperationKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExpectedOperationResult {
     Rejected,
-    GeneratedInvalid,
     GeneratedPaths(&'static [&'static str]),
     GeneratedItems(&'static [ExpectedItem]),
     Verified,
@@ -1702,6 +1701,36 @@ fn issue_42_owned_operations_are_executable() {
     );
 }
 
+#[test]
+fn issue_43_owned_operations_are_executable() {
+    const IDS: [&str; 5] = [
+        "operation-dump-empty-root",
+        "operation-dump-fully-excluded-root",
+        "operation-dump-file-root",
+        "operation-dump-zero-indent",
+        "operation-dump-excessive-depth",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = operation_fixtures::CASES
+                .iter()
+                .find(|case| case.id == *id)
+                .unwrap_or_else(|| panic!("missing operation fixture '{id}'"));
+            let observed = run_operation(case.kind);
+            (!matches_expected_operation(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #43 operation mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn issue_42_link_rejection_does_not_disclose_targets() {
@@ -2506,7 +2535,7 @@ fn conformance_request_rejects_unknown_owners() {
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
     for invalid in [
-        "ALL", "owner", "36", "37", "38", "39", "40", "41", "42", "99",
+        "ALL", "owner", "36", "37", "38", "39", "40", "41", "42", "43", "99",
     ] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
@@ -2553,7 +2582,6 @@ fn matches_expected_operation(
 ) -> bool {
     match (observed, expected) {
         (ObservedOperationResult::Rejected, ExpectedOperationResult::Rejected)
-        | (ObservedOperationResult::GeneratedInvalid, ExpectedOperationResult::GeneratedInvalid)
         | (ObservedOperationResult::Verified, ExpectedOperationResult::Verified)
         | (
             ObservedOperationResult::CliIgnoredAllowed,

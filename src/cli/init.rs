@@ -7,6 +7,8 @@ use agentic_navigation_guide::types::Config;
 use clap::Args;
 use std::path::PathBuf;
 
+use super::generation_options::{parse_depth, parse_indent};
+
 /// Common version control system directories that should be excluded by default
 const DEFAULT_VCS_EXCLUDES: &[&str] = &[".git", ".svn", ".hg", ".bzr", "CVS", "_darcs"];
 
@@ -17,19 +19,19 @@ pub struct InitArgs {
     #[arg(short, long)]
     pub output: PathBuf,
 
-    /// Maximum depth to traverse
-    #[arg(short, long)]
+    /// Maximum logical depth, 0 through 256; 0 selects root children; omission rejects depth above 256
+    #[arg(short, long, value_parser = parse_depth)]
     pub depth: Option<usize>,
 
     /// Glob patterns to exclude (can be repeated)
     #[arg(short, long)]
     pub exclude: Vec<String>,
 
-    /// Number of spaces for indentation
-    #[arg(short, long, default_value = "2")]
+    /// Number of spaces per level, 1 through 16
+    #[arg(short, long, default_value = "2", value_parser = parse_indent)]
     pub indent: usize,
 
-    /// Root directory to dump
+    /// Readable root directory; empty or fully excluded generation fails
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
 
