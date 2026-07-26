@@ -1500,6 +1500,7 @@ fn test_init_command() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
     let output_path = dir_path.join("NEW_GUIDE.md");
+    fs::write(dir_path.join("input.txt"), "").unwrap();
 
     // Run init command
     let mut cmd = get_command();
@@ -1515,6 +1516,7 @@ fn test_init_command() {
     assert!(output_path.exists());
     let content = fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("<agentic-navigation-guide>"));
+    assert!(content.contains("- input.txt"));
     assert!(content.contains("</agentic-navigation-guide>"));
 }
 
