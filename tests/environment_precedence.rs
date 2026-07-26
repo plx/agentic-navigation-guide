@@ -160,6 +160,21 @@ fn issue_46_guide_path_and_name_precedence_matrix() {
     );
 
     let output = isolated_command()
+        .env("AGENTIC_NAVIGATION_GUIDE_NAME", "ENV_GUIDE.md")
+        .arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(&root)
+        .arg("--guide-name")
+        .arg("ENV_GUIDE.md")
+        .output()
+        .expect("equivalent recursive CLI name command");
+    assert_success(
+        "recursive verify rejected an equivalent explicit --guide-name",
+        &output,
+    );
+
+    let output = isolated_command()
         .env("AGENTIC_NAVIGATION_GUIDE_NAME", "nested/invalid.md")
         .arg("verify")
         .arg("--recursive")
@@ -262,6 +277,24 @@ fn issue_46_root_precedence_and_command_scope_matrix() {
             );
         }
 
+        let equivalent_output = temp.path().join(format!("equivalent-{index}.md"));
+        let output = run_root_surface(
+            surface,
+            Some(&root),
+            Some(&root),
+            equivalent_output.as_path(),
+        );
+        assert_success(
+            &format!("{surface} rejected an equivalent explicit --root"),
+            &output,
+        );
+        if surface == "init" {
+            assert!(
+                equivalent_output.exists(),
+                "init with an equivalent explicit root did not create its output"
+            );
+        }
+
         let cli_output = temp.path().join(format!("cli-{index}.md"));
         let output = run_root_surface(
             surface,
@@ -334,8 +367,7 @@ fn issue_46_log_mode_precedence_and_true_cli_conflicts() {
         .arg("check")
         .arg("--guide")
         .arg(&external_guide)
-        .arg("--log-level")
-        .arg("quiet")
+        .arg("--quiet")
         .output()
         .expect("equivalent log command");
     assert_success("equivalent CLI log mode failed", &equivalent);
@@ -444,10 +476,7 @@ fn issue_46_execution_mode_precedence_and_true_cli_conflicts() {
     let environment_only = run_failure(Some("post-tool-use"), &[]);
     assert_eq!(environment_only.status.code(), Some(2));
 
-    let equivalent = run_failure(
-        Some("post-tool-use"),
-        &["--execution-mode", "post-tool-use"],
-    );
+    let equivalent = run_failure(Some("post-tool-use"), &["--post-tool-use-hook"]);
     assert_eq!(equivalent.status.code(), Some(2));
 
     let direct_override = run_failure(Some("post-tool-use"), &["--execution-mode", "default"]);
