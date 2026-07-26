@@ -11,7 +11,7 @@ use tempfile::TempDir;
 #[path = "../src/entry_type.rs"]
 mod issue_42_entry_type;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -105,13 +105,11 @@ enum ExpectedOperationResult {
     Rejected,
     GeneratedPaths(&'static [&'static str]),
     GeneratedItems(&'static [ExpectedItem]),
-    Verified,
     CliIgnoredAllowed,
     CliIgnoredDenied,
     NoSupportedLibraryFacade,
     CapabilityRejected,
     CapabilityExactIdentityRejected,
-    CapabilityLegacyHostIdentity,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2637,7 +2635,6 @@ fn matches_expected_operation(
 ) -> bool {
     match (observed, expected) {
         (ObservedOperationResult::Rejected, ExpectedOperationResult::Rejected)
-        | (ObservedOperationResult::Verified, ExpectedOperationResult::Verified)
         | (
             ObservedOperationResult::CliIgnoredAllowed,
             ExpectedOperationResult::CliIgnoredAllowed,
@@ -2651,8 +2648,7 @@ fn matches_expected_operation(
         | (
             ObservedOperationResult::CapabilityUnavailable,
             ExpectedOperationResult::CapabilityRejected
-            | ExpectedOperationResult::CapabilityExactIdentityRejected
-            | ExpectedOperationResult::CapabilityLegacyHostIdentity,
+            | ExpectedOperationResult::CapabilityExactIdentityRejected,
         )
         | (
             ObservedOperationResult::Identity {
@@ -2679,13 +2675,6 @@ fn matches_expected_operation(
             ObservedOperationResult::GeneratedItems(actual),
             ExpectedOperationResult::GeneratedItems(expected),
         ) => exact_items_match(actual, expected),
-        (
-            ObservedOperationResult::Identity {
-                host_aliases: true,
-                verified: true,
-            },
-            ExpectedOperationResult::CapabilityLegacyHostIdentity,
-        ) => true,
         _ => false,
     }
 }
