@@ -9,6 +9,7 @@ repository = "https://github.com/plx/agentic-navigation-guide"
 keywords = ["cli", "filesystem", "validation", "documentation"]
 categories = ["command-line-utilities", "development-tools"]
 publish = ["crates-io"]
+exclude = ["src/parser_robustness_tests.rs"]
 
 [[bin]]
 name = "agentic-navigation-guide"

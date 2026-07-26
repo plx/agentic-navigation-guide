@@ -4,6 +4,7 @@
   - containment_guarantee_tests.rs # Binary-unit containment contract tests
   - exclusion_semantics_tests.rs # Binary-unit exclusion contract tests
   - filesystem_identity_snapshot_tests.rs # Binary-unit identity contract tests
+  - parser_robustness_tests.rs # Deterministic bounded parser input-matrix tests
   - test_support.rs # Profile-aware CLI subprocess support for binary-unit tests
   - v0_2_contract_tests.rs # Binary-unit contract ledger and documentation-sync tests
   - types.rs # Core data types
