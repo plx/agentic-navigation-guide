@@ -1,8 +1,6 @@
 //! Filesystem verification for navigation guides
 
-use crate::entry_type::{
-    classify_metadata, EntryClassification, SupportedEntryKind, UnsupportedEntryKind,
-};
+use crate::entry_type::{classify_metadata, EntryClassification, SupportedEntryKind};
 use crate::errors::{AppError, Result, SemanticError};
 use crate::path_codec::{
     contains_forbidden_control, has_windows_drive_prefix, render_os_component,
@@ -142,7 +140,6 @@ impl Verifier {
         match &item.item {
             FilesystemItem::Directory { .. } => "directory".to_string(),
             FilesystemItem::File { .. } => "file".to_string(),
-            FilesystemItem::Symlink { .. } => "symlink".to_string(),
             FilesystemItem::Placeholder { .. } => "placeholder".to_string(),
         }
     }
@@ -269,19 +266,6 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
         let item_path = resolved_entry.entry.path.clone();
         let classification = resolved_entry.entry.observation.classification;
 
-        // Preserve the legacy programmatic Symlink variant until its #53
-        // removal. Its existing dangling-link behavior is deliberately not
-        // part of textual file/directory classification.
-        if matches!(&item.item, FilesystemItem::Symlink { .. }) && !item_path.exists() {
-            return Err(SemanticError::ItemNotFound {
-                line: item.line_number,
-                item_type: self.verifier.get_item_type_string(item),
-                path: item.path().to_string(),
-                full_path: item_path,
-            }
-            .into());
-        }
-
         match &item.item {
             FilesystemItem::Directory { children, .. } => {
                 Self::require_entry_kind(item, classification, SupportedEntryKind::Directory)?;
@@ -294,31 +278,6 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
             }
             FilesystemItem::File { .. } => {
                 Self::require_entry_kind(item, classification, SupportedEntryKind::RegularFile)?;
-            }
-            FilesystemItem::Symlink { target, .. } => {
-                if classification != Err(UnsupportedEntryKind::SymbolicLink) {
-                    return Err(SemanticError::TypeMismatch {
-                        line: item.line_number,
-                        expected: "symlink".to_string(),
-                        found: Self::classification_name(classification),
-                        path: item.path().to_string(),
-                    }
-                    .into());
-                }
-
-                if let Some(expected_target) = target {
-                    if let Ok(actual_target) = std::fs::read_link(&item_path) {
-                        if actual_target.to_string_lossy() != *expected_target {
-                            return Err(SemanticError::SymlinkTargetMismatch {
-                                line: item.line_number,
-                                path: item.path().to_string(),
-                                expected: expected_target.clone(),
-                                actual: actual_target.to_string_lossy().to_string(),
-                            }
-                            .into());
-                        }
-                    }
-                }
             }
             FilesystemItem::Placeholder { .. } => {
                 unreachable!("placeholder items are handled as sibling assertions")

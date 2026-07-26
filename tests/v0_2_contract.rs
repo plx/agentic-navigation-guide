@@ -428,9 +428,6 @@ fn flatten_items(
                 kind: ItemKind::Placeholder,
                 path: join_path(parent, "..."),
             }),
-            FilesystemItem::Symlink { path, .. } => {
-                panic!("the v0.2 parser fixture must not construct a symlink for '{path}'")
-            }
         }
     }
 }

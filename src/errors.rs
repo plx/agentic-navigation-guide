@@ -157,15 +157,6 @@ pub enum SemanticError {
         path: String,
     },
 
-    /// Symlink target mismatch
-    #[error("line {line}: symlink '{path}' points to '{actual}' but guide specifies '{expected}'")]
-    SymlinkTargetMismatch {
-        line: usize,
-        path: String,
-        expected: String,
-        actual: String,
-    },
-
     /// Permission denied accessing item
     #[error("line {line}: permission denied accessing '{path}'")]
     PermissionDenied { line: usize, path: String },
@@ -217,7 +208,6 @@ impl SemanticError {
         match self {
             Self::ItemNotFound { line, .. }
             | Self::TypeMismatch { line, .. }
-            | Self::SymlinkTargetMismatch { line, .. }
             | Self::PermissionDenied { line, .. }
             | Self::PlaceholderNoUnmentionedItems { line, .. }
             | Self::PathEscapesRoot { line, .. }

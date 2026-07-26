@@ -73,8 +73,8 @@ impl Validator {
                 // Check placeholder-specific rules for children
                 self.validate_placeholder_rules(children)?;
             }
-            FilesystemItem::File { path, .. } | FilesystemItem::Symlink { path, .. } => {
-                // Files and symlinks should not end with slash
+            FilesystemItem::File { path, .. } => {
+                // File paths should not end with slash
                 if path.ends_with('/') {
                     return Err(SyntaxError::InvalidPathFormat {
                         line: item.line_number,
