@@ -4,6 +4,7 @@
   - lib.rs # Core logic goes here
   - types.rs # Core data types
   - errors.rs # Error handling
+  - guide_input.rs # shared private guide-path validation and safe opening
   - parser.rs # logic for parsing guide from markdown
   - validator.rs # logic for validating syntax of guide
   - verifier.rs # logic for verifying guide against file system

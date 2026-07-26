@@ -3,10 +3,187 @@ use predicates::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::time::Duration;
 use tempfile::TempDir;
 
 fn get_command() -> Command {
     Command::cargo_bin("agentic-navigation-guide").unwrap()
+}
+
+const GUIDE_SOURCE_SENTINEL: &str = "ISSUE49_SECRET_7f4a2d909b6c";
+
+fn isolated_command() -> Command {
+    let mut command = get_command();
+    command.timeout(Duration::from_secs(5));
+    for variable in [
+        "AGENTIC_NAVIGATION_GUIDE_PATH",
+        "AGENTIC_NAVIGATION_GUIDE_ROOT",
+        "AGENTIC_NAVIGATION_GUIDE_NAME",
+        "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
+        "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
+    ] {
+        command.env_remove(variable);
+    }
+    command
+}
+
+#[cfg(unix)]
+fn create_guide_file_link(target: &Path, link: &Path) {
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+#[cfg(windows)]
+fn create_guide_file_link(target: &Path, link: &Path) {
+    std::os::windows::fs::symlink_file(target, link)
+        .expect("Windows file-symlink capability is required for guide-input trust evidence");
+}
+
+#[cfg(windows)]
+fn create_guide_directory_link(target: &Path, link: &Path) {
+    std::os::windows::fs::symlink_dir(target, link)
+        .expect("Windows directory-symlink capability is required for guide-input trust evidence");
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GuideDiagnosticMode {
+    Default,
+    Quiet,
+    Verbose,
+    PostToolUse,
+    PreCommit,
+    GitHubActions,
+}
+
+const GUIDE_DIAGNOSTIC_MODES: [GuideDiagnosticMode; 6] = [
+    GuideDiagnosticMode::Default,
+    GuideDiagnosticMode::Quiet,
+    GuideDiagnosticMode::Verbose,
+    GuideDiagnosticMode::PostToolUse,
+    GuideDiagnosticMode::PreCommit,
+    GuideDiagnosticMode::GitHubActions,
+];
+
+impl GuideDiagnosticMode {
+    fn configure(self, command: &mut Command) {
+        match self {
+            Self::Default => {}
+            Self::Quiet => {
+                command.arg("--quiet");
+            }
+            Self::Verbose => {
+                command.arg("--verbose");
+            }
+            Self::PostToolUse => {
+                command.arg("--post-tool-use-hook");
+            }
+            Self::PreCommit => {
+                command.arg("--pre-commit-hook");
+            }
+            Self::GitHubActions => {
+                command.arg("--github-actions-check");
+            }
+        }
+    }
+
+    fn failure_code(self) -> i32 {
+        match self {
+            Self::PostToolUse => 2,
+            _ => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GuideExecutionCase {
+    Default,
+    PostToolUse,
+    PreCommit,
+    GitHubActions,
+}
+
+const GUIDE_EXECUTION_CASES: [GuideExecutionCase; 4] = [
+    GuideExecutionCase::Default,
+    GuideExecutionCase::PostToolUse,
+    GuideExecutionCase::PreCommit,
+    GuideExecutionCase::GitHubActions,
+];
+
+impl GuideExecutionCase {
+    fn configure(self, command: &mut Command) {
+        command.arg("--execution-mode").arg(match self {
+            Self::Default => "default",
+            Self::PostToolUse => "post-tool-use",
+            Self::PreCommit => "pre-commit-hook",
+            Self::GitHubActions => "github-actions",
+        });
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GuideLogCase {
+    Quiet,
+    Default,
+    Verbose,
+}
+
+const GUIDE_LOG_CASES: [GuideLogCase; 3] = [
+    GuideLogCase::Quiet,
+    GuideLogCase::Default,
+    GuideLogCase::Verbose,
+];
+
+impl GuideLogCase {
+    fn configure(self, command: &mut Command) {
+        command.arg("--log-level").arg(match self {
+            Self::Quiet => "quiet",
+            Self::Default => "default",
+            Self::Verbose => "verbose",
+        });
+    }
+}
+
+fn combined_output(output: &Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+fn assert_unsafe_guide_rejection(
+    output: &Output,
+    mode: GuideDiagnosticMode,
+    logical_name: &str,
+    forbidden_target: &Path,
+) {
+    let diagnostics = combined_output(output);
+    assert_eq!(
+        output.status.code(),
+        Some(mode.failure_code()),
+        "{mode:?} mode did not reject the unsafe guide:\n{diagnostics}"
+    );
+    assert!(
+        diagnostics.contains("unsafe guide path") && diagnostics.contains(logical_name),
+        "{mode:?} mode omitted the typed logical-path diagnostic:\n{diagnostics}"
+    );
+    assert!(
+        !diagnostics.contains(GUIDE_SOURCE_SENTINEL),
+        "{mode:?} mode disclosed guide target content:\n{diagnostics}"
+    );
+    assert!(
+        !diagnostics.contains(&forbidden_target.display().to_string()),
+        "{mode:?} mode disclosed the resolved external target:\n{diagnostics}"
+    );
+    if let Some(target_name) = forbidden_target.file_name().and_then(|name| name.to_str()) {
+        assert!(
+            !diagnostics.contains(target_name),
+            "{mode:?} mode disclosed the resolved target basename:\n{diagnostics}"
+        );
+    }
+    assert!(
+        !diagnostics.contains("zero navigation guides were verified"),
+        "{mode:?} mode converted an unsafe entry into absence:\n{diagnostics}"
+    );
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2204,7 +2381,7 @@ fn test_github_actions_mode_syntax_error() {
         .failure()
         .stderr(predicate::str::contains("❌"))
         .stderr(predicate::str::contains("GUIDE.md:3:"))
-        .stderr(predicate::str::contains("- main.rs"));
+        .stderr(predicate::str::contains("- main.rs").not());
 }
 
 #[test]
@@ -2237,7 +2414,7 @@ fn test_github_actions_mode_quiet() {
 }
 
 #[test]
-fn test_github_actions_check_shows_line_content() {
+fn test_github_actions_check_omits_line_content() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();
 
@@ -2264,7 +2441,7 @@ fn test_github_actions_check_shows_line_content() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("GUIDE.md:3:"))
-        .stderr(predicate::str::contains("- missing_file.txt")); // Line content shown
+        .stderr(predicate::str::contains("- missing_file.txt").not());
 }
 
 #[test]
@@ -3088,4 +3265,1493 @@ fn test_init_vcs_exclusions_with_user_exclusions() {
         !content.contains("node_modules"),
         "Should NOT contain node_modules (user-excluded)"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_rejected_recursive_guide_never_reads_or_discloses_its_target_in_any_mode() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("checkout");
+    let outside = temp.path().join("outside-secret.md");
+    fs::create_dir(&root).unwrap();
+    fs::write(
+        &outside,
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+    symlink(
+        "../outside-secret.md",
+        root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    )
+    .unwrap();
+
+    for mode in GUIDE_DIAGNOSTIC_MODES {
+        let mut command = isolated_command();
+        command
+            .arg("verify")
+            .arg("--recursive")
+            .arg("--root")
+            .arg(&root);
+        mode.configure(&mut command);
+        let output = command.output().unwrap();
+
+        assert_unsafe_guide_rejection(&output, mode, "AGENTIC_NAVIGATION_GUIDE.md", &outside);
+    }
+}
+
+#[test]
+fn test_regular_guide_source_lines_are_not_echoed_in_any_cli_mode() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let guide = root.join("AGENTIC_NAVIGATION_GUIDE.md");
+    fs::write(
+        &guide,
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+
+    for mode in GUIDE_DIAGNOSTIC_MODES {
+        for surface in ["check", "verify", "recursive"] {
+            let mut command = isolated_command();
+            match surface {
+                "check" => {
+                    command.arg("check").arg("--guide").arg(&guide);
+                }
+                "verify" => {
+                    command
+                        .arg("verify")
+                        .arg("--guide")
+                        .arg(&guide)
+                        .arg("--root")
+                        .arg(root);
+                }
+                "recursive" => {
+                    command
+                        .arg("verify")
+                        .arg("--recursive")
+                        .arg("--root")
+                        .arg(root);
+                }
+                _ => unreachable!(),
+            }
+            mode.configure(&mut command);
+            let output = command.output().unwrap();
+            let diagnostics = combined_output(&output);
+
+            assert_eq!(
+                output.status.code(),
+                Some(mode.failure_code()),
+                "{surface} in {mode:?} mode did not reject malformed input:\n{diagnostics}"
+            );
+            assert!(
+                diagnostics.contains("line 1") && diagnostics.contains("missing opening"),
+                "{surface} in {mode:?} mode omitted bounded source-location context:\n{diagnostics}"
+            );
+            assert!(
+                !diagnostics.contains(GUIDE_SOURCE_SENTINEL),
+                "{surface} in {mode:?} mode echoed a raw guide source line:\n{diagnostics}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_guide_confidentiality_covers_every_execution_and_log_mode() {
+    let temp = TempDir::new().unwrap();
+    let linked_root = temp.path().join("linked-checkout");
+    let regular_root = temp.path().join("regular-checkout");
+    let outside = temp.path().join("outside-secret.md");
+    fs::create_dir(&linked_root).unwrap();
+    fs::create_dir(&regular_root).unwrap();
+    fs::write(
+        &outside,
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+    create_guide_file_link(&outside, &linked_root.join("AGENTIC_NAVIGATION_GUIDE.md"));
+    fs::write(
+        regular_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+
+    for execution in GUIDE_EXECUTION_CASES {
+        for log in GUIDE_LOG_CASES {
+            for surface in [
+                "check-implicit",
+                "verify-implicit",
+                "recursive",
+                "check-explicit",
+                "verify-explicit",
+            ] {
+                let link = linked_root.join("AGENTIC_NAVIGATION_GUIDE.md");
+                let mut command = isolated_command();
+                command.current_dir(&linked_root);
+                execution.configure(&mut command);
+                log.configure(&mut command);
+                match surface {
+                    "check-implicit" => {
+                        command.arg("check");
+                    }
+                    "verify-implicit" => {
+                        command.arg("verify").arg("--root").arg(&linked_root);
+                    }
+                    "recursive" => {
+                        command
+                            .arg("verify")
+                            .arg("--recursive")
+                            .arg("--allow-empty")
+                            .arg("--root")
+                            .arg(&linked_root);
+                    }
+                    "check-explicit" => {
+                        command.arg("check").arg("--guide").arg(&link);
+                    }
+                    "verify-explicit" => {
+                        command
+                            .arg("verify")
+                            .arg("--guide")
+                            .arg(&link)
+                            .arg("--root")
+                            .arg(&linked_root);
+                    }
+                    _ => unreachable!(),
+                }
+                let output = command.output().unwrap();
+                let diagnostics = combined_output(&output);
+
+                assert!(
+                    !output.status.success(),
+                    "{surface} in {execution:?}/{log:?} followed a final guide link:\n{diagnostics}"
+                );
+                assert!(
+                    diagnostics.contains("unsafe guide path")
+                        && diagnostics.contains("AGENTIC_NAVIGATION_GUIDE.md"),
+                    "{surface} in {execution:?}/{log:?} omitted its typed logical-path error:\n{diagnostics}"
+                );
+                assert!(
+                    !diagnostics.contains(GUIDE_SOURCE_SENTINEL)
+                        && !diagnostics.contains("outside-secret.md"),
+                    "{surface} in {execution:?}/{log:?} disclosed linked target data:\n{diagnostics}"
+                );
+                assert!(
+                    !diagnostics.contains("zero navigation guides were verified"),
+                    "{surface} in {execution:?}/{log:?} converted an unsafe guide to absence:\n{diagnostics}"
+                );
+            }
+
+            for surface in [
+                "check-implicit",
+                "verify-implicit",
+                "recursive",
+                "check-explicit",
+                "verify-explicit",
+            ] {
+                let guide = regular_root.join("AGENTIC_NAVIGATION_GUIDE.md");
+                let mut command = isolated_command();
+                command.current_dir(&regular_root);
+                execution.configure(&mut command);
+                log.configure(&mut command);
+                match surface {
+                    "check-implicit" => {
+                        command.arg("check");
+                    }
+                    "verify-implicit" => {
+                        command.arg("verify").arg("--root").arg(&regular_root);
+                    }
+                    "recursive" => {
+                        command
+                            .arg("verify")
+                            .arg("--recursive")
+                            .arg("--root")
+                            .arg(&regular_root);
+                    }
+                    "check-explicit" => {
+                        command.arg("check").arg("--guide").arg(&guide);
+                    }
+                    "verify-explicit" => {
+                        command
+                            .arg("verify")
+                            .arg("--guide")
+                            .arg(&guide)
+                            .arg("--root")
+                            .arg(&regular_root);
+                    }
+                    _ => unreachable!(),
+                }
+                let output = command.output().unwrap();
+                let diagnostics = combined_output(&output);
+
+                assert!(
+                    !output.status.success(),
+                    "{surface} in {execution:?}/{log:?} accepted malformed input:\n{diagnostics}"
+                );
+                assert!(
+                    diagnostics.contains("line 1") && diagnostics.contains("missing opening"),
+                    "{surface} in {execution:?}/{log:?} omitted bounded source context:\n{diagnostics}"
+                );
+                assert!(
+                    !diagnostics.contains(GUIDE_SOURCE_SENTINEL),
+                    "{surface} in {execution:?}/{log:?} echoed a raw source line:\n{diagnostics}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_guide_input_diagnostics_are_control_safe_and_bounded() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let outside = temp.path().join("outside-secret-target.md");
+    fs::write(
+        &outside,
+        "<agentic-navigation-guide>\n- ordinary.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+
+    let unsafe_name = OsString::from("unsafe\n\u{1b}-guide.md");
+    let unsafe_link = temp.path().join(&unsafe_name);
+    symlink(&outside, &unsafe_link).unwrap();
+    let mut command = isolated_command();
+    let output = command
+        .current_dir(temp.path())
+        .arg("check")
+        .arg("--guide")
+        .arg(&unsafe_link)
+        .output()
+        .unwrap();
+    let mut raw_output = output.stdout.clone();
+    raw_output.extend_from_slice(&output.stderr);
+    let diagnostics = String::from_utf8_lossy(&raw_output);
+
+    assert!(!output.status.success(), "{diagnostics}");
+    assert!(
+        !raw_output
+            .windows(b"unsafe\n\x1b-guide.md".len())
+            .any(|window| window == b"unsafe\n\x1b-guide.md"),
+        "diagnostic emitted raw path controls"
+    );
+    assert!(
+        diagnostics.contains("\\n") && !diagnostics.contains("outside-secret-target.md"),
+        "diagnostic did not escape the control-bearing logical path:\n{diagnostics}"
+    );
+
+    let invalid_path = temp
+        .path()
+        .join(OsString::from_vec(b"invalid-\xff-guide.md".to_vec()));
+    let mut command = isolated_command();
+    let output = command
+        .current_dir(temp.path())
+        .arg("check")
+        .arg("--guide")
+        .arg(&invalid_path)
+        .output()
+        .unwrap();
+    let mut raw_output = output.stdout.clone();
+    raw_output.extend_from_slice(&output.stderr);
+    let diagnostics = String::from_utf8_lossy(&raw_output);
+    assert!(!output.status.success(), "{diagnostics}");
+    assert!(
+        !raw_output
+            .windows(b"invalid-\xff-guide.md".len())
+            .any(|window| window == b"invalid-\xff-guide.md")
+            && diagnostics.contains("\\xFF")
+            && !diagnostics.contains('\u{fffd}'),
+        "diagnostic did not reversibly escape an undecodable path:\n{diagnostics}"
+    );
+
+    let mut deep_parent = temp.path().to_path_buf();
+    for index in 0..40 {
+        deep_parent.push(format!("long-segment-{index:02}"));
+    }
+    fs::create_dir_all(&deep_parent).unwrap();
+    let long_link = deep_parent.join("AGENTIC_NAVIGATION_GUIDE.md");
+    symlink(&outside, &long_link).unwrap();
+    let mut command = isolated_command();
+    let output = command
+        .current_dir(temp.path())
+        .arg("check")
+        .arg("--guide")
+        .arg(&long_link)
+        .output()
+        .unwrap();
+    let diagnostics = combined_output(&output);
+    let unsafe_line = diagnostics
+        .lines()
+        .find(|line| line.contains("unsafe guide path"))
+        .expect("bounded unsafe-guide diagnostic");
+
+    assert!(!output.status.success(), "{diagnostics}");
+    assert!(
+        unsafe_line.contains('…') && unsafe_line.chars().count() < 480,
+        "logical path was not bounded:\n{unsafe_line}"
+    );
+    assert!(!diagnostics.contains("outside-secret-target.md"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_guide_input_trust_policy_matrix() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::symlink;
+
+    const GUIDE: &str = "<agentic-navigation-guide>\n- payload.txt\n</agentic-navigation-guide>";
+
+    let temp = TempDir::new().unwrap();
+    let caller = temp.path().join("caller");
+    let outside = temp.path().join("outside");
+    fs::create_dir(&caller).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(caller.join("payload.txt"), "").unwrap();
+    fs::write(outside.join("payload.txt"), "").unwrap();
+    fs::write(outside.join("regular-guide.md"), GUIDE).unwrap();
+    fs::write(
+        outside.join("AGENTIC_NAVIGATION_GUIDE.md"),
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+
+    let run_recursive = |root: &Path, extra: &[&str]| {
+        let mut command = isolated_command();
+        command
+            .arg("verify")
+            .arg("--recursive")
+            .arg("--root")
+            .arg(root)
+            .args(extra);
+        command.output().unwrap()
+    };
+
+    for (case_name, target) in [
+        ("in-root-link", PathBuf::from("real-guide.md")),
+        (
+            "relative-external-link",
+            PathBuf::from("../../outside/regular-guide.md"),
+        ),
+        ("absolute-external-link", outside.join("regular-guide.md")),
+    ] {
+        let case_root = caller.join(case_name);
+        fs::create_dir(&case_root).unwrap();
+        fs::write(case_root.join("payload.txt"), "").unwrap();
+        if case_name == "in-root-link" {
+            fs::write(case_root.join("real-guide.md"), GUIDE).unwrap();
+        }
+        let forbidden_target = target.clone();
+        let link = case_root.join("AGENTIC_NAVIGATION_GUIDE.md");
+        symlink(&target, &link).unwrap();
+        for surface in [
+            "check-implicit",
+            "verify-implicit",
+            "recursive",
+            "check-explicit",
+            "verify-explicit",
+        ] {
+            let mut command = isolated_command();
+            command.current_dir(&case_root);
+            match surface {
+                "check-implicit" => {
+                    command.arg("check");
+                }
+                "verify-implicit" => {
+                    command.arg("verify").arg("--root").arg(&case_root);
+                }
+                "recursive" => {
+                    command
+                        .arg("verify")
+                        .arg("--recursive")
+                        .arg("--root")
+                        .arg(&case_root);
+                }
+                "check-explicit" => {
+                    command.arg("check").arg("--guide").arg(&link);
+                }
+                "verify-explicit" => {
+                    command
+                        .arg("verify")
+                        .arg("--guide")
+                        .arg(&link)
+                        .arg("--root")
+                        .arg(&case_root);
+                }
+                _ => unreachable!(),
+            }
+            let output = command.output().unwrap();
+            assert_unsafe_guide_rejection(
+                &output,
+                GuideDiagnosticMode::Default,
+                "AGENTIC_NAVIGATION_GUIDE.md",
+                &forbidden_target,
+            );
+        }
+    }
+
+    let dangling_root = caller.join("dangling");
+    fs::create_dir(&dangling_root).unwrap();
+    symlink(
+        "missing-guide.md",
+        dangling_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    )
+    .unwrap();
+
+    let absolute_dangling_root = caller.join("absolute-dangling");
+    fs::create_dir(&absolute_dangling_root).unwrap();
+    let absolute_missing = outside.join("absolute-missing-guide.md");
+    symlink(
+        &absolute_missing,
+        absolute_dangling_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    )
+    .unwrap();
+
+    let chain_root = caller.join("chain");
+    fs::create_dir(&chain_root).unwrap();
+    fs::write(chain_root.join("payload.txt"), "").unwrap();
+    symlink("../../outside/regular-guide.md", chain_root.join("second")).unwrap();
+    symlink("second", chain_root.join("AGENTIC_NAVIGATION_GUIDE.md")).unwrap();
+
+    let loop_root = caller.join("loop");
+    fs::create_dir(&loop_root).unwrap();
+    symlink("second", loop_root.join("AGENTIC_NAVIGATION_GUIDE.md")).unwrap();
+    symlink("AGENTIC_NAVIGATION_GUIDE.md", loop_root.join("second")).unwrap();
+
+    let directory_root = caller.join("directory");
+    fs::create_dir_all(directory_root.join("AGENTIC_NAVIGATION_GUIDE.md")).unwrap();
+
+    let fifo_root = caller.join("fifo");
+    fs::create_dir(&fifo_root).unwrap();
+    let fifo = fifo_root.join("AGENTIC_NAVIGATION_GUIDE.md");
+    let fifo_name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `fifo_name` is a valid NUL-terminated filesystem path.
+    assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+
+    let socket_root = caller.join("socket");
+    fs::create_dir(&socket_root).unwrap();
+    let socket =
+        std::os::unix::net::UnixListener::bind(socket_root.join("AGENTIC_NAVIGATION_GUIDE.md"))
+            .unwrap();
+
+    for (root, forbidden_target) in [
+        (&dangling_root, Path::new("missing-guide.md")),
+        (&absolute_dangling_root, absolute_missing.as_path()),
+        (&chain_root, Path::new("second")),
+        (&loop_root, Path::new("second")),
+        (&directory_root, Path::new("__no_directory_target__")),
+        (&fifo_root, Path::new("__no_fifo_target__")),
+        (&socket_root, Path::new("__no_socket_target__")),
+    ] {
+        let output = run_recursive(root, &[]);
+        assert_unsafe_guide_rejection(
+            &output,
+            GuideDiagnosticMode::Default,
+            "AGENTIC_NAVIGATION_GUIDE.md",
+            forbidden_target,
+        );
+    }
+    drop(socket);
+
+    for command_name in ["check", "verify"] {
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg("/dev/null");
+        } else {
+            command
+                .arg("--guide")
+                .arg("/dev/null")
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        let diagnostics = combined_output(&output);
+        assert!(
+            !output.status.success() && diagnostics.contains("unsafe guide path"),
+            "{command_name} opened a device as a guide:\n{diagnostics}"
+        );
+    }
+
+    let excluded_root = caller.join("excluded-root");
+    let excluded = excluded_root.join("excluded");
+    fs::create_dir_all(&excluded).unwrap();
+    symlink(
+        outside.join("regular-guide.md"),
+        excluded.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    )
+    .unwrap();
+    let excluded_output =
+        run_recursive(&excluded_root, &["--exclude", "excluded", "--allow-empty"]);
+    assert!(
+        excluded_output.status.success(),
+        "an explicitly excluded unsafe match was not pruned:\n{}",
+        combined_output(&excluded_output)
+    );
+    assert!(!combined_output(&excluded_output).contains(GUIDE_SOURCE_SENTINEL));
+
+    let pruned_root = caller.join("pruned-root");
+    fs::create_dir(&pruned_root).unwrap();
+    symlink(&outside, pruned_root.join("linked-directory")).unwrap();
+    let pruned_output = run_recursive(&pruned_root, &["--allow-empty"]);
+    assert!(
+        pruned_output.status.success(),
+        "a nonmatching descendant directory link was traversed or rejected:\n{}",
+        combined_output(&pruned_output)
+    );
+    assert!(!combined_output(&pruned_output).contains(GUIDE_SOURCE_SENTINEL));
+
+    for command_name in ["check", "verify"] {
+        let explicit_external = outside.join("regular-guide.md");
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg(&explicit_external);
+        } else {
+            command
+                .arg("--guide")
+                .arg(&explicit_external)
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{command_name} rejected explicit external regular-file authority:\n{}",
+            combined_output(&output)
+        );
+    }
+
+    let linked_ancestor = caller.join("linked-ancestor");
+    symlink(&outside, &linked_ancestor).unwrap();
+    for command_name in ["check", "verify"] {
+        let selected = if command_name == "check" {
+            PathBuf::from("linked-ancestor/regular-guide.md")
+        } else {
+            linked_ancestor.join("regular-guide.md")
+        };
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg(&selected);
+        } else {
+            command
+                .arg("--guide")
+                .arg(&selected)
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        assert_unsafe_guide_rejection(
+            &output,
+            GuideDiagnosticMode::Default,
+            "linked-ancestor",
+            &outside,
+        );
+    }
+
+    let real_in_root_ancestor = caller.join("real-in-root-ancestor");
+    fs::create_dir(&real_in_root_ancestor).unwrap();
+    fs::write(real_in_root_ancestor.join("regular-guide.md"), GUIDE).unwrap();
+    let in_root_ancestor = caller.join("in-root-ancestor");
+    symlink(&real_in_root_ancestor, &in_root_ancestor).unwrap();
+    for command_name in ["check", "verify"] {
+        let selected = if command_name == "check" {
+            PathBuf::from("in-root-ancestor/regular-guide.md")
+        } else {
+            in_root_ancestor.join("regular-guide.md")
+        };
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg(&selected);
+        } else {
+            command
+                .arg("--guide")
+                .arg(&selected)
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        assert_unsafe_guide_rejection(
+            &output,
+            GuideDiagnosticMode::Default,
+            "in-root-ancestor",
+            &real_in_root_ancestor,
+        );
+    }
+
+    let external_alias = temp.path().join("external-alias");
+    symlink(&outside, &external_alias).unwrap();
+    for command_name in ["check", "verify"] {
+        let selected = external_alias.join("regular-guide.md");
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg(&selected);
+        } else {
+            command
+                .arg("--guide")
+                .arg(&selected)
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{command_name} rejected a stable ancestor in an explicitly external path:\n{}",
+            combined_output(&output)
+        );
+    }
+
+    let real_root = temp.path().join("real-root");
+    fs::create_dir(&real_root).unwrap();
+    fs::write(real_root.join("payload.txt"), "").unwrap();
+    fs::write(real_root.join("AGENTIC_NAVIGATION_GUIDE.md"), GUIDE).unwrap();
+    let root_alias = temp.path().join("root-alias");
+    symlink(&real_root, &root_alias).unwrap();
+
+    let mut default_verify = isolated_command();
+    let default_output = default_verify
+        .current_dir(&caller)
+        .arg("verify")
+        .arg("--root")
+        .arg(&root_alias)
+        .output()
+        .unwrap();
+    assert!(
+        default_output.status.success(),
+        "default verify did not resolve its guide from the effective root alias:\n{}",
+        combined_output(&default_output)
+    );
+
+    let recursive_alias = run_recursive(&root_alias, &[]);
+    assert!(
+        recursive_alias.status.success(),
+        "recursive verification rejected a caller-selected root alias:\n{}",
+        combined_output(&recursive_alias)
+    );
+
+    let mut default_check = isolated_command();
+    let default_check_output = default_check
+        .current_dir(&real_root)
+        .arg("check")
+        .output()
+        .unwrap();
+    assert!(
+        default_check_output.status.success(),
+        "default check rejected a regular in-root guide:\n{}",
+        combined_output(&default_check_output)
+    );
+
+    let hard_link_root = caller.join("hard-link");
+    fs::create_dir(&hard_link_root).unwrap();
+    fs::write(hard_link_root.join("payload.txt"), "").unwrap();
+    let hard_link_source = hard_link_root.join("source.md");
+    fs::write(&hard_link_source, GUIDE).unwrap();
+    fs::hard_link(
+        &hard_link_source,
+        hard_link_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    )
+    .unwrap();
+    for surface in ["check", "verify", "recursive"] {
+        let mut command = isolated_command();
+        command.current_dir(&hard_link_root);
+        match surface {
+            "check" => {
+                command.arg("check");
+            }
+            "verify" => {
+                command.arg("verify").arg("--root").arg(&hard_link_root);
+            }
+            "recursive" => {
+                command
+                    .arg("verify")
+                    .arg("--recursive")
+                    .arg("--root")
+                    .arg(&hard_link_root);
+            }
+            _ => unreachable!(),
+        }
+        let hard_link_output = command.output().unwrap();
+        assert!(
+            hard_link_output.status.success(),
+            "{surface} did not treat a hard-linked guide as a regular file:\n{}",
+            combined_output(&hard_link_output)
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_windows_guide_input_trust_policy_matrix() {
+    const GUIDE: &str = "<agentic-navigation-guide>\n- payload.txt\n</agentic-navigation-guide>";
+
+    let temp = TempDir::new().unwrap();
+    let caller = temp.path().join("caller");
+    let outside = temp.path().join("outside");
+    fs::create_dir(&caller).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(caller.join("payload.txt"), "").unwrap();
+    fs::write(outside.join("payload.txt"), "").unwrap();
+    fs::write(outside.join("regular-guide.md"), GUIDE).unwrap();
+    fs::write(
+        outside.join("AGENTIC_NAVIGATION_GUIDE.md"),
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+
+    let run_recursive = |root: &Path, extra: &[&str]| {
+        let mut command = isolated_command();
+        command
+            .arg("verify")
+            .arg("--recursive")
+            .arg("--root")
+            .arg(root)
+            .args(extra);
+        command.output().unwrap()
+    };
+
+    for case_name in [
+        "in-root-link",
+        "relative-external-link",
+        "absolute-external-link",
+    ] {
+        let case_root = caller.join(case_name);
+        fs::create_dir(&case_root).unwrap();
+        fs::write(case_root.join("payload.txt"), "").unwrap();
+        let target = match case_name {
+            "in-root-link" => {
+                let target = case_root.join("real-guide.md");
+                fs::write(&target, GUIDE).unwrap();
+                target
+            }
+            "relative-external-link" => PathBuf::from("../../outside/regular-guide.md"),
+            "absolute-external-link" => outside.join("regular-guide.md"),
+            _ => unreachable!(),
+        };
+        let link = case_root.join("AGENTIC_NAVIGATION_GUIDE.md");
+        create_guide_file_link(&target, &link);
+
+        for surface in [
+            "check-implicit",
+            "verify-implicit",
+            "recursive",
+            "check-explicit",
+            "verify-explicit",
+        ] {
+            let mut command = isolated_command();
+            command.current_dir(&case_root);
+            match surface {
+                "check-implicit" => {
+                    command.arg("check");
+                }
+                "verify-implicit" => {
+                    command.arg("verify").arg("--root").arg(&case_root);
+                }
+                "recursive" => {
+                    command
+                        .arg("verify")
+                        .arg("--recursive")
+                        .arg("--root")
+                        .arg(&case_root);
+                }
+                "check-explicit" => {
+                    command.arg("check").arg("--guide").arg(&link);
+                }
+                "verify-explicit" => {
+                    command
+                        .arg("verify")
+                        .arg("--guide")
+                        .arg(&link)
+                        .arg("--root")
+                        .arg(&case_root);
+                }
+                _ => unreachable!(),
+            }
+            let output = command.output().unwrap();
+            assert_unsafe_guide_rejection(
+                &output,
+                GuideDiagnosticMode::Default,
+                "AGENTIC_NAVIGATION_GUIDE.md",
+                &target,
+            );
+        }
+    }
+
+    let dangling_root = caller.join("dangling");
+    fs::create_dir(&dangling_root).unwrap();
+    let missing = outside.join("missing-guide.md");
+    create_guide_file_link(&missing, &dangling_root.join("AGENTIC_NAVIGATION_GUIDE.md"));
+
+    let chain_root = caller.join("chain");
+    fs::create_dir(&chain_root).unwrap();
+    create_guide_file_link(
+        &outside.join("regular-guide.md"),
+        &chain_root.join("second"),
+    );
+    create_guide_file_link(
+        Path::new("second"),
+        &chain_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    );
+
+    let loop_root = caller.join("loop");
+    fs::create_dir(&loop_root).unwrap();
+    create_guide_file_link(
+        Path::new("second"),
+        &loop_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    );
+    create_guide_file_link(
+        Path::new("AGENTIC_NAVIGATION_GUIDE.md"),
+        &loop_root.join("second"),
+    );
+
+    let directory_root = caller.join("directory");
+    fs::create_dir_all(directory_root.join("AGENTIC_NAVIGATION_GUIDE.md")).unwrap();
+
+    let directory_reparse_root = caller.join("directory-reparse");
+    fs::create_dir(&directory_reparse_root).unwrap();
+    create_guide_directory_link(
+        &outside,
+        &directory_reparse_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    );
+
+    for (root, target) in [
+        (&dangling_root, missing.as_path()),
+        (&chain_root, Path::new("second")),
+        (&loop_root, Path::new("second")),
+        (&directory_root, Path::new("__no_directory_target__")),
+        (&directory_reparse_root, outside.as_path()),
+    ] {
+        let output = run_recursive(root, &[]);
+        assert_unsafe_guide_rejection(
+            &output,
+            GuideDiagnosticMode::Default,
+            "AGENTIC_NAVIGATION_GUIDE.md",
+            target,
+        );
+    }
+
+    let excluded_root = caller.join("excluded-root");
+    fs::create_dir(&excluded_root).unwrap();
+    create_guide_file_link(
+        &outside.join("regular-guide.md"),
+        &excluded_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    );
+    let excluded = run_recursive(
+        &excluded_root,
+        &["--exclude", "AGENTIC_NAVIGATION_GUIDE.md", "--allow-empty"],
+    );
+    assert!(
+        excluded.status.success(),
+        "a Windows unsafe match was classified before exclusion:\n{}",
+        combined_output(&excluded)
+    );
+
+    let pruned_root = caller.join("pruned-root");
+    fs::create_dir(&pruned_root).unwrap();
+    create_guide_directory_link(&outside, &pruned_root.join("linked-directory"));
+    let pruned = run_recursive(&pruned_root, &["--allow-empty"]);
+    assert!(
+        pruned.status.success() && !combined_output(&pruned).contains(GUIDE_SOURCE_SENTINEL),
+        "a Windows descendant directory reparse point was traversed:\n{}",
+        combined_output(&pruned)
+    );
+
+    let in_root_ancestor = caller.join("linked-ancestor");
+    create_guide_directory_link(&outside, &in_root_ancestor);
+    for command_name in ["check", "verify"] {
+        let selected = if command_name == "check" {
+            PathBuf::from("linked-ancestor/regular-guide.md")
+        } else {
+            in_root_ancestor.join("regular-guide.md")
+        };
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg(&selected);
+        } else {
+            command
+                .arg("--guide")
+                .arg(&selected)
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        assert_unsafe_guide_rejection(
+            &output,
+            GuideDiagnosticMode::Default,
+            "linked-ancestor",
+            &outside,
+        );
+    }
+
+    let external_alias = temp.path().join("external-alias");
+    create_guide_directory_link(&outside, &external_alias);
+    for command_name in ["check", "verify"] {
+        let selected = external_alias.join("regular-guide.md");
+        let mut command = isolated_command();
+        command.current_dir(&caller).arg(command_name);
+        if command_name == "check" {
+            command.arg("--guide").arg(&selected);
+        } else {
+            command
+                .arg("--guide")
+                .arg(&selected)
+                .arg("--root")
+                .arg(&caller);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{command_name} rejected an explicitly external Windows reparse ancestor:\n{}",
+            combined_output(&output)
+        );
+    }
+
+    let real_root = temp.path().join("real-root");
+    fs::create_dir(&real_root).unwrap();
+    fs::write(real_root.join("payload.txt"), "").unwrap();
+    fs::write(real_root.join("AGENTIC_NAVIGATION_GUIDE.md"), GUIDE).unwrap();
+    let root_alias = temp.path().join("root-alias");
+    create_guide_directory_link(&real_root, &root_alias);
+    let mut default_verify = isolated_command();
+    let default_output = default_verify
+        .current_dir(&caller)
+        .arg("verify")
+        .arg("--root")
+        .arg(&root_alias)
+        .output()
+        .unwrap();
+    assert!(
+        default_output.status.success(),
+        "default verify rejected a Windows root alias:\n{}",
+        combined_output(&default_output)
+    );
+    let recursive_alias = run_recursive(&root_alias, &[]);
+    assert!(
+        recursive_alias.status.success(),
+        "recursive verify rejected a Windows root alias:\n{}",
+        combined_output(&recursive_alias)
+    );
+
+    let hard_link_root = caller.join("hard-link");
+    fs::create_dir(&hard_link_root).unwrap();
+    fs::write(hard_link_root.join("payload.txt"), "").unwrap();
+    let hard_link_source = hard_link_root.join("source.md");
+    fs::write(&hard_link_source, GUIDE).unwrap();
+    fs::hard_link(
+        &hard_link_source,
+        hard_link_root.join("AGENTIC_NAVIGATION_GUIDE.md"),
+    )
+    .unwrap();
+    let hard_link = run_recursive(&hard_link_root, &[]);
+    assert!(
+        hard_link.status.success(),
+        "Windows hard-linked guide was not treated as regular:\n{}",
+        combined_output(&hard_link)
+    );
+
+    let case_root = caller.join("case-identity");
+    fs::create_dir(&case_root).unwrap();
+    fs::write(
+        case_root.join("agentic_navigation_guide.md"),
+        format!("{GUIDE_SOURCE_SENTINEL}\n{GUIDE}"),
+    )
+    .unwrap();
+    let case_mismatch = run_recursive(
+        &case_root,
+        &[
+            "--guide-name",
+            "AGENTIC_NAVIGATION_GUIDE.md",
+            "--allow-empty",
+        ],
+    );
+    assert!(
+        case_mismatch.status.success()
+            && !combined_output(&case_mismatch).contains(GUIDE_SOURCE_SENTINEL),
+        "Windows implicit lookup accepted a non-exact enumerated name:\n{}",
+        combined_output(&case_mismatch)
+    );
+
+    for surface in ["check", "verify"] {
+        let mut command = isolated_command();
+        command.current_dir(&case_root).arg(surface);
+        if surface == "verify" {
+            command.arg("--root").arg(&case_root);
+        }
+        let output = command.output().unwrap();
+        let diagnostics = combined_output(&output);
+        assert!(
+            !output.status.success()
+                && diagnostics.contains("exactly match")
+                && !diagnostics.contains(GUIDE_SOURCE_SENTINEL),
+            "{surface} did not reject a case-aliased implicit guide before reading:\n{diagnostics}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_windows_guide_namespaces_and_streams_reject_before_access() {
+    use agentic_navigation_guide::{verify_guides, GuideLocation};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("root");
+    let missing_root = temp.path().join("missing-root");
+    fs::create_dir(&root).unwrap();
+
+    for name in [
+        "guide.md:stream",
+        "NUL.txt",
+        "CONIN$.txt",
+        "CONOUT$",
+        "COM¹.log",
+        "LPT9.md",
+    ] {
+        let mut command = isolated_command();
+        let output = command
+            .arg("verify")
+            .arg("--recursive")
+            .arg("--root")
+            .arg(&missing_root)
+            .arg("--guide-name")
+            .arg(name)
+            .arg("--allow-empty")
+            .output()
+            .unwrap();
+        let diagnostics = combined_output(&output);
+        assert!(
+            !output.status.success()
+                && diagnostics.contains("invalid implicit guide name")
+                && !diagnostics.contains("filesystem walk error"),
+            "unsafe Windows implicit name reached filesystem access: {name:?}\n{diagnostics}"
+        );
+    }
+
+    let base = root.join("base.txt");
+    fs::write(&base, "ordinary base").unwrap();
+    let ads = PathBuf::from(format!("{}:secret", base.display()));
+    fs::write(&ads, GUIDE_SOURCE_SENTINEL)
+        .expect("Windows alternate-data-stream capability is required for guide-input evidence");
+
+    for guide_path in [
+        ads.clone(),
+        root.join("NUL.txt"),
+        root.join("CONIN$.txt"),
+        root.join("CONOUT$"),
+        root.join("COM¹.log"),
+        root.join("LPT9.md"),
+        PathBuf::from(r"C:relative-guide.md"),
+        PathBuf::from(r"\current-drive-root\guide.md"),
+        PathBuf::from(r"\\.\NUL"),
+        PathBuf::from(r"\\.\pipe\agentic-navigation-guide-test"),
+        PathBuf::from(r"\\localhost\pipe\agentic-navigation-guide-test"),
+        PathBuf::from(r"\\localhost\mailslot\agentic-navigation-guide-test"),
+        PathBuf::from(r"\\localhost\IPC$\agentic-navigation-guide-test"),
+        PathBuf::from(r"//?/GLOBALROOT/Device/HarddiskVolume1/agentic-navigation-guide-test"),
+        PathBuf::from(r"\\?\C:\agentic-navigation-guide-test.md"),
+        PathBuf::from(r"\??\C:\agentic-navigation-guide-test.md"),
+    ] {
+        let mut command = isolated_command();
+        let output = command
+            .current_dir(&root)
+            .arg("check")
+            .arg("--guide")
+            .arg(&guide_path)
+            .output()
+            .unwrap();
+        let diagnostics = combined_output(&output);
+        assert!(
+            !output.status.success()
+                && diagnostics.contains("invalid explicit guide path")
+                && !diagnostics.contains(GUIDE_SOURCE_SENTINEL),
+            "unsafe Windows explicit path reached guide access: {guide_path:?}\n{diagnostics}"
+        );
+    }
+
+    let control_path = root.join("unsafe\n\u{1b}-guide.md");
+    let mut command = isolated_command();
+    let output = command
+        .current_dir(&root)
+        .arg("check")
+        .arg("--guide")
+        .arg(&control_path)
+        .output()
+        .unwrap();
+    let mut raw_output = output.stdout.clone();
+    raw_output.extend_from_slice(&output.stderr);
+    let diagnostics = String::from_utf8_lossy(&raw_output);
+    assert!(
+        !output.status.success()
+            && !raw_output
+                .windows(b"unsafe\n\x1b-guide.md".len())
+                .any(|window| window == b"unsafe\n\x1b-guide.md")
+            && diagnostics.contains("\\n"),
+        "Windows guide diagnostic emitted raw controls:\n{diagnostics}"
+    );
+
+    let results = verify_guides(
+        &[GuideLocation {
+            guide_path: ads,
+            root_path: missing_root,
+        }],
+        &agentic_navigation_guide::types::Config::default(),
+    )
+    .unwrap();
+    let error = results[0].error.as_deref().unwrap_or_default();
+    assert!(
+        !results[0].success
+            && error.contains("invalid explicit guide path")
+            && !error.contains("trust anchor")
+            && !error.contains(GUIDE_SOURCE_SENTINEL),
+        "legacy GuideLocation bypassed Windows path validation: {error}"
+    );
+}
+
+#[test]
+fn test_invalid_implicit_guide_names_fail_before_search_or_allow_empty() {
+    let temp = TempDir::new().unwrap();
+    let missing_root = temp.path().join("missing-root");
+
+    for name in [
+        "",
+        ".",
+        "..",
+        "../escape",
+        "nested/guide.md",
+        "nested\\guide.md",
+        "/absolute-guide.md",
+        r"C:\absolute-guide.md",
+    ] {
+        let mut command = isolated_command();
+        let output = command
+            .arg("verify")
+            .arg("--recursive")
+            .arg("--root")
+            .arg(&missing_root)
+            .arg("--guide-name")
+            .arg(name)
+            .arg("--allow-empty")
+            .output()
+            .unwrap();
+        let diagnostics = combined_output(&output);
+
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "invalid implicit name {name:?} did not fail before search:\n{diagnostics}"
+        );
+        assert!(
+            diagnostics.contains("invalid implicit guide name"),
+            "invalid implicit name {name:?} did not get a typed configuration error:\n{diagnostics}"
+        );
+        assert!(
+            !diagnostics.contains("filesystem walk error")
+                && !diagnostics.contains("zero navigation guides were verified"),
+            "invalid implicit name {name:?} reached discovery:\n{diagnostics}"
+        );
+
+        let mut command = isolated_command();
+        command
+            .current_dir(temp.path())
+            .env("AGENTIC_NAVIGATION_GUIDE_NAME", name)
+            .arg("check");
+        let output = command.output().unwrap();
+        let diagnostics = combined_output(&output);
+        assert!(
+            !output.status.success()
+                && diagnostics.contains("invalid implicit guide name")
+                && !diagnostics.contains("trust anchor"),
+            "check did not reject invalid implicit name {name:?} before access:\n{diagnostics}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_non_utf8_implicit_guide_name_does_not_fall_back_to_default() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let temp = TempDir::new().unwrap();
+    fs::write(
+        temp.path().join("AGENTIC_NAVIGATION_GUIDE.md"),
+        "<agentic-navigation-guide>\n- ordinary.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+    fs::write(temp.path().join("ordinary.txt"), "").unwrap();
+
+    let mut command = isolated_command();
+    let output = command
+        .current_dir(temp.path())
+        .env(
+            "AGENTIC_NAVIGATION_GUIDE_NAME",
+            OsString::from_vec(vec![b'g', 0xff, b'.', b'm', b'd']),
+        )
+        .arg("check")
+        .output()
+        .unwrap();
+    let diagnostics = combined_output(&output);
+
+    assert!(
+        !output.status.success()
+            && diagnostics.contains("invalid implicit guide name")
+            && diagnostics.contains("not valid UTF-8"),
+        "non-UTF-8 implicit name fell back to the valid default guide:\n{diagnostics}"
+    );
+}
+
+#[test]
+fn test_legacy_recursive_library_path_cannot_bypass_safe_opening() {
+    use agentic_navigation_guide::{find_guides, verify_guides, GuideLocation};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("root");
+    let outside = temp.path().join("outside-secret.md");
+    fs::create_dir(&root).unwrap();
+    fs::write(
+        &outside,
+        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+    )
+    .unwrap();
+    let link = root.join("AGENTIC_NAVIGATION_GUIDE.md");
+    create_guide_file_link(&outside, &link);
+
+    let discovery = find_guides(&root, "AGENTIC_NAVIGATION_GUIDE.md", &[])
+        .expect_err("legacy discovery accepted an unsafe matching guide");
+    let discovery_error = discovery.to_string();
+    assert!(
+        discovery_error.contains("unsafe guide path"),
+        "{discovery_error}"
+    );
+    assert!(
+        !discovery_error.contains(GUIDE_SOURCE_SENTINEL),
+        "{discovery_error}"
+    );
+    assert!(
+        !discovery_error.contains(&outside.display().to_string()),
+        "{discovery_error}"
+    );
+
+    let results = verify_guides(
+        &[GuideLocation {
+            guide_path: link,
+            root_path: root,
+        }],
+        &agentic_navigation_guide::types::Config::default(),
+    )
+    .unwrap();
+    let result = results.first().expect("one legacy verification result");
+    let error = result.error.as_deref().unwrap_or_default();
+
+    assert!(!result.success);
+    assert!(error.contains("unsafe guide path"), "{error}");
+    assert!(!error.contains(GUIDE_SOURCE_SENTINEL), "{error}");
+    assert!(!error.contains(&outside.display().to_string()), "{error}");
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuideTrustEvidenceOutcome {
+    Conformant,
+    #[cfg(not(windows))]
+    Unavailable(&'static str),
+}
+
+struct GuideTrustEvidenceGroup {
+    ids: &'static [&'static str],
+    observe: fn() -> GuideTrustEvidenceOutcome,
+}
+
+const ISSUE_49_TRUST_EVIDENCE: &[GuideTrustEvidenceGroup] = &[
+    GuideTrustEvidenceGroup {
+        ids: &[
+            "trust-guide-default-regular-in-root",
+            "trust-guide-verify-default-from-effective-root",
+            "trust-guide-recursive-regular-in-root",
+            "trust-guide-explicit-regular-outside-root",
+            "trust-guide-hard-link",
+            "trust-guide-default-link-in-root",
+            "trust-guide-default-link-outside-relative",
+            "trust-guide-default-link-outside-absolute",
+            "trust-guide-explicit-final-link-in-root",
+            "trust-guide-explicit-final-link-outside-root",
+            "trust-guide-recursive-final-link-in-root",
+            "trust-guide-recursive-final-link-outside-root",
+            "trust-guide-dangling-link",
+            "trust-guide-link-chain",
+            "trust-guide-link-loop",
+            "trust-guide-matching-directory-or-special",
+            "trust-guide-root-alias",
+            "trust-guide-nonmatching-descendant-directory-link",
+            "trust-guide-excluded-unsafe-match",
+            "trust-guide-link-ancestor-below-root",
+            "trust-guide-check-explicit-link-ancestor-below-cwd",
+            "trust-guide-explicit-external-ancestor",
+        ],
+        observe: observe_platform_guide_policy,
+    },
+    GuideTrustEvidenceGroup {
+        ids: &["trust-guide-windows-reparse-link"],
+        observe: observe_windows_guide_reparse,
+    },
+    GuideTrustEvidenceGroup {
+        ids: &[
+            "trust-guide-windows-device-or-stream-name",
+            "trust-guide-windows-device-namespace",
+        ],
+        observe: observe_windows_guide_spelling,
+    },
+    GuideTrustEvidenceGroup {
+        ids: &[
+            "trust-guide-name-parent-escape",
+            "trust-guide-name-absolute-escape",
+        ],
+        observe: observe_invalid_implicit_names,
+    },
+    GuideTrustEvidenceGroup {
+        ids: &["trust-guide-sentinel-all-modes"],
+        observe: observe_guide_confidentiality,
+    },
+    GuideTrustEvidenceGroup {
+        ids: &["trust-guide-direct-library-path"],
+        observe: observe_legacy_guide_route,
+    },
+];
+
+#[test]
+fn test_guide_trust_evidence_is_an_exact_set_for_issue_49() {
+    use std::collections::BTreeSet;
+
+    let expected = issue_49_trust_ids(include_str!("fixtures/v0_2_trust.rs"));
+    let mut declared = BTreeSet::new();
+    let mut conformant = BTreeSet::new();
+    #[cfg(not(windows))]
+    let mut unavailable = BTreeSet::new();
+    #[cfg(windows)]
+    let unavailable = BTreeSet::new();
+
+    for group in ISSUE_49_TRUST_EVIDENCE {
+        let outcome = (group.observe)();
+        for id in group.ids {
+            assert!(
+                declared.insert(*id),
+                "duplicate guide trust evidence ID {id:?}"
+            );
+            match outcome {
+                GuideTrustEvidenceOutcome::Conformant => {
+                    conformant.insert(*id);
+                }
+                #[cfg(not(windows))]
+                GuideTrustEvidenceOutcome::Unavailable(reason) => {
+                    assert!(!reason.is_empty());
+                    unavailable.insert(*id);
+                }
+            }
+        }
+    }
+
+    assert_eq!(declared, expected, "guide evidence declaration drifted");
+    assert!(
+        conformant.is_disjoint(&unavailable),
+        "a guide row cannot be both conformant and unavailable"
+    );
+    assert_eq!(
+        conformant
+            .union(&unavailable)
+            .copied()
+            .collect::<BTreeSet<_>>(),
+        declared,
+        "every declared guide row must have an explicit observation"
+    );
+
+    #[cfg(not(windows))]
+    let expected_unavailable = BTreeSet::from([
+        "trust-guide-windows-reparse-link",
+        "trust-guide-windows-device-or-stream-name",
+        "trust-guide-windows-device-namespace",
+    ]);
+    #[cfg(windows)]
+    let expected_unavailable = BTreeSet::new();
+
+    assert_eq!(
+        unavailable, expected_unavailable,
+        "unexpected unavailable guide evidence on this platform"
+    );
+    assert_eq!(
+        conformant,
+        declared
+            .difference(&expected_unavailable)
+            .copied()
+            .collect(),
+        "host-applicable guide evidence is not fully conformant"
+    );
+}
+
+fn observe_platform_guide_policy() -> GuideTrustEvidenceOutcome {
+    #[cfg(unix)]
+    test_guide_input_trust_policy_matrix();
+    #[cfg(windows)]
+    test_windows_guide_input_trust_policy_matrix();
+    GuideTrustEvidenceOutcome::Conformant
+}
+
+#[cfg(windows)]
+fn observe_windows_guide_reparse() -> GuideTrustEvidenceOutcome {
+    test_windows_guide_input_trust_policy_matrix();
+    GuideTrustEvidenceOutcome::Conformant
+}
+
+#[cfg(not(windows))]
+fn observe_windows_guide_reparse() -> GuideTrustEvidenceOutcome {
+    GuideTrustEvidenceOutcome::Unavailable("Windows reparse evidence requires Windows")
+}
+
+#[cfg(windows)]
+fn observe_windows_guide_spelling() -> GuideTrustEvidenceOutcome {
+    test_windows_guide_namespaces_and_streams_reject_before_access();
+    GuideTrustEvidenceOutcome::Conformant
+}
+
+#[cfg(not(windows))]
+fn observe_windows_guide_spelling() -> GuideTrustEvidenceOutcome {
+    GuideTrustEvidenceOutcome::Unavailable("Windows path-spelling evidence requires Windows")
+}
+
+fn observe_invalid_implicit_names() -> GuideTrustEvidenceOutcome {
+    test_invalid_implicit_guide_names_fail_before_search_or_allow_empty();
+    GuideTrustEvidenceOutcome::Conformant
+}
+
+fn observe_guide_confidentiality() -> GuideTrustEvidenceOutcome {
+    test_guide_confidentiality_covers_every_execution_and_log_mode();
+    #[cfg(unix)]
+    test_guide_input_diagnostics_are_control_safe_and_bounded();
+    GuideTrustEvidenceOutcome::Conformant
+}
+
+fn observe_legacy_guide_route() -> GuideTrustEvidenceOutcome {
+    test_legacy_recursive_library_path_cannot_bypass_safe_opening();
+    GuideTrustEvidenceOutcome::Conformant
+}
+
+fn issue_49_trust_ids(source: &str) -> std::collections::BTreeSet<&str> {
+    source
+        .split("TrustCase {")
+        .skip(1)
+        .filter_map(|block| {
+            let block = block.split_once("},").map_or(block, |(case, _)| case);
+            if !block.contains("owner_issue: 49") {
+                return None;
+            }
+            block.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix("id: \"")
+                    .and_then(|value| value.strip_suffix("\","))
+            })
+        })
+        .collect()
 }

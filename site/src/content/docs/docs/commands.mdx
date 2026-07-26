@@ -54,7 +54,32 @@ agentic-navigation-guide verify --recursive --allow-empty
 
 Non-quiet output reports the zero count even when it is allowed. The flag
 cannot suppress a missing or non-directory root, an invalid exclusion pattern,
-a traversal error, or a failure from a discovered guide.
+a traversal error, an unsafe matching guide entry, or a failure from a
+discovered guide. Exclusions are applied before unsafe-entry classification;
+non-matching descendant links are not traversed.
+
+## Guide-input safety
+
+Default `check` anchors its implicit guide at the current working directory.
+Default single-guide `verify` resolves it from the effective verification
+root, and recursive discovery uses the selected search root. An implicit guide
+name must be one nonempty filename component.
+
+The final guide entry must be a regular file. A symbolic link or link-like
+Windows reparse entry is rejected without reading its target, even when it was
+selected explicitly or resolves in-root. Hard-linked regular files are
+allowed. A caller may directly select an external regular guide, and a
+caller-selected root alias is accepted, but guide-path link or reparse
+ancestors below an anchor are rejected.
+
+Guide-opening errors use a bounded, control-safe logical path without exposing
+rejected bytes or the resolved guide-link target. CLI parse and validation
+errors do not echo complete guide source lines. These checks assume a stable
+filesystem and are not a sandbox against hostile concurrent replacement.
+
+On Windows, guide paths additionally reject alternate data streams, reserved
+device aliases, device or named-pipe namespaces, and unsupported prefixes.
+Implicit names must exactly match an enumerated directory entry.
 
 ## `dump`
 

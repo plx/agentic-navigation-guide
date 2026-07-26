@@ -46,4 +46,9 @@ an overly broad exclusion, or deletion of the final guide from turning the gate
 into a successful no-op. `--allow-empty` is reserved for searches the workflow
 intentionally treats as optional.
 
+`--allow-empty` does not suppress an unsafe entry whose name matches the guide
+selector. Guide-file links and link-like Windows reparse entries are rejected
+before their targets are read; recursive discovery never traverses descendant
+links. An explicit exclusion is applied before unsafe-match classification.
+
 For agent workflows, the same verification can run after file-writing tools so navigation drift is caught while the work is still fresh.

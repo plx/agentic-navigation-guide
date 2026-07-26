@@ -4,6 +4,8 @@ use agentic_navigation_guide::errors::ErrorFormatter;
 use clap::Parser;
 
 mod cli;
+#[allow(dead_code)]
+mod guide_input;
 use cli::{Cli, Command};
 
 fn main() {
