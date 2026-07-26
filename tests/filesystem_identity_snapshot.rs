@@ -176,6 +176,30 @@ fn issue_50_intermediate_alias_to_dangling_symlink_rejects_identity_first() {
     ));
 }
 
+#[cfg(unix)]
+#[test]
+fn issue_50_exact_intermediate_symlink_within_root_is_not_a_directory() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary in-root symlink root");
+    let actual = temp.path().join("actual");
+    fs::create_dir(&actual).expect("in-root target directory");
+    fs::write(actual.join("inside.txt"), "").expect("in-root target file");
+    symlink("actual", temp.path().join("alias")).expect("in-root directory symlink");
+
+    let error = verify_lines(temp.path(), "- alias/inside.txt\n")
+        .expect_err("a flat path must not traverse an exact intermediate symlink");
+    assert!(matches!(
+        error,
+        AppError::Semantic(SemanticError::TypeMismatch {
+            line: 2,
+            ref expected,
+            ref found,
+            ref path,
+        }) if expected == "directory" && found == "symbolic link" && path == "alias"
+    ));
+}
+
 #[test]
 fn issue_50_unicode_identity_is_exact_or_capability_is_explicit() {
     let temp = TempDir::new().expect("temporary Unicode-identity root");
