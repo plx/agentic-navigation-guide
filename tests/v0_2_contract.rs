@@ -2048,6 +2048,49 @@ fn issue_41_parser_diagnostics_escape_rejected_controls() {
     }
 }
 
+#[test]
+fn issue_41_rejected_name_diagnostics_are_reversible_and_double_quoted() {
+    let temp = TempDir::new().expect("temporary issue-41 quoted diagnostic fixture");
+    let guide_path = temp.path().join("guide.md");
+    for (expression, expected) in [
+        ("\"\"", "\"\""),
+        ("bad\\q.txt", "\"bad\\\\q.txt\""),
+        ("\"bad\\q\"", "\"\\\"bad\\\\q\\\"\""),
+        ("\"C:root\"", "\"C:root\""),
+        ("\\\\root", "\"\\\\root\""),
+    ] {
+        fs::write(
+            &guide_path,
+            format!("<agentic-navigation-guide>\n- {expression}\n</agentic-navigation-guide>"),
+        )
+        .expect("write rejected-name guide");
+
+        let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+            .arg("check")
+            .arg("--guide")
+            .arg(&guide_path)
+            .output()
+            .expect("run check with rejected name");
+        let mut diagnostics = output.stdout;
+        diagnostics.extend_from_slice(&output.stderr);
+        let diagnostics =
+            String::from_utf8(diagnostics).expect("rejected-name diagnostic must be UTF-8");
+
+        assert!(
+            !output.status.success(),
+            "check accepted rejected expression {expression:?}"
+        );
+        assert!(
+            diagnostics.contains(expected),
+            "diagnostic did not reversibly render {expression:?} as {expected:?}:\n{diagnostics}"
+        );
+        assert!(
+            !diagnostics.contains('\u{fffd}'),
+            "diagnostic used a lossy replacement character: {diagnostics}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn issue_41_root_prefixes_reject_but_later_components_round_trip() {
