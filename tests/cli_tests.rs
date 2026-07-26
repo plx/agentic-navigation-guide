@@ -96,6 +96,265 @@ fn issue_42_dump_and_init_reject_unsupported_entries_all_or_nothing() {
     }
 }
 
+fn assert_issue_43_preflight_rejection(label: &str, root: &Path, generation_args: &[&str]) {
+    for omit_wrapper in [false, true] {
+        let mut command = isolated_command();
+        command.arg("dump").arg("--root").arg(root);
+        if omit_wrapper {
+            command.arg("--omit-xml-wrapper");
+        }
+        let output = command.args(generation_args).output().unwrap();
+        assert!(
+            !output.status.success(),
+            "{label}: dump stdout accepted invalid generation input"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{label}: dump stdout delivered bytes before preflight failed:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+
+    for subcommand in ["dump", "init"] {
+        let output_parent = TempDir::new().unwrap();
+        let destination = output_parent.path().join(format!("{subcommand}.md"));
+        let output = isolated_command()
+            .arg(subcommand)
+            .arg("--root")
+            .arg(root)
+            .arg("--output")
+            .arg(&destination)
+            .args(generation_args)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "{label}: {subcommand} --output accepted invalid generation input"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{label}: {subcommand} reported success before preflight failed:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(
+            !destination.exists(),
+            "{label}: {subcommand} created a destination before preflight completed"
+        );
+    }
+}
+
+#[test]
+fn issue_43_invalid_generation_inputs_are_all_or_nothing() {
+    let empty = TempDir::new().unwrap();
+    assert_issue_43_preflight_rejection("empty root", empty.path(), &[]);
+
+    let fully_excluded = TempDir::new().unwrap();
+    fs::write(fully_excluded.path().join("only.txt"), "").unwrap();
+    assert_issue_43_preflight_rejection(
+        "fully excluded root",
+        fully_excluded.path(),
+        &["--exclude", "only.txt"],
+    );
+
+    let parent = TempDir::new().unwrap();
+    let file_root = parent.path().join("root.txt");
+    fs::write(&file_root, "").unwrap();
+    assert_issue_43_preflight_rejection("regular-file root", &file_root, &[]);
+
+    let missing_root = parent.path().join("missing");
+    assert_issue_43_preflight_rejection("missing root", &missing_root, &[]);
+}
+
+#[test]
+fn issue_43_init_default_vcs_exclusion_cannot_generate_an_empty_guide() {
+    let root = TempDir::new().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    fs::write(root.path().join(".git/config"), "").unwrap();
+
+    let output_parent = TempDir::new().unwrap();
+    let rejected_destination = output_parent.path().join("rejected.md");
+    let rejected = isolated_command()
+        .arg("init")
+        .arg("--root")
+        .arg(root.path())
+        .arg("--output")
+        .arg(&rejected_destination)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(rejected.stdout.is_empty());
+    assert!(!rejected_destination.exists());
+
+    let accepted_destination = output_parent.path().join("accepted.md");
+    let accepted = isolated_command()
+        .arg("init")
+        .arg("--root")
+        .arg(root.path())
+        .arg("--output")
+        .arg(&accepted_destination)
+        .arg("--include-vcs-directories")
+        .output()
+        .unwrap();
+    assert!(
+        accepted.status.success(),
+        "--include-vcs-directories rejected a nonempty input: {}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    assert!(accepted_destination.is_file());
+}
+
+fn assert_issue_43_invalid_number(option: &str, value: &str) {
+    let missing_parent = TempDir::new().unwrap();
+    let missing_root = missing_parent.path().join("must-not-be-read");
+
+    for subcommand in ["dump", "init"] {
+        for to_file in [false, true] {
+            if subcommand == "init" && !to_file {
+                continue;
+            }
+
+            let output_parent = TempDir::new().unwrap();
+            let destination = output_parent.path().join(format!("{subcommand}.md"));
+            let mut command = isolated_command();
+            command
+                .arg(subcommand)
+                .arg("--root")
+                .arg(&missing_root)
+                .arg(option)
+                .arg(value);
+            if to_file {
+                command.arg("--output").arg(&destination);
+            }
+            let output = command.output().unwrap();
+            let diagnostics = combined_output(&output);
+
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "{subcommand} {option} {value} did not reject during argument parsing:\n{diagnostics}"
+            );
+            assert!(
+                output.stdout.is_empty(),
+                "{subcommand} {option} {value} wrote stdout before rejection"
+            );
+            assert!(
+                diagnostics.contains("invalid value"),
+                "{subcommand} {option} {value} lacked an invalid-value diagnostic:\n{diagnostics}"
+            );
+            assert!(
+                !destination.exists(),
+                "{subcommand} {option} {value} created a destination before rejection"
+            );
+        }
+    }
+}
+
+#[test]
+fn issue_43_cli_numeric_bounds_reject_before_generation() {
+    for value in ["0", "17", &usize::MAX.to_string()] {
+        assert_issue_43_invalid_number("--indent", value);
+    }
+    for value in ["257", &usize::MAX.to_string()] {
+        assert_issue_43_invalid_number("--depth", value);
+    }
+}
+
+#[test]
+fn issue_43_cli_numeric_boundaries_and_help_are_exact() {
+    let root = TempDir::new().unwrap();
+    fs::create_dir(root.path().join("nested")).unwrap();
+    fs::write(root.path().join("nested/file.txt"), "").unwrap();
+
+    for indent in ["1", "16"] {
+        isolated_command()
+            .args(["dump", "--root"])
+            .arg(root.path())
+            .args(["--indent", indent])
+            .assert()
+            .success();
+    }
+
+    let depth_zero = isolated_command()
+        .args(["dump", "--root"])
+        .arg(root.path())
+        .args(["--depth", "0"])
+        .output()
+        .unwrap();
+    assert!(depth_zero.status.success());
+    let depth_zero_source = String::from_utf8(depth_zero.stdout).unwrap();
+    assert!(depth_zero_source.contains("- nested/"));
+    assert!(!depth_zero_source.contains("file.txt"));
+
+    isolated_command()
+        .args(["dump", "--root"])
+        .arg(root.path())
+        .args(["--depth", "256"])
+        .assert()
+        .success();
+
+    for subcommand in ["dump", "init"] {
+        let help = isolated_command()
+            .args([subcommand, "--help"])
+            .output()
+            .unwrap();
+        assert!(help.status.success());
+        let help = String::from_utf8(help.stdout).unwrap();
+        for required in [
+            "1 through 16",
+            "0 through 256",
+            "root children",
+            "empty or fully excluded",
+        ] {
+            assert!(
+                help.contains(required),
+                "{subcommand} help omitted '{required}':\n{help}"
+            );
+        }
+    }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn issue_43_generation_root_alias_is_allowed_as_the_canonical_anchor() {
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_dir;
+
+    let target = TempDir::new().unwrap();
+    fs::create_dir(target.path().join("nested")).unwrap();
+    fs::write(target.path().join("nested/file.txt"), "").unwrap();
+    let alias_parent = TempDir::new().unwrap();
+    let alias = alias_parent.path().join("selected-generation-root");
+    #[cfg(unix)]
+    symlink(target.path(), &alias).unwrap();
+    #[cfg(windows)]
+    symlink_dir(target.path(), &alias)
+        .expect("Windows root-alias capability is required for #43 trust evidence");
+
+    let output = isolated_command()
+        .args(["dump", "--root"])
+        .arg(&alias)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "caller-selected root alias was rejected: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let source = String::from_utf8(output.stdout).unwrap();
+    let guide = agentic_navigation_guide::Parser::new()
+        .parse(&source)
+        .expect("root-alias output must parse");
+    agentic_navigation_guide::Validator::new()
+        .validate_syntax(&guide)
+        .expect("root-alias output must validate");
+    agentic_navigation_guide::Verifier::new(&alias)
+        .verify(&guide)
+        .expect("root-alias output must be checkable from the selected anchor");
+}
+
 #[cfg(unix)]
 fn create_guide_file_link(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).unwrap();

@@ -379,9 +379,11 @@ struct TreeNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Parser, Validator, Verifier};
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use tempfile::TempDir;
 
     #[test]
@@ -516,5 +518,192 @@ mod tests {
             !diagnostic.contains(&temp_dir.path().display().to_string()),
             "diagnostic disclosed the physical root: {diagnostic}"
         );
+    }
+
+    #[test]
+    fn issue_43_invalid_roots_and_empty_generation_reject() {
+        let empty = TempDir::new().unwrap();
+        assert!(
+            Dumper::new(empty.path()).dump().is_err(),
+            "an empty directory generated an empty guide body"
+        );
+
+        let excluded = TempDir::new().unwrap();
+        fs::write(excluded.path().join("only.txt"), "").unwrap();
+        let patterns = vec!["only.txt".to_string()];
+        assert!(
+            Dumper::new(excluded.path())
+                .with_exclude_patterns(&patterns)
+                .unwrap()
+                .dump()
+                .is_err(),
+            "a fully excluded directory generated an empty guide body"
+        );
+
+        let parent = TempDir::new().unwrap();
+        let file_root = parent.path().join("root.txt");
+        fs::write(&file_root, "").unwrap();
+        assert!(
+            Dumper::new(&file_root).dump().is_err(),
+            "a regular-file root generated an empty guide body"
+        );
+
+        let missing_root = parent.path().join("missing");
+        assert!(
+            Dumper::new(&missing_root).dump().is_err(),
+            "a missing root was accepted"
+        );
+
+        let directory_only = TempDir::new().unwrap();
+        fs::create_dir(directory_only.path().join("empty-child")).unwrap();
+        assert_eq!(
+            Dumper::new(directory_only.path()).dump().unwrap(),
+            "- empty-child/\n",
+            "an included empty directory is a representable nonempty entry"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn issue_43_unreadable_root_rejects_when_the_platform_enforces_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TempDir::new().unwrap();
+        fs::write(root.path().join("file.txt"), "").unwrap();
+        let original = fs::metadata(root.path()).unwrap().permissions();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o000)).unwrap();
+
+        if fs::read_dir(root.path()).is_ok() {
+            fs::set_permissions(root.path(), original).unwrap();
+            return;
+        }
+
+        let observed = Dumper::new(root.path()).dump();
+        fs::set_permissions(root.path(), original).unwrap();
+        assert!(observed.is_err(), "an unreadable root was accepted");
+    }
+
+    #[test]
+    fn issue_43_numeric_bounds_are_enforced_without_panics() {
+        let root = TempDir::new().unwrap();
+        fs::create_dir(root.path().join("nested")).unwrap();
+        fs::write(root.path().join("nested/file.txt"), "").unwrap();
+
+        for indent in [0, 17, usize::MAX] {
+            let observed = catch_unwind(AssertUnwindSafe(|| {
+                Dumper::new(root.path()).with_indent_size(indent).dump()
+            }));
+            assert!(
+                matches!(observed, Ok(Err(_))),
+                "indent {indent} did not return a bounded rejection: {observed:?}"
+            );
+        }
+
+        for depth in [257, usize::MAX] {
+            let observed = catch_unwind(AssertUnwindSafe(|| {
+                Dumper::new(root.path()).with_max_depth(Some(depth)).dump()
+            }));
+            assert!(
+                matches!(observed, Ok(Err(_))),
+                "depth {depth} did not return a bounded rejection: {observed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue_43_valid_numeric_boundaries_generate_checkable_guides() {
+        let root = TempDir::new().unwrap();
+        fs::create_dir(root.path().join("nested")).unwrap();
+        fs::write(root.path().join("nested/file.txt"), "").unwrap();
+
+        for indent in [1, 16] {
+            let source = Dumper::new(root.path())
+                .with_indent_size(indent)
+                .dump_with_wrapper()
+                .unwrap_or_else(|error| panic!("valid indent {indent} failed: {error}"));
+            let guide = Parser::new()
+                .parse(&source)
+                .unwrap_or_else(|error| panic!("indent {indent} was not parseable: {error}"));
+            Validator::new()
+                .validate_syntax(&guide)
+                .unwrap_or_else(|error| panic!("indent {indent} was not valid: {error}"));
+            Verifier::new(root.path())
+                .verify(&guide)
+                .unwrap_or_else(|error| panic!("indent {indent} was not checkable: {error}"));
+        }
+
+        for depth in [0, 2, 256] {
+            let source = Dumper::new(root.path())
+                .with_max_depth(Some(depth))
+                .dump_with_wrapper()
+                .unwrap_or_else(|error| panic!("valid depth {depth} failed: {error}"));
+            let guide = Parser::new()
+                .parse(&source)
+                .unwrap_or_else(|error| panic!("depth {depth} was not parseable: {error}"));
+            Validator::new()
+                .validate_syntax(&guide)
+                .unwrap_or_else(|error| panic!("depth {depth} was not valid: {error}"));
+        }
+
+        let depth_zero = Dumper::new(root.path())
+            .with_max_depth(Some(0))
+            .dump()
+            .unwrap();
+        assert_eq!(depth_zero, "- nested/\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn issue_43_omitted_depth_rejects_instead_of_silently_truncating() {
+        const MAX_LOGICAL_DEPTH: usize = 256;
+
+        let root = TempDir::new().unwrap();
+        let mut directory = root.path().to_path_buf();
+        for _ in 0..=(MAX_LOGICAL_DEPTH + 1) {
+            directory.push("d");
+            fs::create_dir(&directory).unwrap();
+        }
+
+        assert!(
+            Dumper::new(root.path()).dump().is_err(),
+            "omitted depth silently emitted a guide beyond logical depth 256"
+        );
+
+        let source = Dumper::new(root.path())
+            .with_max_depth(Some(MAX_LOGICAL_DEPTH))
+            .dump_with_wrapper()
+            .expect("an explicit depth of 256 may produce a partial listing");
+        let guide = Parser::new()
+            .parse(&source)
+            .expect("the explicit depth-256 listing must parse");
+        Validator::new()
+            .validate_syntax(&guide)
+            .expect("the explicit depth-256 listing must validate");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn issue_43_caller_selected_root_alias_is_a_generation_anchor() {
+        use std::os::unix::fs::symlink;
+
+        let target = TempDir::new().unwrap();
+        fs::create_dir(target.path().join("nested")).unwrap();
+        fs::write(target.path().join("nested/file.txt"), "").unwrap();
+        let alias_parent = TempDir::new().unwrap();
+        let alias = alias_parent.path().join("selected-root");
+        symlink(target.path(), &alias).unwrap();
+
+        let source = Dumper::new(&alias)
+            .dump_with_wrapper()
+            .expect("a caller-selected root alias must be accepted");
+        let guide = Parser::new()
+            .parse(&source)
+            .expect("root-alias generation must remain parseable");
+        Validator::new()
+            .validate_syntax(&guide)
+            .expect("root-alias generation must remain valid");
+        Verifier::new(&alias)
+            .verify(&guide)
+            .expect("root-alias generation must remain checkable");
     }
 }
