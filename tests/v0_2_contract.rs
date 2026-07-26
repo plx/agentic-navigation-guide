@@ -14,6 +14,7 @@ use tempfile::TempDir;
 mod issue_42_entry_type;
 
 const ALLOWED_PENDING_OWNERS: &[u32] = &[];
+const REALIZED_API_REMOVAL_IDS: &[&str] = &["api-method-navigation-guide-get-full-path"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -849,7 +850,7 @@ fn trust_rows_have_one_focused_owner_and_cover_every_surface() {
 }
 
 #[test]
-fn api_rows_inventory_the_complete_current_source_surface_and_one_fate_per_export() {
+fn api_rows_inventory_the_complete_audited_legacy_surface_and_one_fate_per_export() {
     const EXPECTED_KIND_COUNTS: &[(ApiKind, usize)] = &[
         (ApiKind::PackageTarget, 1),
         (ApiKind::Module, 7),
@@ -866,7 +867,7 @@ fn api_rows_inventory_the_complete_current_source_surface_and_one_fate_per_expor
     assert_eq!(
         api_fixtures::CASES.len(),
         132,
-        "the audited current-source surface changed; update the explicit decision ledger"
+        "the audited legacy surface changed; preserve the explicit decision ledger"
     );
 
     let mut kind_counts = BTreeMap::new();
@@ -909,7 +910,7 @@ fn api_rows_inventory_the_complete_current_source_surface_and_one_fate_per_expor
     assert_eq!(
         kind_counts,
         EXPECTED_KIND_COUNTS.iter().copied().collect(),
-        "the current export inventory changed without an explicit #36 disposition"
+        "the audited legacy export inventory changed without an explicit #36 disposition"
     );
     assert_eq!(
         owner_counts,
@@ -952,7 +953,9 @@ fn api_rows_inventory_the_complete_current_source_surface_and_one_fate_per_expor
 fn api_ledger_matches_current_rust_source_and_cargo_target() {
     let expected: BTreeSet<_> = api_fixtures::CASES
         .iter()
-        .filter(|case| case.kind != ApiKind::PackageTarget)
+        .filter(|case| {
+            case.kind != ApiKind::PackageTarget && !REALIZED_API_REMOVAL_IDS.contains(&case.id)
+        })
         .map(|case| (case.kind, case.symbol.to_string()))
         .collect();
     let observed = collect_current_source_api();
@@ -1028,6 +1031,79 @@ fn api_ledger_matches_current_rust_source_and_cargo_target() {
         collect_current_variant_order(),
         expected_variant_order,
         "enum variant order or explicit discriminants changed without a #36 ledger update"
+    );
+}
+
+#[test]
+fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
+    let realized_rows = api_fixtures::CASES
+        .iter()
+        .filter(|case| REALIZED_API_REMOVAL_IDS.contains(&case.id))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        realized_rows.len(),
+        1,
+        "#52 must retain exactly one historical disposition row"
+    );
+
+    let row = realized_rows[0];
+    assert_eq!(row.id, "api-method-navigation-guide-get-full-path");
+    assert_eq!(row.kind, ApiKind::Method);
+    assert_eq!(row.disposition, ApiDisposition::RemoveIncorrectMethod);
+    assert_eq!(
+        row.symbol,
+        "NavigationGuide::get_full_path(&self, item: &NavigationGuideLine) -> PathBuf"
+    );
+    assert_eq!(row.owner_issue, 52);
+    assert!(
+        !collect_current_source_api().contains(&(row.kind, row.symbol.to_string())),
+        "#52's incorrect method is still exported by the current source"
+    );
+
+    let types = syn::parse_file(include_str!("../src/types.rs"))
+        .expect("parse types.rs for the exact #52 removal");
+    let method_still_exists = types.items.iter().any(|item| {
+        let Item::Impl(implementation) = item else {
+            return false;
+        };
+        let syn::Type::Path(type_path) = &*implementation.self_ty else {
+            return false;
+        };
+        let is_navigation_guide = type_path
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "NavigationGuide");
+        is_navigation_guide
+            && implementation.items.iter().any(|item| {
+                matches!(
+                    item,
+                    syn::ImplItem::Fn(function) if function.sig.ident == "get_full_path"
+                )
+            })
+    });
+    assert!(
+        !method_still_exists,
+        "#52 must delete get_full_path rather than privatizing or hiding it"
+    );
+
+    let readme = include_str!("../README.md");
+    assert!(
+        readme.contains("`NavigationGuide::get_full_path` is removed without replacement in v0.2"),
+        "the v0.2 changelog must name the exact removal and no-replacement migration"
+    );
+    assert!(
+        readme.contains("invoke the installed CLI")
+            && readme.contains("pinned to unsupported `0.1.4`"),
+        "the removal must retain both approved migration choices"
+    );
+
+    let contract = include_str!("../docs/v0.2-contract.md");
+    assert!(
+        contract.contains(
+            "#52 has now implemented this disposition while preserving the historical inventory row"
+        ),
+        "the normative inventory must distinguish the realized removal from ledger deletion"
     );
 }
 
