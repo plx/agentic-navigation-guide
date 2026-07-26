@@ -1,7 +1,4 @@
-use agentic_navigation_guide::types::Config;
-use agentic_navigation_guide::{
-    Dumper, FilesystemItem, GuideLocation, Parser, Validator, Verifier,
-};
+use agentic_navigation_guide::{Dumper, FilesystemItem, Parser, Validator, Verifier};
 use quote::ToTokens;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env::VarError;
@@ -285,6 +282,15 @@ impl ApiDisposition {
             Self::MakeImplementationOnly => "Make implementation-only",
             Self::RemoveIncorrectMethod => "Remove the incorrect method",
             Self::RemoveUnsupportedLinkModel => "Remove the unsupported link model",
+        }
+    }
+
+    fn is_supported_v0_2_facade(self) -> bool {
+        match self {
+            Self::RemoveLibraryTarget
+            | Self::MakeImplementationOnly
+            | Self::RemoveIncorrectMethod
+            | Self::RemoveUnsupportedLinkModel => false,
         }
     }
 }
@@ -1490,33 +1496,24 @@ fn conformance_request_rejects_unknown_owners() {
 
 #[test]
 fn library_ignored_gate_requires_non_vacuous_absence_of_supported_facades() {
-    let normative = ExpectedOperationResult::NoSupportedLibraryFacade;
-
     assert_eq!(
-        observe_single_library_ignored(Ok(())),
-        LibraryIgnoredObservation::SuccessWithoutOutcome
+        api_fixtures::CASES.len(),
+        132,
+        "the supported-facade assertion must inspect the complete pinned API inventory"
     );
-    assert!(matches_expected_operation(
-        &ObservedOperationResult::NoSupportedLibraryFacade,
-        normative,
-    ));
-    assert!(!matches_expected_operation(
-        &ObservedOperationResult::LibraryOutcomes([
-            LibraryIgnoredObservation::DistinctIgnored,
-            LibraryIgnoredObservation::DistinctIgnored,
-        ]),
-        normative,
-    ));
-    assert!(!matches_expected_operation(
-        &ObservedOperationResult::LibraryOutcomes([
-            LibraryIgnoredObservation::Rejected,
-            LibraryIgnoredObservation::Rejected,
-        ]),
-        ExpectedOperationResult::LibraryOutcomes([
-            LibraryIgnoredObservation::Rejected,
-            LibraryIgnoredObservation::DistinctIgnored,
-        ]),
-    ));
+    assert!(
+        !api_fixtures::CASES.is_empty(),
+        "an empty API inventory cannot prove that the supported facade is empty"
+    );
+    assert_eq!(
+        supported_v0_2_facade_ids(),
+        Vec::<&str>::new(),
+        "the approved #36 decision leaves no supported Rust facade"
+    );
+    assert_eq!(
+        observe_ignored_library_matrix(),
+        ObservedOperationResult::NoSupportedLibraryFacade
+    );
 }
 
 #[test]
@@ -1758,56 +1755,24 @@ fn run_operation(kind: OperationKind) -> ObservedOperationResult {
 }
 
 fn observe_ignored_library_matrix() -> ObservedOperationResult {
-    let temp = TempDir::new().expect("temporary ignored library root");
-    let source =
-        "<agentic-navigation-guide ignore=true>\n- missing.txt\n</agentic-navigation-guide>";
-    let guide_path = temp.path().join("AGENTIC_NAVIGATION_GUIDE.md");
-    fs::write(&guide_path, source).expect("write ignored library guide");
-    let guide = Parser::new().parse(source).expect("ignored library guide");
-
-    let single =
-        observe_single_library_ignored(agentic_navigation_guide::verify_guide(&guide, temp.path()));
-    let location = GuideLocation {
-        guide_path,
-        root_path: temp.path().to_path_buf(),
-    };
-    let recursive = observe_recursive_library_ignored(agentic_navigation_guide::verify_guides(
-        &[location],
-        &Config::default(),
-    ));
-
-    ObservedOperationResult::LibraryOutcomes([single, recursive])
-}
-
-fn observe_single_library_ignored(
-    result: agentic_navigation_guide::Result<()>,
-) -> LibraryIgnoredObservation {
-    // This is a transitional observation of a legacy, unsupported facade.
-    // #39 replaces both legacy calls with the non-vacuous supported-facade
-    // inventory check; it does not grow a typed public facade or infer ignored
-    // from the input flag.
-    match result {
-        Ok(()) => LibraryIgnoredObservation::SuccessWithoutOutcome,
-        Err(_) => LibraryIgnoredObservation::Rejected,
+    assert_eq!(
+        api_fixtures::CASES.len(),
+        132,
+        "the ignored-library operation must inspect the complete API inventory"
+    );
+    if supported_v0_2_facade_ids().is_empty() {
+        ObservedOperationResult::NoSupportedLibraryFacade
+    } else {
+        ObservedOperationResult::Rejected
     }
 }
 
-fn observe_recursive_library_ignored(
-    result: agentic_navigation_guide::Result<
-        Vec<agentic_navigation_guide::GuideVerificationResult>,
-    >,
-) -> LibraryIgnoredObservation {
-    match result {
-        Ok(results)
-            if matches!(
-                results.as_slice(),
-                [result] if result.success && result.ignored && result.error.is_none()
-            ) =>
-        {
-            LibraryIgnoredObservation::DistinctIgnored
-        }
-        Ok(_) | Err(_) => LibraryIgnoredObservation::Rejected,
-    }
+fn supported_v0_2_facade_ids() -> Vec<&'static str> {
+    api_fixtures::CASES
+        .iter()
+        .filter(|case| case.disposition.is_supported_v0_2_facade())
+        .map(|case| case.id)
+        .collect()
 }
 
 fn observe_source_operation(source: &str) -> ObservedOperationResult {
