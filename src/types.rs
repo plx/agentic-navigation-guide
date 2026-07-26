@@ -115,13 +115,6 @@ impl NavigationGuide {
             ignore: false,
         }
     }
-
-    /// Get the full path for an item by traversing up the hierarchy
-    pub fn get_full_path(&self, item: &NavigationGuideLine) -> PathBuf {
-        // This is a simplified version - in practice we'd need to traverse
-        // the hierarchy to build the full path
-        PathBuf::from(item.path())
-    }
 }
 
 impl Default for NavigationGuide {

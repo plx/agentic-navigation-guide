@@ -95,6 +95,8 @@ jobs:
       run: cargo test --locked issue_51 -- --nocapture
     - name: Run focused containment-guarantee tests in release mode
       run: cargo test --release --locked issue_51 -- --nocapture
+    - name: Run focused full-path API-removal tests
+      run: cargo test --locked issue_52 -- --nocapture
     - name: Run binding all-owner guide contract
       env:
         GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
