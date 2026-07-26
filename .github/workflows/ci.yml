@@ -91,6 +91,17 @@ jobs:
       run: cargo test --locked issue_50 -- --nocapture
     - name: Run focused filesystem-identity tests in release mode
       run: cargo test --release --locked issue_50 -- --nocapture
+    - name: Run binding all-owner guide contract
+      env:
+        GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
+      run: cargo test --test v0_2_contract --locked -- --nocapture
+    - name: Run focused logical-backslash regression
+      run: cargo test --locked issue_27 -- --nocapture
+    - name: Run focused syntax-sensitive-name tests
+      run: cargo test --locked issue_41 -- --nocapture
+    - name: Run ill-formed Windows-name diagnostic test
+      if: runner.os == 'Windows'
+      run: cargo test --locked path_codec::tests::ill_formed_windows_name_diagnostic_preserves_every_utf16_unit -- --exact --nocapture
 
   third-party-licenses:
     name: Third-Party Licenses

@@ -1,4 +1,6 @@
-use agentic_navigation_guide::{Dumper, FilesystemItem, Parser, Validator, Verifier};
+use agentic_navigation_guide::{
+    AppError, Dumper, FilesystemItem, Parser, SemanticError, Validator, Verifier,
+};
 use quote::ToTokens;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env::VarError;
@@ -1498,6 +1500,50 @@ fn issue_40_path_normalization_boundaries_are_executable() {
         },
         "decoded backslashes are literal because slash is the only logical separator"
     );
+}
+
+#[test]
+fn issue_27_native_separators_cannot_reinterpret_logical_backslashes() {
+    let temp = TempDir::new().expect("temporary logical-backslash root");
+    fs::create_dir(temp.path().join("dir")).expect("native directory control");
+    fs::write(temp.path().join("dir/file.txt"), "").expect("native descendant control");
+    fs::write(temp.path().join("name"), "").expect("native parent-traversal control");
+
+    for (encoded, decoded) in [
+        ("dir\\\\file.txt", "dir\\file.txt"),
+        ("dir\\\\..\\\\name", "dir\\..\\name"),
+    ] {
+        let source =
+            format!("<agentic-navigation-guide>\n- {encoded}\n</agentic-navigation-guide>");
+        let guide = Parser::new()
+            .parse(&source)
+            .expect("literal-backslash guide must parse");
+        Validator::new()
+            .validate_syntax(&guide)
+            .expect("literal-backslash guide must validate");
+        assert_eq!(guide.items[0].path(), decoded);
+
+        #[cfg(unix)]
+        {
+            fs::write(temp.path().join(decoded), "").expect("literal-backslash control");
+            Verifier::new(temp.path())
+                .verify(&guide)
+                .expect("a representable literal-backslash name must verify exactly");
+            fs::remove_file(temp.path().join(decoded)).expect("remove literal-backslash control");
+        }
+
+        let error = Verifier::new(temp.path())
+            .verify(&guide)
+            .expect_err("native separators must not satisfy a literal-backslash guide name");
+        assert!(matches!(
+            error,
+            AppError::Semantic(SemanticError::ItemNotFound {
+                line: 2,
+                ref path,
+                ..
+            }) if path == decoded
+        ));
+    }
 }
 
 #[test]
