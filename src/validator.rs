@@ -1,6 +1,9 @@
 //! Syntax validation for navigation guides
 
 use crate::errors::{Result, SyntaxError};
+use crate::path_codec::{
+    contains_forbidden_control, has_windows_drive_prefix, render_utf8_component,
+};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::HashSet;
 
@@ -22,7 +25,7 @@ impl Validator {
 
         // Validate each item
         for item in &guide.items {
-            self.validate_item(item)?;
+            self.validate_item(item, true)?;
         }
 
         // Validate indentation consistency
@@ -38,7 +41,7 @@ impl Validator {
     }
 
     /// Validate a single navigation guide item
-    fn validate_item(&self, item: &NavigationGuideLine) -> Result<()> {
+    fn validate_item(&self, item: &NavigationGuideLine, at_root: bool) -> Result<()> {
         match &item.item {
             FilesystemItem::Placeholder { .. } => {
                 // Placeholders don't need path validation
@@ -46,7 +49,7 @@ impl Validator {
             }
             _ => {
                 // Validate path structure for non-placeholder items
-                self.validate_path_structure(item)?;
+                self.validate_path_structure(item, at_root)?;
             }
         }
 
@@ -64,7 +67,7 @@ impl Validator {
 
                 // Validate children recursively
                 for child in children {
-                    self.validate_item(child)?;
+                    self.validate_item(child, false)?;
                 }
 
                 // Check placeholder-specific rules for children
@@ -89,7 +92,7 @@ impl Validator {
     }
 
     /// Validate path structure without restricting character classes.
-    fn validate_path_structure(&self, item: &NavigationGuideLine) -> Result<()> {
+    fn validate_path_structure(&self, item: &NavigationGuideLine, at_root: bool) -> Result<()> {
         let path = item.path();
 
         // Check for empty path
@@ -103,7 +106,7 @@ impl Validator {
 
         // `/` is the sole logical separator, but a leading backslash is still
         // a rooted Windows spelling and rejects on every host.
-        if path.starts_with(['/', '\\']) {
+        if path.starts_with('/') || (at_root && path.starts_with('\\')) {
             return Err(SyntaxError::InvalidPathFormat {
                 line: item.line_number,
                 path: path.to_string(),
@@ -130,7 +133,15 @@ impl Validator {
                 .into());
             }
 
-            if index == 0 && Self::has_windows_drive_prefix(component) {
+            if contains_forbidden_control(component) {
+                return Err(SyntaxError::InvalidPathFormat {
+                    line: item.line_number,
+                    path: render_utf8_component(path),
+                }
+                .into());
+            }
+
+            if at_root && index == 0 && has_windows_drive_prefix(component) {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
                     path: path.to_string(),
@@ -140,11 +151,6 @@ impl Validator {
         }
 
         Ok(())
-    }
-
-    fn has_windows_drive_prefix(component: &str) -> bool {
-        let bytes = component.as_bytes();
-        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
     }
 
     fn validate_unique_full_paths(

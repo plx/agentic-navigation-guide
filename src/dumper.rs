@@ -1,7 +1,12 @@
 //! Directory dumping functionality for generating navigation guides
 
 use crate::errors::{AppError, Result};
+use crate::path_codec::{
+    contains_forbidden_control, has_windows_drive_prefix, render_os_component,
+    render_utf8_component, serialize_component,
+};
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
@@ -62,7 +67,8 @@ impl Dumper {
         let entries = self.collect_entries()?;
 
         // Build the tree structure
-        let tree = self.build_tree(entries)?;
+        let mut tree = self.build_tree(entries)?;
+        Self::prepare_tree(&mut tree, 0)?;
 
         // Format as markdown
         self.format_tree(&tree, &mut output, 0);
@@ -119,6 +125,7 @@ impl Dumper {
 
         for entry in walker {
             let entry = entry?;
+            Self::validate_included_name(entry.file_name(), entry.depth() == 1)?;
             entries.push(entry);
         }
 
@@ -129,6 +136,7 @@ impl Dumper {
     fn build_tree(&self, entries: Vec<DirEntry>) -> Result<TreeNode> {
         let mut root = TreeNode {
             name: String::new(),
+            serialized_name: String::new(),
             is_dir: true,
             children: Vec::new(),
         };
@@ -166,6 +174,7 @@ impl Dumper {
                 .to_string();
             node.children.push(TreeNode {
                 name,
+                serialized_name: String::new(),
                 is_dir,
                 children: Vec::new(),
             });
@@ -189,6 +198,7 @@ impl Dumper {
             } else {
                 node.children.push(TreeNode {
                     name: first.clone(),
+                    serialized_name: String::new(),
                     is_dir: true,
                     children: Vec::new(),
                 });
@@ -202,12 +212,51 @@ impl Dumper {
     }
 
     fn ensure_utf8_relative_path(&self, relative_path: &Path) -> Result<()> {
-        for component in relative_path.components() {
-            if component.as_os_str().to_str().is_none() {
-                return Err(AppError::NonUtf8Path {
-                    path: self.root_path.join(relative_path),
-                });
-            }
+        for (index, component) in relative_path.components().enumerate() {
+            Self::validate_included_name(component.as_os_str(), index == 0)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_included_name(name: &OsStr, at_root: bool) -> Result<()> {
+        let Some(name) = name.to_str() else {
+            return Err(AppError::Other(format!(
+                "unsupported non-UTF-8 filesystem name {}",
+                render_os_component(name)
+            )));
+        };
+
+        if contains_forbidden_control(name) {
+            return Err(AppError::Other(format!(
+                "unsupported control-bearing filesystem name {}",
+                render_utf8_component(name)
+            )));
+        }
+
+        if at_root && (name.starts_with('\\') || has_windows_drive_prefix(name)) {
+            return Err(AppError::Other(format!(
+                "unsupported rooted or drive-prefixed filesystem name {}",
+                render_utf8_component(name)
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn prepare_tree(node: &mut TreeNode, depth: usize) -> Result<()> {
+        node.children
+            .sort_by(|left, right| left.name.as_bytes().cmp(right.name.as_bytes()));
+
+        for child in &mut node.children {
+            Self::validate_included_name(OsStr::new(&child.name), depth == 0)?;
+            child.serialized_name = serialize_component(&child.name).ok_or_else(|| {
+                AppError::Other(format!(
+                    "unsupported filesystem name {}",
+                    render_utf8_component(&child.name)
+                ))
+            })?;
+            Self::prepare_tree(child, depth + 1)?;
         }
 
         Ok(())
@@ -218,9 +267,9 @@ impl Dumper {
         for child in &node.children {
             let indent = " ".repeat(depth * self.indent_size);
             let name = if child.is_dir {
-                format!("{}/", child.name)
+                format!("{}/", child.serialized_name)
             } else {
-                child.name.clone()
+                child.serialized_name.clone()
             };
 
             output.push_str(&format!("{indent}- {name}\n"));
@@ -235,6 +284,7 @@ impl Dumper {
 /// Internal tree node structure
 struct TreeNode {
     name: String,
+    serialized_name: String,
     is_dir: bool,
     children: Vec<TreeNode>,
 }

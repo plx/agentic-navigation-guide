@@ -1700,6 +1700,23 @@ fn issue_41_path_lexer_boundaries_are_executable() {
         },
         "only unescaped U+0020 is line padding; Unicode whitespace is path data"
     );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- c1-\u{85}-name\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::File,
+                path: "c1-\u{85}-name".to_string(),
+            }],
+        },
+        "the forbidden set is C0 plus DEL, not every Unicode control property"
+    );
+    assert!(matches!(
+        observe(
+            "<agentic-navigation-guide>\n- parent/\n  - [C:alpha, C:beta]\n</agentic-navigation-guide>"
+        ),
+        ObservedResult::Accept { .. }
+    ));
 
     for source in [
         "<agentic-navigation-guide>\n- \"unterminated\n</agentic-navigation-guide>",
@@ -1717,6 +1734,9 @@ fn issue_41_path_lexer_boundaries_are_executable() {
         "<agentic-navigation-guide>\n- trailing\\ \n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- \"\"\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- \"src/\"\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- [\" edge \",plain]\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- [\\ edge\\ ,plain]\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- [C:alpha, C:beta]\n</agentic-navigation-guide>",
     ] {
         assert_eq!(observe(source), ObservedResult::Reject, "{source}");
     }
@@ -1736,6 +1756,7 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
         "report#draft",
         "...",
         "emoji-🧭.txt",
+        "c1-\u{85}.txt",
     ] {
         fs::write(root.join(name), "").unwrap_or_else(|error| panic!("create '{name}': {error}"));
         expected.insert(name.to_string(), ItemKind::File);
@@ -1786,6 +1807,16 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
     expected.insert("ordinary".to_string(), ItemKind::Directory);
     expected.insert("ordinary/nested.txt".to_string(), ItemKind::File);
 
+    fs::create_dir_all(root.join("ordinary/...")).expect("literal ellipsis directory");
+    fs::write(root.join("ordinary/.../child.txt"), "").expect("ellipsis-directory child");
+    expected.insert("ordinary/...".to_string(), ItemKind::Directory);
+    expected.insert("ordinary/.../child.txt".to_string(), ItemKind::File);
+
+    fs::create_dir(root.join("dir#hash")).expect("syntax-sensitive directory");
+    fs::write(root.join("dir#hash/child.txt"), "").expect("syntax-sensitive directory child");
+    expected.insert("dir#hash".to_string(), ItemKind::Directory);
+    expected.insert("dir#hash/child.txt".to_string(), ItemKind::File);
+
     #[cfg(unix)]
     {
         fs::write(root.join("ordinary/C:notes"), "").expect("later drive-looking component");
@@ -1802,6 +1833,8 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
     assert!(source.contains("- \"quote\\\"name.txt\"\n"), "{source}");
     assert!(source.contains("- \"report#draft\"\n"), "{source}");
     assert!(source.contains("- \"...\"\n"), "{source}");
+    assert!(source.contains("- \"dir#hash\"/\n"), "{source}");
+    assert!(source.contains("  - \"...\"/\n"), "{source}");
 
     let guide = Parser::new()
         .parse(&source)
@@ -1854,18 +1887,31 @@ fn issue_41_generation_is_all_or_nothing_and_diagnostics_are_control_safe() {
         .arg(&root)
         .output()
         .expect("run dump with rejected name");
-    let destination = temp.path().join("generated.md");
+    let dump_destination = temp.path().join("dump.md");
+    let dump_to_file = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+        .arg("dump")
+        .arg("--root")
+        .arg(&root)
+        .arg("--output")
+        .arg(&dump_destination)
+        .output()
+        .expect("run dump-to-file with rejected name");
+    let init_destination = temp.path().join("generated.md");
     let init = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
         .arg("init")
         .arg("--root")
         .arg(&root)
         .arg("--output")
-        .arg(&destination)
+        .arg(&init_destination)
         .arg("--include-vcs-directories")
         .output()
         .expect("run init with rejected name");
 
-    for (command, output) in [("dump", dump), ("init", init)] {
+    for (command, output) in [
+        ("dump", dump),
+        ("dump --output", dump_to_file),
+        ("init", init),
+    ] {
         let mut diagnostics = output.stdout.clone();
         diagnostics.extend_from_slice(&output.stderr);
         assert!(
@@ -1892,10 +1938,12 @@ fn issue_41_generation_is_all_or_nothing_and_diagnostics_are_control_safe() {
             "{command} used a lossy replacement character"
         );
     }
-    assert!(
-        !destination.exists(),
-        "init created its destination before serializer preflight completed"
-    );
+    for destination in [&dump_destination, &init_destination] {
+        assert!(
+            !destination.exists(),
+            "generation created {destination:?} before serializer preflight completed"
+        );
+    }
 }
 
 #[cfg(unix)]
