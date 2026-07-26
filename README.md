@@ -113,6 +113,12 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   parent is enumerated once per verification and that snapshot drives exact
   component lookup, type classification, and placeholder accounting. This
   corrects the identity and repeated-scan bugs under #50.
+- **2026-07-26 — Verification containment is anchored to a stable tree.**
+  Unlike `0.1.4`, verification traverses from the caller-selected root's
+  once-canonicalized directory, rejects every link or reparse ancestor below
+  that anchor without resolving its target, and fails on identity or type
+  changes it observes. This is a stable-filesystem consistency guarantee, not
+  a sandbox or a hostile-concurrent-replacement guarantee.
 
 ## Navigation Guide Format
 
@@ -241,6 +247,33 @@ would accept an alias. Each visited parent is enumerated at most once in one
 verification; the resulting immediate-child names and types are reused for
 listed lookup, recursion, and placeholder accounting. A later verification
 constructs fresh snapshots.
+
+### Verification Containment and Concurrent Mutation
+
+The caller-selected verification root is canonicalized once. The root itself
+may be a symbolic-link, junction, or reparse alias; its canonical directory is
+the anchor used for every later item lookup. Guide paths are validated as
+relative logical components before access. From the anchor, verification
+matches each component in its exact parent snapshot, observes it without
+following links, and descends only through a real directory. An intermediate
+symbolic link, junction, or other link-like reparse entry is rejected before
+its target is resolved, whether that target is in-root, external, dangling,
+chained, or looping.
+
+The verifier records filesystem identity and type for each visited parent and
+listed component. It rechecks parents around enumeration and listed entries
+before and after dependent verification, failing when it observes
+disappearance, identity replacement, or a file/directory/type change.
+Containment diagnostics retain the safe logical guide path but omit canonical
+root aliases and resolved external targets.
+
+These checks assume the relevant tree remains stable from root resolution
+through the last dependent lookup or enumeration. A process that can replace
+the root, an ancestor, or an item between checks is outside the v0.2
+guarantee; identity rechecks are defense in depth and do not close every race.
+The verifier is a consistency checker, not a filesystem sandbox, access
+control boundary, malware scanner, or safe way to execute an untrusted
+process.
 
 ### Placeholder Entries
 

@@ -177,9 +177,7 @@ pub enum SemanticError {
     PlaceholderNoUnmentionedItems { line: usize, parent: String },
 
     /// Path resolves outside the configured verification root
-    #[error(
-        "line {line}: '{path}' resolves outside root boundary '{root}' (resolved: {resolved})"
-    )]
+    #[error("line {line}: '{path}' crosses the configured verification root boundary")]
     PathEscapesRoot {
         line: usize,
         path: String,
