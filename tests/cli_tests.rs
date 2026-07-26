@@ -2713,6 +2713,36 @@ fn test_allow_empty_does_not_convert_traversal_failure_into_empty_success() {
 }
 
 #[test]
+fn test_allow_empty_does_not_convert_non_directory_root_into_empty_success() {
+    for allow_empty in [false, true] {
+        for mode in RECURSIVE_ZERO_MODES {
+            let temp = TempDir::new().unwrap();
+            let file_root = temp.path().join("not-a-directory");
+            fs::write(&file_root, "").unwrap();
+            let fixture = ZeroDiscoveryFixture {
+                _temp: temp,
+                search_root: file_root,
+                guide_name: "AGENTIC_NAVIGATION_GUIDE.md",
+                exclusions: Vec::new(),
+            };
+            let output = run_recursive_zero_case(&fixture, mode, allow_empty);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            assert_eq!(
+                output.status.code(),
+                Some(mode.failure_code()),
+                "non-directory root in {mode:?} mode was converted to empty success"
+            );
+            assert!(
+                stderr.contains("is not a directory")
+                    && !stderr.contains("zero navigation guides were verified"),
+                "non-directory root in {mode:?} mode was misclassified:\n{stderr}"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_recursive_verify_deeply_nested() {
     let temp_dir = TempDir::new().unwrap();
     let root = temp_dir.path();
