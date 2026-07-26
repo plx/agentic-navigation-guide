@@ -429,11 +429,13 @@ root.
 Irrelevant and shadowed environment values are not parsed. Environment-default
 resolution rejects an empty path/root, invalid single-component name, or
 invalid mode before command work begins. Those configuration diagnostics
-identify the variable and expected form without printing its value. A nonempty
-path/root is preserved as an operating-system path; existence, access, and
-trust checks then follow the command's ordinary filesystem rules. Explicit CLI
-contradictions—such as `--quiet --verbose` or `verify --guide ...
---recursive`—remain actionable usage errors.
+identify the variable and expected form without printing its value. Rejection
+at this pre-execution layer is a usage error with status 2, regardless of the
+requested execution mode. A nonempty path/root is preserved as an
+operating-system path; existence, access, and trust checks then follow the
+command's ordinary filesystem rules. Explicit CLI contradictions—such as
+`--quiet --verbose` or `verify --guide ... --recursive`—remain actionable usage
+errors.
 
 ### Exclusion Patterns
 

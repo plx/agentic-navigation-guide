@@ -598,9 +598,10 @@ fn issue_46_selected_invalid_environment_values_are_safe_and_actionable() {
         }
         let output = command.output().expect("invalid environment command");
         let diagnostics = combined_output(&output);
-        assert!(
-            !output.status.success(),
-            "{variable} accepted its selected invalid value"
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{variable} was not reported as a configuration usage error:\n{diagnostics}"
         );
         assert!(
             diagnostics.contains(variable),
@@ -613,6 +614,26 @@ fn issue_46_selected_invalid_environment_values_are_safe_and_actionable() {
         assert!(
             output.stdout.is_empty(),
             "{variable} delivered command output before configuration rejection"
+        );
+    }
+
+    for execution_flag in [
+        "--post-tool-use-hook",
+        "--pre-commit-hook",
+        "--github-actions-check",
+    ] {
+        let output = isolated_command()
+            .current_dir(&root)
+            .env("AGENTIC_NAVIGATION_GUIDE_NAME", "")
+            .arg(execution_flag)
+            .arg("check")
+            .output()
+            .expect("invalid environment command with execution flag");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "configuration usage errors changed status under {execution_flag}:\n{}",
+            combined_output(&output)
         );
     }
 
