@@ -84,6 +84,7 @@ A "navigation guide" looks like this:
   - cli/
     - init.rs # init subcommand
     - dump.rs # dump subcommand
+    - output.rs # shared exclusive filesystem-output sink
     - verify.rs # verify subcommand
 - Cargo.toml
 - README.md
@@ -247,18 +248,55 @@ The advantage of this workflow is it keeps your navigation guide content physica
 
 The tool provides the following commands:
 
-- `init`: initialize a new navigation guide file with the current directory structure
+- `init --output <path>`: initialize a new navigation guide file with the current directory structure
 - `check`: check that the contents of a hand-written navigation guide are *syntactically* correct (i.e. adhere to the format specified above)
 - `verify`: verify that the contents of a hand-written navigation guide accurately reflect the current state of the file system
-- `dump`: dump the current directory contents in the intended markdown format
+- `dump [--output <path>]`: dump the current directory contents in the intended markdown format, to stdout by default
 
 If you're adding a navigation guide to your repository, I'd suggest:
 
-- run `agentic-navigation-guide init` to generate a starting point
+- run `agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md` to generate a starting point
 - hand-edit the file to add comments and omit extraneous details
 - run `agentic-navigation-guide verify` to check for errors
 - commit the file to your repository
 - update your CLAUDE.md (etc.) to include the guide using the `@` syntax
+
+### Filesystem Output Safety
+
+`init --output` and `dump --output` share the same create-new policy. The
+destination name must be absent: the commands never follow or replace an
+existing regular file, hard-link name, directory, symbolic link (including a
+dangling link), Windows reparse entry, FIFO, socket, device, or other special
+entry. There is no force or overwrite mode.
+
+The destination parent must already exist and be writable; the commands do not
+create parent directories. Below the selected generation-root spelling, every
+descendant ancestor must be a real directory rather than a link or reparse
+point. A path explicitly selected outside that spelling may use a stable
+resolved link ancestor because `--output` grants authority to that external
+parent. These checks assume a stable filesystem while the command runs and are
+not a sandbox against hostile concurrent ancestor, name, or identity
+replacement—including replacement between a cleanup identity check and
+removal.
+
+The complete guide is generated in memory before the final name is created.
+One exclusive create selects the owner, the complete buffer is written and
+flushed, and the file data is synchronized before success. If delivery fails,
+the command removes its artifact only after verifying that the entry still has
+the identity it created; a cleanup failure is reported with the caller-selected
+residual path. An observed identity mismatch is never removed. A competing
+creator is never overwritten.
+
+Exclusive creation makes ownership of the name atomic, not content
+publication. A concurrent reader may observe an in-progress prefix before the
+command succeeds. The parent directory is not synchronized, so no crash
+durability across an immediate power or kernel failure is promised.
+
+On Unix and macOS, final entries and in-root descendants are inspected without
+following links and creation uses exclusive, no-follow semantics. On Windows,
+link-like reparse descendants, alternate data streams, device and named-pipe
+namespaces, reserved DOS device aliases, and unsupported verbatim prefixes are
+rejected; a newly created handle must be a regular non-reparse disk file.
 
 ## Post-Tool-Use Hook
 

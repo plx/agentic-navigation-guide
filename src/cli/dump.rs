@@ -1,5 +1,6 @@
 //! Dump subcommand implementation
 
+use super::output;
 use agentic_navigation_guide::dumper::Dumper;
 use agentic_navigation_guide::errors::Result;
 use agentic_navigation_guide::types::Config;
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 /// Arguments for the dump subcommand
 #[derive(Args, Debug)]
 pub struct DumpArgs {
-    /// Output file path (defaults to stdout)
+    /// New output file path (defaults to stdout); existing entries are never overwritten
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
@@ -38,33 +39,43 @@ pub struct DumpArgs {
 impl DumpArgs {
     /// Execute the dump command
     pub fn execute(self, _config: &Config) -> Result<()> {
+        let Self {
+            output: output_path,
+            depth,
+            exclude,
+            indent,
+            omit_xml_wrapper,
+            root,
+        } = self;
+
         // Determine root path
-        let root_path = match self.root {
+        let root_path = match root {
             Some(root) => root,
             None => std::env::current_dir()?,
         };
 
-        log::debug!("Dumping directory: {}", root_path.display());
-
-        // Create dumper
-        let dumper = Dumper::new(&root_path)
-            .with_max_depth(self.depth)
-            .with_exclude_patterns(&self.exclude)?
-            .with_indent_size(self.indent);
-
-        // Generate output
-        let output = if self.omit_xml_wrapper {
-            dumper.dump()?
-        } else {
-            dumper.dump_with_wrapper()?
+        let generate = || -> Result<String> {
+            log::debug!("Dumping directory: {}", root_path.display());
+            let dumper = Dumper::new(&root_path)
+                .with_max_depth(depth)
+                .with_exclude_patterns(&exclude)?
+                .with_indent_size(indent);
+            if omit_xml_wrapper {
+                dumper.dump()
+            } else {
+                dumper.dump_with_wrapper()
+            }
         };
 
-        // Write output
-        if let Some(output_path) = self.output {
-            log::info!("Writing output to: {}", output_path.display());
-            std::fs::write(&output_path, output)?;
+        if let Some(output_path) = output_path {
+            output::generate_to_file(&root_path, &output_path, || {
+                let generated = generate()?;
+                log::info!("Writing output to: {}", output_path.display());
+                Ok(generated.into_bytes())
+            })?;
         } else {
-            print!("{output}");
+            let generated = generate()?;
+            print!("{generated}");
             std::io::stdout().flush()?;
         }
 

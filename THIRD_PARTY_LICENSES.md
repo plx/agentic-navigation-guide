@@ -12,7 +12,7 @@ at your option; see LICENSE-MIT and LICENSE-APACHE in this repository.
 
 ## Overview
 
-- **MIT License** (42 crates, SPDX `MIT`)
+- **MIT License** (48 crates, SPDX `MIT`)
 - **Unicode License v3** (1 crate, SPDX `Unicode-3.0`)
 
 Some crates are dual-licensed and therefore appear under more than one
@@ -26,10 +26,15 @@ required to appear under both).
 
 Used by:
 - [windows-sys 0.59.0](https://github.com/microsoft/windows-rs)
+- [windows-sys 0.60.2](https://github.com/microsoft/windows-rs)
 - [windows-targets 0.52.6](https://github.com/microsoft/windows-rs)
+- [windows-targets 0.53.3](https://github.com/microsoft/windows-rs)
 - [windows_aarch64_msvc 0.52.6](https://github.com/microsoft/windows-rs)
+- [windows_aarch64_msvc 0.53.0](https://github.com/microsoft/windows-rs)
 - [windows_x86_64_gnu 0.52.6](https://github.com/microsoft/windows-rs)
+- [windows_x86_64_gnu 0.53.0](https://github.com/microsoft/windows-rs)
 - [windows_x86_64_msvc 0.52.6](https://github.com/microsoft/windows-rs)
+- [windows_x86_64_msvc 0.53.0](https://github.com/microsoft/windows-rs)
 
 ```
     MIT License
@@ -66,6 +71,40 @@ Used by:
 
 ```
 Copyright (c) 2014 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+```
+
+### MIT License (SPDX `MIT`)
+
+Used by:
+- [libc 0.2.174](https://github.com/rust-lang/libc)
+
+```
+Copyright (c) 2014-2020 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated

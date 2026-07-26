@@ -3,6 +3,7 @@
 pub mod check;
 pub mod dump;
 pub mod init;
+mod output;
 pub mod verify;
 
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
