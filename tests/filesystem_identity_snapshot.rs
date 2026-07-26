@@ -148,10 +148,17 @@ fn issue_50_intermediate_alias_to_external_symlink_rejects_identity_first() {
 
     assert!(matches!(
         verify_lines(&root, "- Src/secret.txt\n"),
-        Err(AppError::Semantic(SemanticError::PathEscapesRoot {
+        // #51 deliberately supersedes the older containment-first
+        // PathEscapesRoot precedence: an exact intermediate link is now
+        // rejected without resolving its target.
+        Err(AppError::Semantic(SemanticError::TypeMismatch {
             line: 2,
-            ..
-        }))
+            ref expected,
+            ref found,
+            ref path,
+        })) if expected == "directory"
+            && found == "symbolic link"
+            && path == "Src"
     ));
 }
 
@@ -172,7 +179,16 @@ fn issue_50_intermediate_alias_to_dangling_symlink_rejects_identity_first() {
     assert_exact_identity_mismatch(&alias_error, 2, "src");
     assert!(matches!(
         verify_lines(temp.path(), "- Src/file.txt\n"),
-        Err(AppError::Io(_))
+        // #51 rejects dangling intermediate links by their non-following
+        // type observation instead of attempting target resolution.
+        Err(AppError::Semantic(SemanticError::TypeMismatch {
+            line: 2,
+            ref expected,
+            ref found,
+            ref path,
+        })) if expected == "directory"
+            && found == "symbolic link"
+            && path == "Src"
     ));
 }
 

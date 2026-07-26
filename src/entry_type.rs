@@ -1,5 +1,5 @@
 use std::fmt;
-use std::fs;
+use std::fs::{self, Metadata};
 use std::io;
 use std::path::Path;
 
@@ -83,6 +83,16 @@ pub(crate) fn classify_observation(observation: EntryTypeObservation) -> EntryCl
 
 pub(crate) fn classify_path(path: &Path) -> io::Result<EntryClassification> {
     let metadata = fs::symlink_metadata(path)?;
+    classify_metadata(path, &metadata)
+}
+
+pub(crate) fn classify_metadata(
+    path: &Path,
+    metadata: &Metadata,
+) -> io::Result<EntryClassification> {
+    #[cfg(not(windows))]
+    let _ = path;
+
     let file_type = metadata.file_type();
     let mut observation = EntryTypeObservation {
         is_regular_file: file_type.is_file(),

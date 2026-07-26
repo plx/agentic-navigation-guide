@@ -201,12 +201,24 @@ fn issue_51_root_parent_spelling_does_not_broaden_authority() {
     fs::create_dir_all(&child).expect("aliased child");
     fs::create_dir(real.join("sub")).expect("safe root-relative directory");
     fs::write(real.join("sub/inside.txt"), "").expect("safe root-relative file");
+    fs::write(temp.path().join("lexical-parent-decoy.txt"), "")
+        .expect("decoy beneath the alias's lexical parent");
     let alias = temp.path().join("alias");
     create_directory_link(&child, &alias);
     let selected_root = alias.join("..");
 
     verify_lines(&selected_root, "- sub/inside.txt\n")
         .expect("unresolved parent components in the selected root must retain their spelling");
+    let error = verify_lines(&selected_root, "- lexical-parent-decoy.txt\n")
+        .expect_err("the alias's lexical parent must not broaden the canonical anchor");
+    assert!(matches!(
+        error,
+        AppError::Semantic(SemanticError::ItemNotFound {
+            line: 2,
+            ref path,
+            ..
+        }) if path == "lexical-parent-decoy.txt"
+    ));
 }
 
 #[test]
