@@ -331,16 +331,20 @@ enum Issue39Body {
     Valid,
     InvalidList,
     InvalidIndentation,
+    InvalidPath,
     InvalidChoice,
+    InvalidPlaceholder,
     MissingFilesystemEntry,
     Empty,
 }
 
-const ISSUE39_BODIES: [Issue39Body; 6] = [
+const ISSUE39_BODIES: [Issue39Body; 8] = [
     Issue39Body::Valid,
     Issue39Body::InvalidList,
     Issue39Body::InvalidIndentation,
+    Issue39Body::InvalidPath,
     Issue39Body::InvalidChoice,
+    Issue39Body::InvalidPlaceholder,
     Issue39Body::MissingFilesystemEntry,
     Issue39Body::Empty,
 ];
@@ -360,9 +364,17 @@ impl Issue39Body {
                 "<agentic-navigation-guide ignore=true>",
                 "- directory/\n  - child.txt\n   - crooked.txt",
             ),
+            Self::InvalidPath => (
+                "<agentic-navigation-guide ignore=true>",
+                "- ../outside-root.txt",
+            ),
             Self::InvalidChoice => (
                 "<agentic-navigation-guide ignore=true>",
                 "- empty-choice[].txt",
+            ),
+            Self::InvalidPlaceholder => (
+                "<agentic-navigation-guide ignore=true>",
+                "- ...\n- ... # adjacent placeholder",
             ),
             Self::MissingFilesystemEntry => (
                 "<agentic-navigation-guide ignore=true>",
