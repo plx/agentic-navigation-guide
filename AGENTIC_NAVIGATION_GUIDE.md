@@ -55,6 +55,8 @@
   - ... # Local build output and dependencies
 - Cargo.toml
 - README.md
+- docs/ # Maintained user and contract documentation
+  - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
 - Specification.md # original project specification document
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
 - about.hbs # handlebars template for THIRD_PARTY_LICENSES.md
@@ -68,6 +70,10 @@
 - scripts/
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
 - tests/
+  - fixtures/
+    - v0_2_contract.rs # Machine-readable v0.2 grammar conformance ledger
+    - v0_2_operations.rs # Machine-readable v0.2 filesystem and CLI operation ledger
+  - v0_2_contract.rs # Contract fixture, documentation-sync, and staged conformance tests
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings

@@ -19,11 +19,19 @@ The validation can be done in a stand-alone way, and also has special support fo
 
 ### Source-of-Truth Precedence
 
-1. Current implementation (`src/` plus tests) is authoritative for realized runtime behavior.
-2. `README.md` is authoritative for the current user-facing contract and should match implementation.
-3. `Specification.md` captures original intent and historical context, and is not guaranteed to be fully current.
+1. [`docs/v0.2-contract.md`](docs/v0.2-contract.md) is the normative target
+   for the v0.2 guide language and filesystem representation.
+2. Current implementation (`src/` plus tests) is authoritative for realized
+   `0.1.4` runtime behavior while the contract's explicitly owned v0.2
+   divergences are being implemented.
+3. `README.md` is the concise user entry point and should match released
+   behavior.
+4. `Specification.md` captures original intent and historical context. It is
+   not normative.
 
-If `README.md` and implementation are incoherent or contradictory, treat that as a defect and resolve both in the same change when possible.
+An unrecorded contradiction is a defect. The staged conformance ledger keeps
+known v0.2 differences explicit until their focused implementation issues
+land.
 
 ### Update Process for Behavior Changes
 
@@ -37,6 +45,12 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 - None currently recorded. If one is introduced intentionally, add a dated bullet with rationale.
 
 ## Navigation Guide Format
+
+The full, versioned v0.2 format and filesystem contract is
+[`docs/v0.2-contract.md`](docs/v0.2-contract.md). The summary below is the
+legacy `0.1.4` overview; the contract's staged conformance ledger identifies
+known differences until the focused v0.2 implementation work and #66's
+documentation pass land.
 
 A "navigation guide" looks like this:
 
@@ -175,10 +189,15 @@ This is particularly useful for:
 - **Invalid examples**: Intentionally incorrect guides used to demonstrate error cases
 - **Template files**: Guide templates that may not match the current filesystem
 
-The tool accepts both `ignore=true` and `ignore="true"` formats. When a guide is ignored, the tool will:
-- Skip all syntax and semantic validation
+The tool accepts both `ignore=true` and `ignore="true"` formats. In `0.1.4`,
+the body must still pass the parser's list grammar before the ignored result
+is available. After that parse, the tool will:
+- Skip validator and filesystem verification
 - Emit a warning that the guide was skipped
 - Provide an additional note if the ignored guide is in a standalone `AGENTIC_NAVIGATION_GUIDE.md` file
+
+The v0.2 target makes the ignored body opaque and adds an explicit deny policy;
+see the [normative contract](docs/v0.2-contract.md#ignored-guides).
 
 ## Suggested Usage
 
