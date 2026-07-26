@@ -20,8 +20,9 @@ performance and RSS baseline remains assigned to #59.
 - Post-fix implementation commit: `110b96997658ce97cbfa2e27b9f382baf447a909`
 - Detected capabilities: host case aliases = true; host Unicode-normalization
   aliases = true
-- Workloads: 500, 1,000, and 2,000 regular files; the alternating workload
-  adds one meaningful-comment placeholder after every listed file
+- Workloads: 500, 1,000, and 2,000 listed regular files plus two capability
+  probe files in each timed root; the alternating workload adds one
+  meaningful-comment placeholder after every listed workload file
 - Sampling: 3 warmups and 10 measured release-mode runs; fixture creation is
   outside the timed region
 
@@ -36,7 +37,7 @@ cargo +1.90.0 test --release --locked \
 
 ## Results
 
-| State | Workload | Entries | Median (ms) | p95 (ms) | Alternating/plain |
+| State | Workload | Listed files | Median (ms) | p95 (ms) | Alternating/plain |
 |---|---|---:|---:|---:|---:|
 | Before | Plain | 500 | 5.045 | 5.150 | — |
 | Before | Alternating placeholders | 500 | 101.175 | 106.988 | 20.053× |
