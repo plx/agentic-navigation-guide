@@ -8,8 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Documentation Alignment
 
-- `docs/v0.2-contract.md` is the normative v0.2 guide-language and
-  filesystem-representation target.
+- `docs/v0.2-contract.md` is the normative v0.2 guide-language,
+  filesystem-representation, and stable-filesystem trust-boundary target.
+- Treat repositories and guide text as untrusted, but do not describe the
+  verifier as a sandbox or as hostile-concurrent-mutation safe.
 - Implementation plus tests define realized `0.1.4` behavior while explicitly
   owned v0.2 conformance rows remain pending.
 - `README.md` is the concise released-behavior entry point.

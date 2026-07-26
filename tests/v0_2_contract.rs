@@ -134,6 +134,108 @@ struct OperationCase {
     pending_issue: Option<u32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum TrustSurface {
+    GuideInput,
+    Generation,
+    Containment,
+    Output,
+    Diagnostics,
+    Concurrency,
+}
+
+impl TrustSurface {
+    fn contract_text(self) -> &'static str {
+        match self {
+            Self::GuideInput => "Guide input",
+            Self::Generation => "Generation root",
+            Self::Containment => "Containment",
+            Self::Output => "File output",
+            Self::Diagnostics => "Diagnostics",
+            Self::Concurrency => "Concurrency",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrustOutcome {
+    Allow,
+    AllowExplicit,
+    AllowAsRegular,
+    AllowAsAnchor,
+    CreateNew,
+    CreateExplicitExternal,
+    CreateRegularFileOnly,
+    ExactlyOneCreator,
+    EnforceSharedPolicy,
+    PruneWithoutTraversal,
+    PreserveRootSpelling,
+    RejectBeforeRead,
+    RejectBeforeCreate,
+    RejectBeforeTraversal,
+    RejectAndReportResidualArtifact,
+    RejectObservedMutation,
+    RejectUsage,
+    RejectWithoutDisclosure,
+    RejectWithoutMutation,
+    RejectWithoutTraversal,
+    ResolveFromAnchor,
+    DocumentInProgressVisibility,
+    DocumentStableOnly,
+}
+
+impl TrustOutcome {
+    fn contract_text(self) -> &'static str {
+        match self {
+            Self::Allow => "Allow",
+            Self::AllowExplicit => "Allow only as explicit authority",
+            Self::AllowAsRegular => "Allow as a regular file",
+            Self::AllowAsAnchor => "Allow as the caller-selected canonical anchor",
+            Self::CreateNew => "Create only when the final name is absent",
+            Self::CreateExplicitExternal => {
+                "Create only as explicit external authority when the final name is absent"
+            }
+            Self::CreateRegularFileOnly => "Create only a verified regular filesystem entry",
+            Self::ExactlyOneCreator => {
+                "Exactly one creator may succeed; the loser never overwrites"
+            }
+            Self::EnforceSharedPolicy => "Enforce the same safe-opening policy; no bypass",
+            Self::PruneWithoutTraversal => "Prune without traversal",
+            Self::PreserveRootSpelling => {
+                "Preserve unresolved parent components in lexical anchor comparison"
+            }
+            Self::RejectBeforeRead => "Reject before reading",
+            Self::RejectBeforeCreate => "Reject before destination creation",
+            Self::RejectBeforeTraversal => "Reject before input traversal",
+            Self::RejectAndReportResidualArtifact => {
+                "Reject, attempt identity-safe cleanup, and report any residual artifact"
+            }
+            Self::RejectObservedMutation => "Reject every observed identity or type change",
+            Self::RejectUsage => "Reject as invalid configuration before filesystem access",
+            Self::RejectWithoutDisclosure => {
+                "Reject without source content or resolved-target disclosure"
+            }
+            Self::RejectWithoutMutation => "Reject without creating, replacing, or modifying",
+            Self::RejectWithoutTraversal => "Reject without following or traversal",
+            Self::ResolveFromAnchor => "Resolve the implicit path from the effective root",
+            Self::DocumentInProgressVisibility => {
+                "Document that create-new is not atomic content publication"
+            }
+            Self::DocumentStableOnly => {
+                "Document as unsupported beyond the stable-filesystem guarantee"
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrustCase {
+    id: &'static str,
+    surface: TrustSurface,
+    normative: TrustOutcome,
+    owner_issue: u32,
+}
+
 mod fixtures {
     use super::{ContractCase, ExpectedItem, ExpectedResult, ItemKind};
 
@@ -147,6 +249,12 @@ mod operation_fixtures {
     };
 
     include!("fixtures/v0_2_operations.rs");
+}
+
+mod trust_fixtures {
+    use super::{TrustCase, TrustOutcome, TrustSurface};
+
+    include!("fixtures/v0_2_trust.rs");
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -469,6 +577,43 @@ fn documentation_and_fixture_are_a_bijection() {
             "operation fixture '{id}' must be documented exactly once"
         );
     }
+
+    let trust_ids: BTreeSet<_> = trust_fixtures::CASES.iter().map(|case| case.id).collect();
+    assert_eq!(
+        trust_ids.len(),
+        trust_fixtures::CASES.len(),
+        "trust fixture IDs must be unique"
+    );
+
+    let document = include_str!("../docs/v0.2-contract.md");
+    let documented_trust_rows = document
+        .lines()
+        .filter(|line| line.starts_with("| `trust-"))
+        .count();
+    assert_eq!(
+        documented_trust_rows,
+        trust_fixtures::CASES.len(),
+        "the normative document and trust fixture must contain the same number of rows"
+    );
+
+    for case in trust_fixtures::CASES {
+        let documented_row = format!(
+            "| `{}` | {} | {} | #{} |",
+            case.id,
+            case.surface.contract_text(),
+            case.normative.contract_text(),
+            case.owner_issue
+        );
+        assert_eq!(
+            document
+                .lines()
+                .filter(|line| *line == documented_row)
+                .count(),
+            1,
+            "trust fixture '{}' must have one exact documented row",
+            case.id
+        );
+    }
 }
 
 #[test]
@@ -520,6 +665,48 @@ fn pending_rows_have_one_allowed_owner_and_no_tbd_policy() {
             .to_ascii_lowercase()
             .contains("tbd"),
         "the normative contract must not retain TBD policy"
+    );
+}
+
+#[test]
+fn trust_rows_have_one_focused_owner_and_cover_every_surface() {
+    const ALLOWED_TRUST_OWNERS: &[u32] = &[43, 45, 49, 51];
+
+    let mut surfaces = BTreeSet::new();
+    let mut owners = BTreeSet::new();
+
+    for case in trust_fixtures::CASES {
+        assert!(
+            case.id.starts_with("trust-"),
+            "trust fixture '{}' must use the trust- prefix",
+            case.id
+        );
+        assert!(
+            ALLOWED_TRUST_OWNERS.contains(&case.owner_issue),
+            "trust fixture '{}' has unexpected owner #{}",
+            case.id,
+            case.owner_issue
+        );
+        surfaces.insert(case.surface);
+        owners.insert(case.owner_issue);
+    }
+
+    assert_eq!(
+        surfaces,
+        BTreeSet::from([
+            TrustSurface::GuideInput,
+            TrustSurface::Generation,
+            TrustSurface::Containment,
+            TrustSurface::Output,
+            TrustSurface::Diagnostics,
+            TrustSurface::Concurrency,
+        ]),
+        "the trust ledger must cover every policy surface"
+    );
+    assert_eq!(
+        owners,
+        BTreeSet::from([43, 45, 49, 51]),
+        "each focused implementation owner must receive at least one trust row"
     );
 }
 
