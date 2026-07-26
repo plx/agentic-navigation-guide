@@ -8,6 +8,8 @@ use clap::Args;
 use std::io::Write;
 use std::path::PathBuf;
 
+use super::generation_options::{parse_depth, parse_indent};
+
 /// Arguments for the dump subcommand
 #[derive(Args, Debug)]
 pub struct DumpArgs {
@@ -15,23 +17,23 @@ pub struct DumpArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    /// Maximum depth to traverse
-    #[arg(short, long)]
+    /// Maximum logical depth, 0 through 256; 0 selects root children; omitted depth rejects deeper input
+    #[arg(short, long, value_parser = parse_depth)]
     pub depth: Option<usize>,
 
     /// Glob patterns to exclude (can be repeated)
     #[arg(short, long)]
     pub exclude: Vec<String>,
 
-    /// Number of spaces for indentation
-    #[arg(short, long, default_value = "2")]
+    /// Number of spaces per level, 1 through 16 (default: 2)
+    #[arg(short, long, default_value = "2", value_parser = parse_indent)]
     pub indent: usize,
 
     /// Omit the XML wrapper tags
     #[arg(long)]
     pub omit_xml_wrapper: bool,
 
-    /// Root directory to dump
+    /// Readable root directory; empty or fully excluded generation fails
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
     pub root: Option<PathBuf>,
 }

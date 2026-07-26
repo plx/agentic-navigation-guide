@@ -318,8 +318,6 @@ fn issue_43_cli_numeric_boundaries_and_help_are_exact() {
 fn issue_43_generation_root_alias_is_allowed_as_the_canonical_anchor() {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    #[cfg(windows)]
-    use std::os::windows::fs::symlink_dir;
 
     let target = TempDir::new().unwrap();
     fs::create_dir(target.path().join("nested")).unwrap();
@@ -329,8 +327,19 @@ fn issue_43_generation_root_alias_is_allowed_as_the_canonical_anchor() {
     #[cfg(unix)]
     symlink(target.path(), &alias).unwrap();
     #[cfg(windows)]
-    symlink_dir(target.path(), &alias)
-        .expect("Windows root-alias capability is required for #43 trust evidence");
+    {
+        let junction = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&alias)
+            .arg(target.path())
+            .output()
+            .expect("execute mklink for #43 root-alias trust evidence");
+        assert!(
+            junction.status.success(),
+            "Windows root-junction capability is required for #43 trust evidence: {}",
+            String::from_utf8_lossy(&junction.stderr)
+        );
+    }
 
     let output = isolated_command()
         .args(["dump", "--root"])

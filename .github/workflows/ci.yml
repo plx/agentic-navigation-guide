@@ -79,6 +79,10 @@ jobs:
       run: cargo build --release --verbose
     - name: Run focused entry-type tests
       run: cargo test --locked issue_42 -- --nocapture
+    - name: Run focused generation-preflight tests
+      run: cargo test --locked issue_43 -- --nocapture
+    - name: Run focused generation-preflight tests in release mode
+      run: cargo test --release --locked issue_43 -- --nocapture
 
   third-party-licenses:
     name: Third-Party Licenses
