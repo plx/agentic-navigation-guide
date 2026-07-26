@@ -97,6 +97,8 @@ jobs:
       run: cargo test --release --locked issue_51 -- --nocapture
     - name: Run focused full-path API-removal tests
       run: cargo test --locked issue_52 -- --nocapture
+    - name: Run focused symlink-model API-removal tests
+      run: cargo test --locked issue_53 -- --nocapture
     - name: Run binding all-owner guide contract
       env:
         GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
