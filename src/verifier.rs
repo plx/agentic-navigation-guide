@@ -1,6 +1,7 @@
 //! Filesystem verification for navigation guides
 
 use crate::errors::{Result, SemanticError};
+use crate::path_codec::render_os_component;
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -331,7 +332,7 @@ impl Verifier {
             let name = entry.file_name();
             let name = name.to_str().ok_or_else(|| SemanticError::NonUtf8Path {
                 line: item.line_number,
-                path: entry.path(),
+                path: PathBuf::from(render_os_component(&name)),
             })?;
 
             if !mentioned_names.contains(name) {
