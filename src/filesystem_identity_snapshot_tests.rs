@@ -1,6 +1,7 @@
-use agentic_navigation_guide::{
-    AppError, FilesystemItem, NavigationGuide, NavigationGuideLine, Parser, SemanticError, Verifier,
-};
+use crate::errors::{AppError, SemanticError};
+use crate::parser::Parser;
+use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
+use crate::verifier::Verifier;
 use std::fs;
 use std::path::Path;
 use std::process::Command;

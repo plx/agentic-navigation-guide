@@ -1,8 +1,7 @@
 //! Shared guide-path classification and non-following opening.
 //!
-//! This file is compiled privately into both the legacy library target and
-//! the CLI binary. Keeping one implementation source avoids adding a public
-//! Rust API solely to bridge those two temporary crate targets.
+//! This binary-private module is the single implementation shared by every
+//! CLI and internal guide-reading route. It is not a downstream Rust API.
 
 use std::error::Error;
 use std::fmt;
@@ -152,7 +151,7 @@ impl GuideAnchor {
         authority: GuideAuthority,
     ) -> Result<String, GuideInputError> {
         // Validate every concrete path before entry access. CLI inputs and
-        // manually constructed legacy GuideLocations are also prevalidated
+        // manually constructed internal GuideLocations are also prevalidated
         // before anchor construction; this remains defense in depth.
         validate_explicit_path(path)?;
 

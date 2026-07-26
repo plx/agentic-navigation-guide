@@ -8,16 +8,16 @@ use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::HashSet;
 
 /// Validator for navigation guide syntax
-pub struct Validator;
+pub(crate) struct Validator;
 
 impl Validator {
     /// Create a new validator instance
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
     /// Validate the syntax of a navigation guide
-    pub fn validate_syntax(&self, guide: &NavigationGuide) -> Result<()> {
+    pub(crate) fn validate_syntax(&self, guide: &NavigationGuide) -> Result<()> {
         // Check for empty guide
         if guide.items.is_empty() {
             return Err(SyntaxError::EmptyGuideBlock.into());

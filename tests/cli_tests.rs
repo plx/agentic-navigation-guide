@@ -353,16 +353,34 @@ fn issue_43_generation_root_alias_is_allowed_as_the_canonical_anchor() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let source = String::from_utf8(output.stdout).unwrap();
-    let guide = agentic_navigation_guide::Parser::new()
-        .parse(&source)
-        .expect("root-alias output must parse");
-    agentic_navigation_guide::Validator::new()
-        .validate_syntax(&guide)
-        .expect("root-alias output must validate");
-    agentic_navigation_guide::Verifier::new(&alias)
-        .verify(&guide)
-        .expect("root-alias output must be checkable from the selected anchor");
+    let guide_path = alias_parent.path().join("generated-guide.md");
+    fs::write(&guide_path, output.stdout).expect("persist generated guide outside selected root");
+
+    let check = isolated_command()
+        .arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "root-alias output was not accepted by check: {}",
+        combined_output(&check)
+    );
+
+    let verify = isolated_command()
+        .arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(&alias)
+        .output()
+        .unwrap();
+    assert!(
+        verify.status.success(),
+        "root-alias output was not verifiable from the selected anchor: {}",
+        combined_output(&verify)
+    );
 }
 
 #[cfg(unix)]
@@ -5083,8 +5101,6 @@ fn test_windows_guide_input_trust_policy_matrix() {
 #[cfg(windows)]
 #[test]
 fn test_windows_guide_namespaces_and_streams_reject_before_access() {
-    use agentic_navigation_guide::{verify_guides, GuideLocation};
-
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("root");
     let missing_root = temp.path().join("missing-root");
@@ -5178,23 +5194,6 @@ fn test_windows_guide_namespaces_and_streams_reject_before_access() {
                 .any(|window| window == b"unsafe\n\x1b-guide.md")
             && diagnostics.contains("\\n"),
         "Windows guide diagnostic emitted raw controls:\n{diagnostics}"
-    );
-
-    let results = verify_guides(
-        &[GuideLocation {
-            guide_path: ads,
-            root_path: missing_root,
-        }],
-        &agentic_navigation_guide::types::Config::default(),
-    )
-    .unwrap();
-    let error = results[0].error.as_deref().unwrap_or_default();
-    assert!(
-        !results[0].success
-            && error.contains("invalid explicit guide path")
-            && !error.contains("trust anchor")
-            && !error.contains(GUIDE_SOURCE_SENTINEL),
-        "legacy GuideLocation bypassed Windows path validation: {error}"
     );
 }
 
@@ -5291,55 +5290,6 @@ fn test_non_utf8_implicit_guide_name_does_not_fall_back_to_default() {
     );
 }
 
-#[test]
-fn test_legacy_recursive_library_path_cannot_bypass_safe_opening() {
-    use agentic_navigation_guide::{find_guides, verify_guides, GuideLocation};
-
-    let temp = TempDir::new().unwrap();
-    let root = temp.path().join("root");
-    let outside = temp.path().join("outside-secret.md");
-    fs::create_dir(&root).unwrap();
-    fs::write(
-        &outside,
-        format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
-    )
-    .unwrap();
-    let link = root.join("AGENTIC_NAVIGATION_GUIDE.md");
-    create_guide_file_link(&outside, &link);
-
-    let discovery = find_guides(&root, "AGENTIC_NAVIGATION_GUIDE.md", &[])
-        .expect_err("legacy discovery accepted an unsafe matching guide");
-    let discovery_error = discovery.to_string();
-    assert!(
-        discovery_error.contains("unsafe guide path"),
-        "{discovery_error}"
-    );
-    assert!(
-        !discovery_error.contains(GUIDE_SOURCE_SENTINEL),
-        "{discovery_error}"
-    );
-    assert!(
-        !discovery_error.contains(&outside.display().to_string()),
-        "{discovery_error}"
-    );
-
-    let results = verify_guides(
-        &[GuideLocation {
-            guide_path: link,
-            root_path: root,
-        }],
-        &agentic_navigation_guide::types::Config::default(),
-    )
-    .unwrap();
-    let result = results.first().expect("one legacy verification result");
-    let error = result.error.as_deref().unwrap_or_default();
-
-    assert!(!result.success);
-    assert!(error.contains("unsafe guide path"), "{error}");
-    assert!(!error.contains(GUIDE_SOURCE_SENTINEL), "{error}");
-    assert!(!error.contains(&outside.display().to_string()), "{error}");
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GuideTrustEvidenceOutcome {
     Conformant,
@@ -5402,17 +5352,24 @@ const ISSUE_49_TRUST_EVIDENCE: &[GuideTrustEvidenceGroup] = &[
         ids: &["trust-guide-sentinel-all-modes"],
         observe: observe_guide_confidentiality,
     },
-    GuideTrustEvidenceGroup {
-        ids: &["trust-guide-direct-library-path"],
-        observe: observe_legacy_guide_route,
-    },
 ];
 
 #[test]
 fn test_guide_trust_evidence_is_an_exact_set_for_issue_49() {
     use std::collections::BTreeSet;
 
-    let expected = issue_49_trust_ids(include_str!("fixtures/v0_2_trust.rs"));
+    let trust_fixture = include_str!("fixtures/v0_2_trust.rs");
+    let all_expected = issue_49_trust_ids(trust_fixture);
+    let internal_only = issue_49_internal_trust_ids(trust_fixture);
+    assert_eq!(
+        internal_only,
+        BTreeSet::from(["trust-guide-direct-library-path"]),
+        "the trust ledger must retain exactly one binary-internal route"
+    );
+    let expected = all_expected
+        .difference(&internal_only)
+        .copied()
+        .collect::<BTreeSet<_>>();
     let mut declared = BTreeSet::new();
     let mut conformant = BTreeSet::new();
     #[cfg(not(windows))]
@@ -5519,11 +5476,6 @@ fn observe_guide_confidentiality() -> GuideTrustEvidenceOutcome {
     GuideTrustEvidenceOutcome::Conformant
 }
 
-fn observe_legacy_guide_route() -> GuideTrustEvidenceOutcome {
-    test_legacy_recursive_library_path_cannot_bypass_safe_opening();
-    GuideTrustEvidenceOutcome::Conformant
-}
-
 fn issue_49_trust_ids(source: &str) -> std::collections::BTreeSet<&str> {
     source
         .split("TrustCase {")
@@ -5531,6 +5483,26 @@ fn issue_49_trust_ids(source: &str) -> std::collections::BTreeSet<&str> {
         .filter_map(|block| {
             let block = block.split_once("},").map_or(block, |(case, _)| case);
             if !block.contains("owner_issue: 49") {
+                return None;
+            }
+            block.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix("id: \"")
+                    .and_then(|value| value.strip_suffix("\","))
+            })
+        })
+        .collect()
+}
+
+fn issue_49_internal_trust_ids(source: &str) -> std::collections::BTreeSet<&str> {
+    source
+        .split("TrustCase {")
+        .skip(1)
+        .filter_map(|block| {
+            let block = block.split_once("},").map_or(block, |(case, _)| case);
+            if !block.contains("owner_issue: 49")
+                || !block.contains("normative: TrustOutcome::EnforceSharedPolicy")
+            {
                 return None;
             }
             block.lines().find_map(|line| {

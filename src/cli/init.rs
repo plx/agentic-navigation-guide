@@ -1,9 +1,9 @@
 //! Init subcommand implementation
 
 use super::output;
-use agentic_navigation_guide::dumper::Dumper;
-use agentic_navigation_guide::errors::Result;
-use agentic_navigation_guide::types::Config;
+use crate::dumper::Dumper;
+use crate::errors::Result;
+use crate::types::Config;
 use clap::Args;
 use std::path::PathBuf;
 
@@ -14,36 +14,36 @@ const DEFAULT_VCS_EXCLUDES: &[&str] = &[".git", ".svn", ".hg", ".bzr", "CVS", "_
 
 /// Arguments for the init subcommand
 #[derive(Args, Debug)]
-pub struct InitArgs {
+pub(crate) struct InitArgs {
     /// New output file path; existing entries are never overwritten
     #[arg(short, long)]
-    pub output: PathBuf,
+    pub(crate) output: PathBuf,
 
     /// Maximum logical depth, 0 through 256; 0 selects root children; omission rejects depth above 256
     #[arg(short, long, value_parser = parse_depth)]
-    pub depth: Option<usize>,
+    pub(crate) depth: Option<usize>,
 
     /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
     #[arg(short, long)]
-    pub exclude: Vec<String>,
+    pub(crate) exclude: Vec<String>,
 
     /// Number of spaces per level, 1 through 16
     #[arg(short, long, default_value = "2", value_parser = parse_indent)]
-    pub indent: usize,
+    pub(crate) indent: usize,
 
     /// Readable root directory; empty or fully excluded generation fails
     #[arg(short, long)]
-    pub root: Option<PathBuf>,
+    pub(crate) root: Option<PathBuf>,
 
     /// Include version control system directories (e.g., .git, .svn, .hg)
     /// By default, common VCS directories are excluded
     #[arg(long)]
-    pub include_vcs_directories: bool,
+    pub(crate) include_vcs_directories: bool,
 }
 
 impl InitArgs {
     /// Execute the init command
-    pub fn execute(self, _config: &Config) -> Result<()> {
+    pub(crate) fn execute(self, _config: &Config) -> Result<()> {
         let Self {
             output: output_path,
             depth,

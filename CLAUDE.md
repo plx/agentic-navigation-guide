@@ -11,17 +11,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/v0.2-contract.md` is the normative v0.2 guide-language,
   filesystem-representation, stable-filesystem trust-boundary, and
   supported-product target.
-- The installed CLI is the sole supported v0.2 product. The package becomes
-  binary-only; do not add or preserve a public Rust facade during focused API
-  cleanup.
-- Treat the current-source library as a legacy migration surface, distinct
-  from the immutable published `0.1.4` baseline. Preserve the exact
-  export-ledger IDs, signatures, and implementation owners in
-  `tests/fixtures/v0_2_api.rs`.
+- The installed CLI is the sole supported v0.2 product. The current source
+  package is binary-only; do not add a public, hidden, feature-gated, unstable,
+  or test-only Rust library facade.
+- Treat immutable published `0.1.4` as the historical library baseline,
+  distinct from current source. Preserve the frozen export-ledger IDs,
+  signatures, and implementation owners in `tests/fixtures/v0_2_api.rs`.
 - Treat repositories and guide text as untrusted, but do not describe the
   verifier as a sandbox or as hostile-concurrent-mutation safe.
-- Implementation plus tests define realized `0.1.4` behavior while explicitly
-  owned v0.2 conformance rows remain pending.
+- Implementation plus tests define realized unreleased source behavior while
+  explicitly owned v0.2 conformance rows remain pending.
 - `README.md` is the concise released-behavior entry point.
 - `Specification.md` is non-normative original intent/history.
 - If user-facing behavior changes, update `README.md` in the same change.
@@ -106,16 +105,20 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
 
 2. **Validator** (`src/validator.rs`): Performs syntax validation on parsed guides, checking for proper formatting, consistent indentation, and valid path formats.
 
-3. **Guide Input** (`src/guide_input.rs`): Privately shared by the CLI and
-   transitional library target. Validates path authority, anchors implicit
-   reads, rejects final links/reparse entries and unsafe descendants, and
-   opens regular guide handles without following the final entry.
+3. **Guide Input** (`src/guide_input.rs`): Binary-private shared guide-path
+   validation used by CLI commands and internal recursive verification.
+   Validates path authority, anchors implicit reads, rejects final
+   links/reparse entries and unsafe descendants, and opens regular guide
+   handles without following the final entry.
 
 4. **Verifier** (`src/verifier.rs`): Validates guides against actual filesystem state, checking that all referenced paths exist and are of the correct type (file/directory).
 
 5. **Dumper** (`src/dumper.rs`): Generates navigation guides from directory structures, with support for depth limiting and glob exclusion patterns.
 
-6. **Recursive** (`src/recursive.rs`): Provides recursive guide discovery and batch verification for monorepos with nested navigation guides. Uses WalkDir to find all guide files and verifies each relative to its parent directory.
+6. **Recursive** (`src/recursive.rs`): Provides recursive guide discovery and
+   batch verification for monorepos with nested navigation guides. It performs
+   bounded directory enumeration and verifies each guide relative to its parent
+   directory.
 
 ### Data Flow
 

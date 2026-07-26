@@ -1,11 +1,49 @@
-//! Main entry point for the agentic navigation guide CLI
+//! Agentic Navigation Guide command-line application.
+//!
+//! The installed `agentic-navigation-guide` executable is the sole supported
+//! v0.2 product. This package intentionally exposes no linkable Rust library
+//! target or downstream Rust API. The modules below are private implementation
+//! details of the binary and may evolve without a Rust SemVer promise.
 
-use agentic_navigation_guide::errors::ErrorFormatter;
+#![warn(clippy::all)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::missing_const_for_fn,
+    clippy::return_self_not_must_use,
+    clippy::unused_self,
+    clippy::only_used_in_recursion,
+    clippy::unnecessary_wraps
+)]
+
+use crate::errors::ErrorFormatter;
 use clap::Parser;
 
 mod cli;
-#[allow(dead_code)]
+mod dumper;
+mod entry_type;
+mod errors;
+mod exclusion;
 mod guide_input;
+mod parser;
+mod path_codec;
+mod recursive;
+mod types;
+mod validator;
+mod verifier;
+
+#[cfg(test)]
+mod containment_guarantee_tests;
+#[cfg(test)]
+mod exclusion_semantics_tests;
+#[cfg(test)]
+mod filesystem_identity_snapshot_tests;
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+mod v0_2_contract_tests;
+
 use cli::{Cli, Command, CommandOutcome};
 
 fn main() {

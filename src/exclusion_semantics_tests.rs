@@ -1,4 +1,7 @@
-use agentic_navigation_guide::{find_guides, Dumper, FilesystemItem, NavigationGuideLine, Parser};
+use crate::dumper::Dumper;
+use crate::parser::Parser;
+use crate::recursive::find_guides;
+use crate::types::{FilesystemItem, NavigationGuideLine};
 use assert_cmd::Command;
 use std::collections::BTreeSet;
 use std::fs;
@@ -83,7 +86,7 @@ fn discovered_paths(root: &Path, patterns: &[&str]) -> BTreeSet<String> {
 }
 
 fn command() -> Command {
-    Command::cargo_bin("agentic-navigation-guide").expect("binary")
+    Command::new(crate::test_support::cli_binary())
 }
 
 fn write_valid_guide(root: &Path, relative_directory: &str) {

@@ -15,27 +15,27 @@ use std::path::{Path, PathBuf};
 
 /// Represents a single guide file to be verified
 #[derive(Debug, Clone)]
-pub struct GuideLocation {
+pub(crate) struct GuideLocation {
     /// Path to the guide file
-    pub guide_path: PathBuf,
+    pub(crate) guide_path: PathBuf,
     /// Root directory for verification (parent of guide file)
-    pub root_path: PathBuf,
+    pub(crate) root_path: PathBuf,
 }
 
 /// Result of verifying a single guide
 #[derive(Debug)]
-pub struct GuideVerificationResult {
+pub(crate) struct GuideVerificationResult {
     /// The guide that was verified
-    pub location: GuideLocation,
+    pub(crate) location: GuideLocation,
     /// Whether processing completed without a failure.
     ///
-    /// An ignored result also sets this transitional transport field, but is
-    /// excluded from verified-success counts by `ignored`.
-    pub success: bool,
+    /// An ignored result also sets this shared transport field, but is excluded
+    /// from verified-success counts by `ignored`.
+    pub(crate) success: bool,
     /// Error message if verification failed
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     /// Whether the guide produced the distinct ignored outcome.
-    pub ignored: bool,
+    pub(crate) ignored: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,7 +77,7 @@ impl fmt::Display for VerificationAggregate {
 type ChildNames = Box<dyn Iterator<Item = io::Result<OsString>>>;
 
 /// Recursively find all navigation guide files
-pub fn find_guides(
+pub(crate) fn find_guides(
     root: &Path,
     guide_name: &str,
     exclude_patterns: &[String],
@@ -220,7 +220,7 @@ fn discovery_entry_error(relative_path: &Path, kind: io::ErrorKind) -> AppError 
 }
 
 /// Verify multiple guides and collect results
-pub fn verify_guides(
+pub(crate) fn verify_guides(
     guides: &[GuideLocation],
     config: &Config,
 ) -> Result<Vec<GuideVerificationResult>> {
@@ -249,7 +249,7 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
         .unwrap_or(&location.guide_path);
 
     // Revalidate and open without following the final entry. This protects
-    // both normal discovery and manually constructed legacy GuideLocations.
+    // both normal discovery and manually constructed internal GuideLocations.
     let content = match anchor.read(&location.guide_path, logical_path, GuideAuthority::Implicit) {
         Ok(content) => content,
         Err(error) => return failed_guide_input(location, error),
@@ -327,10 +327,10 @@ fn map_guide_input_error(error: GuideInputError) -> AppError {
 }
 
 /// Format and display verification results
-pub fn display_results(results: &[GuideVerificationResult], config: &Config) -> bool {
+pub(crate) fn display_results(results: &[GuideVerificationResult], config: &Config) -> bool {
     let aggregate = VerificationAggregate::from_results(results);
 
-    // Keep the legacy public function from treating an empty slice as
+    // Keep the shared internal renderer from treating an empty slice as
     // vacuous success. The CLI normally handles this richer outcome first so
     // it can include the selected root, guide name, and explicit remedy.
     if aggregate.absent != 0 {
@@ -465,6 +465,19 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    const GUIDE_SOURCE_SENTINEL: &str = "ISSUE49_SECRET_7f4a2d909b6c";
+
+    #[cfg(unix)]
+    fn create_guide_file_link(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("create guide symlink");
+    }
+
+    #[cfg(windows)]
+    fn create_guide_file_link(target: &Path, link: &Path) {
+        std::os::windows::fs::symlink_file(target, link)
+            .expect("Windows file-symlink capability is required for guide-input trust evidence");
+    }
+
     struct CountingChildNames {
         inner: ChildNames,
         live: std::rc::Rc<std::cell::Cell<usize>>,
@@ -587,5 +600,108 @@ mod tests {
         assert_eq!(openings.get(), 65);
         assert_eq!(maximum.get(), 1);
         assert_eq!(live.get(), 0);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn issue_54_internal_recursive_paths_cannot_bypass_safe_opening() {
+        let internal_rows = include_str!("../tests/fixtures/v0_2_trust.rs")
+            .split("TrustCase {")
+            .skip(1)
+            .filter_map(|block| {
+                let block = block.split_once("},").map_or(block, |(case, _)| case);
+                if !block.contains("owner_issue: 49")
+                    || !block.contains("normative: TrustOutcome::EnforceSharedPolicy")
+                {
+                    return None;
+                }
+                block.lines().find_map(|line| {
+                    line.trim()
+                        .strip_prefix("id: \"")
+                        .and_then(|value| value.strip_suffix("\","))
+                })
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            internal_rows,
+            std::collections::BTreeSet::from(["trust-guide-direct-library-path"]),
+            "the frozen trust ledger must retain exactly one internal direct-route row"
+        );
+
+        let temp = TempDir::new().expect("temporary recursive fixture");
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside-secret.md");
+        fs::create_dir(&root).expect("recursive root");
+        fs::write(
+            &outside,
+            format!("{GUIDE_SOURCE_SENTINEL}\nnot a navigation guide"),
+        )
+        .expect("outside sentinel");
+        let link = root.join("AGENTIC_NAVIGATION_GUIDE.md");
+        create_guide_file_link(&outside, &link);
+
+        let discovery = find_guides(&root, "AGENTIC_NAVIGATION_GUIDE.md", &[])
+            .expect_err("internal discovery accepted an unsafe matching guide");
+        let discovery_error = discovery.to_string();
+        assert!(
+            discovery_error.contains("unsafe guide path"),
+            "{discovery_error}"
+        );
+        assert!(
+            !discovery_error.contains(GUIDE_SOURCE_SENTINEL),
+            "{discovery_error}"
+        );
+        assert!(
+            !discovery_error.contains(&outside.display().to_string()),
+            "{discovery_error}"
+        );
+
+        let results = verify_guides(
+            &[GuideLocation {
+                guide_path: link,
+                root_path: root,
+            }],
+            &Config::default(),
+        )
+        .expect("internal verification result");
+        let result = results.first().expect("one internal verification result");
+        let error = result.error.as_deref().unwrap_or_default();
+
+        assert!(!result.success);
+        assert!(error.contains("unsafe guide path"), "{error}");
+        assert!(!error.contains(GUIDE_SOURCE_SENTINEL), "{error}");
+        assert!(!error.contains(&outside.display().to_string()), "{error}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn issue_54_internal_recursive_path_rejects_windows_stream_before_anchor() {
+        let temp = TempDir::new().expect("temporary Windows stream fixture");
+        let root = temp.path().join("root");
+        let missing_root = temp.path().join("missing-root");
+        fs::create_dir(&root).expect("stream fixture root");
+        let base = root.join("base.txt");
+        fs::write(&base, "ordinary base").expect("stream base");
+        let stream = PathBuf::from(format!("{}:secret", base.display()));
+        fs::write(&stream, GUIDE_SOURCE_SENTINEL).expect(
+            "Windows alternate-data-stream capability is required for guide-input evidence",
+        );
+
+        let results = verify_guides(
+            &[GuideLocation {
+                guide_path: stream,
+                root_path: missing_root,
+            }],
+            &Config::default(),
+        )
+        .expect("internal Windows verification result");
+        let error = results[0].error.as_deref().unwrap_or_default();
+        assert!(
+            !results[0].success
+                && error.contains("invalid explicit guide path")
+                && !error.contains("trust anchor")
+                && !error.contains(GUIDE_SOURCE_SENTINEL),
+            "internal GuideLocation bypassed Windows path validation: {error}"
+        );
     }
 }

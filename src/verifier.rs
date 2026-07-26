@@ -41,7 +41,7 @@ fn directory_enumeration_counts() -> std::collections::BTreeMap<PathBuf, usize> 
 }
 
 /// Verifier for navigation guides against filesystem
-pub struct Verifier {
+pub(crate) struct Verifier {
     /// Root path for verification
     root_path: PathBuf,
 }
@@ -99,14 +99,14 @@ struct VerificationRun<'a, C> {
 
 impl Verifier {
     /// Create a new verifier with the given root path
-    pub fn new(root_path: &Path) -> Self {
+    pub(crate) fn new(root_path: &Path) -> Self {
         Self {
             root_path: root_path.to_path_buf(),
         }
     }
 
     /// Verify a navigation guide against the filesystem
-    pub fn verify(&self, guide: &NavigationGuide) -> Result<()> {
+    pub(crate) fn verify(&self, guide: &NavigationGuide) -> Result<()> {
         self.verify_with_control(guide, NoopVerificationControl)
     }
 
@@ -456,8 +456,8 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
         SemanticError::PathEscapesRoot {
             line: item.line_number,
             path: item.path().to_string(),
-            // Keep the transitional public variant shape stable until #54,
-            // but never store resolved alias targets in an emitted error.
+            // Keep diagnostics structurally useful inside the binary, but
+            // never store resolved alias targets in an emitted error.
             root: PathBuf::from("<redacted>"),
             resolved: PathBuf::from("<redacted>"),
         }

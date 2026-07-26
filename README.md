@@ -17,17 +17,17 @@ The validation can be done in a stand-alone way, and also has special support fo
 
 ## Support Boundary
 
-The installed CLI is the sole supported v0.2 product. The v0.2 package will be
-binary-only and will not expose a supported Rust library facade. The current
-`0.1.4` library target is a legacy migration surface scheduled for removal at
-the `0.2.0` boundary; new Rust integrations should not depend on it. The
-complete decision, export disposition, and `0.2.x` compatibility policy are in
-the [normative contract](docs/v0.2-contract.md#supported-product-and-rust-api).
-Existing Rust consumers have no v0.2 in-process shim; they must migrate to the
-documented CLI process contract or remain pinned to unsupported `0.1.4` at
-their own risk. The docs.rs badge above still describes that legacy published
-library; #66 must remove or retarget it and set maintained documentation
-metadata before the binary-only release.
+The installed CLI is the sole supported v0.2 product. The current source
+package is binary-only and exposes no linkable Rust library target or
+in-process shim. The immutable published `0.1.4` artifact retains its
+historical library surface. Existing Rust consumers must migrate to the
+documented CLI process or machine contract, or
+remain pinned to unsupported `0.1.4` at their own risk. The complete decision,
+frozen export dispositions, and `0.2.x` compatibility policy are in the
+[normative contract](docs/v0.2-contract.md#supported-product-and-rust-api).
+The docs.rs badge above still describes the published `0.1.4` artifact; #66
+owns removing or retargeting it and setting maintained documentation metadata
+before release.
 
 ## Docs and Implementation Alignment Policy
 
@@ -37,7 +37,7 @@ metadata before the binary-only release.
    for the v0.2 guide language, filesystem representation, and
    stable-filesystem trust and supported-product boundaries.
 2. Current implementation (`src/` plus tests) is authoritative for realized
-   `0.1.4` runtime behavior while the contract's explicitly owned v0.2
+   unreleased source behavior while the contract's explicitly owned v0.2
    divergences are being implemented.
 3. `README.md` is the concise user entry point and should match released
    behavior.
@@ -57,11 +57,11 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 
 ### Known Intentional Divergences
 
-- **2026-07-25 — Legacy library target remains during staged cleanup.** The
-  current source still builds a linkable library so #54 can privatize the
-  remaining audited current-source surface and remove the target. The
-  immutable published `0.1.4` artifact is #64's separate migration baseline.
-  Neither library is part of the supported v0.2 product.
+- **2026-07-26 — Current source is binary-only.** #54 removed the source
+  library target and made the remaining 128 #54-owned exports
+  implementation-only. The frozen 132-row ledger remains historical decision
+  evidence; immutable published `0.1.4` remains #64's migration baseline.
+  v0.2 has no Rust facade or in-process shim.
 - **2026-07-26 — The legacy full-path helper is removed without replacement.**
   `NavigationGuide::get_full_path` is removed without replacement in v0.2. It
   returned only the item's local component, while its detached-line argument
@@ -239,9 +239,9 @@ through 256; zero includes root children but not their children. An explicit
 depth intentionally produces a partial listing and does not inspect deeper
 entries. With no explicit depth, an included tree requiring logical depth 257
 fails instead of being silently truncated. Values outside either range are
-rejected during argument parsing, and the legacy library path also rejects
-them with an error rather than clamping, wrapping, panicking, flattening, or
-attempting an unbounded indentation allocation.
+rejected during CLI argument parsing, and the binary's shared internal
+generation path returns an error rather than clamping, wrapping, panicking,
+flattening, or attempting an unbounded indentation allocation.
 
 All root, traversal, classification, name, depth, indentation, and
 serialization checks complete before stdout delivery or filesystem
