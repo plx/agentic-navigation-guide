@@ -17,7 +17,7 @@ performance and RSS baseline remains assigned to #59.
 - Rust: `rustc 1.90.0 (1159e78c4 2025-09-14)`
 - Pre-fix production commit: `bb8949b393dafadfad42b1209e32604c6e678a79`
 - Tests-first harness commit: `f7d8cf92fd6fc8c842bc469cb32430b58b4bdbc8`
-- Post-fix implementation commit: `110b96997658ce97cbfa2e27b9f382baf447a909`
+- Post-fix implementation commit: `81d4b46ef47880ac68da0b28fd0edcbf19f80112`
 - Detected capabilities: host case aliases = true; host Unicode-normalization
   aliases = true
 - Workloads: 500, 1,000, and 2,000 listed regular files plus two capability
@@ -45,19 +45,19 @@ cargo +1.90.0 test --release --locked \
 | Before | Alternating placeholders | 1,000 | 402.067 | 442.957 | 38.619× |
 | Before | Plain | 2,000 | 21.617 | 23.817 | — |
 | Before | Alternating placeholders | 2,000 | 1,553.991 | 1,591.496 | 71.887× |
-| After | Plain | 500 | 5.567 | 6.027 | — |
-| After | Alternating placeholders | 500 | 5.580 | 6.063 | 1.002× |
-| After | Plain | 1,000 | 13.760 | 15.770 | — |
-| After | Alternating placeholders | 1,000 | 13.799 | 35.632 | 1.003× |
-| After | Plain | 2,000 | 23.576 | 27.328 | — |
-| After | Alternating placeholders | 2,000 | 22.763 | 24.946 | 0.966× |
+| After | Plain | 500 | 5.593 | 5.835 | — |
+| After | Alternating placeholders | 500 | 5.516 | 5.904 | 0.986× |
+| After | Plain | 1,000 | 11.971 | 12.657 | — |
+| After | Alternating placeholders | 1,000 | 11.212 | 12.067 | 0.937× |
+| After | Plain | 2,000 | 22.815 | 23.216 | — |
+| After | Alternating placeholders | 2,000 | 23.306 | 37.915 | 1.022× |
 
 | State | Alternating size change | Median scaling | 2.5× threshold |
 |---|---|---:|---|
 | Before | 500 → 1,000 | 3.974× | Fail |
 | Before | 1,000 → 2,000 | 3.865× | Fail |
-| After | 500 → 1,000 | 2.473× | Pass |
-| After | 1,000 → 2,000 | 1.650× | Pass |
+| After | 500 → 1,000 | 2.032× | Pass |
+| After | 1,000 → 2,000 | 2.079× | Pass |
 
 The deterministic regression also recorded two parent enumerations for two
 nonadjacent placeholders before the fix. After the fix, focused tests prove
