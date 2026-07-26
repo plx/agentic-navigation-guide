@@ -1463,6 +1463,7 @@ fn issue_40_path_normalization_boundaries_are_executable() {
         "<agentic-navigation-guide>\n- foo///\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- C:relative\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- C:/absolute\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \\\\root\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- bad]name.txt\n</agentic-navigation-guide>",
     ] {
         assert_eq!(observe(source), ObservedResult::Reject, "{source}");
@@ -1559,10 +1560,28 @@ fn issue_40_choice_token_preservation_is_executable() {
             ],
         }
     );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- src[/main, /lib].rs\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "src/main.rs".to_string(),
+                },
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "src/lib.rs".to_string(),
+                },
+            ],
+        },
+        "slash-containing choices may expand to siblings under one parent"
+    );
 
     for source in [
         "<agentic-navigation-guide>\n- [..., name]\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- data[\\,comma, \",comma\"].txt\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- x[\"a\"junk, b]y\n</agentic-navigation-guide>",
     ] {
         assert_eq!(observe(source), ObservedResult::Reject, "{source}");
     }
