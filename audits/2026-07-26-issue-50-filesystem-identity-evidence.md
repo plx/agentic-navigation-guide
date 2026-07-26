@@ -70,9 +70,10 @@ The approved #50 snapshot includes the type of every enumerated immediate
 child, including unlisted children. A sparse guide therefore performs one
 non-following metadata classification per child instead of classifying only
 listed paths. This is an intentional linear-time cost: it keeps names and types
-in one per-verification view, rejects unsupported or changing observations
-deterministically, and avoids widening the interval between enumeration and
-type capture. The broader sparse-guide, network-filesystem, RSS, and
+in one per-verification view, records unsupported kinds for deterministic
+rejection when a listed path names them, fails closed when an observation
+cannot be classified, and avoids widening the interval between enumeration
+and type capture. The broader sparse-guide, network-filesystem, RSS, and
 constant-factor comparison remains part of the comprehensive performance
 baseline assigned to #59.
 
