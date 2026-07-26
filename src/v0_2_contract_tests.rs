@@ -977,23 +977,13 @@ fn issue_54_binary_only_target_and_owned_dispositions_are_realized() {
         "#54 must make exactly 128 historical exports implementation-only"
     );
 
-    let observed = collect_current_source_api();
-    let still_exported = issue_rows
-        .iter()
-        .filter(|case| case.kind != ApiKind::PackageTarget)
-        .filter(|case| observed.contains(&(case.kind, case.symbol.to_string())))
-        .map(|case| case.id)
-        .collect::<Vec<_>>();
     let library_root_exists = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/lib.rs")
         .exists();
 
     assert!(
-        !library_root_exists && still_exported.is_empty(),
-        "#54 has not realized the binary-only boundary: src/lib.rs exists={library_root_exists}, \
-         {} owned exports remain reachable (first entries: {:?})",
-        still_exported.len(),
-        still_exported.iter().take(8).collect::<Vec<_>>()
+        !library_root_exists,
+        "#54 has not realized the binary-only boundary: src/lib.rs exists={library_root_exists}"
     );
 
     let readme = include_str!("../README.md")
@@ -1030,10 +1020,7 @@ fn issue_54_binary_only_target_and_owned_dispositions_are_realized() {
 
 #[test]
 fn api_ledger_matches_the_realized_binary_only_cargo_target() {
-    assert!(
-        collect_current_source_api().is_empty(),
-        "the binary crate root must not expose a downstream Rust API"
-    );
+    assert_binary_crate_root_has_no_public_items();
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--no-deps", "--format-version", "1"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -1116,11 +1103,6 @@ fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
         "NavigationGuide::get_full_path(&self, item: &NavigationGuideLine) -> PathBuf"
     );
     assert_eq!(row.owner_issue, 52);
-    assert!(
-        !collect_current_source_api().contains(&(row.kind, row.symbol.to_string())),
-        "#52's incorrect method is still exported by the current source"
-    );
-
     let types = syn::parse_file(include_str!("../src/types.rs"))
         .expect("parse types.rs for the exact #52 removal");
     let method_still_exists = types.items.iter().any(|item| {
@@ -1199,7 +1181,6 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
             "SemanticError::SymlinkTargetMismatch { line: usize, path: String, expected: String, actual: String }",
         ),
     ];
-    let current_source = collect_current_source_api();
     for (id, symbol) in expected_rows {
         let row = issue_rows
             .iter()
@@ -1208,10 +1189,6 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
         assert_eq!(row.kind, ApiKind::Variant);
         assert_eq!(row.symbol, symbol);
         assert_eq!(row.disposition, ApiDisposition::RemoveUnsupportedLinkModel);
-        assert!(
-            !current_source.contains(&(row.kind, row.symbol.to_string())),
-            "#53's unsupported variant is still exported: {symbol}"
-        );
     }
 
     fn enum_contains_variant(source: &str, enum_name: &str, variant_name: &str) -> bool {
@@ -1273,7 +1250,7 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
     );
 }
 
-fn collect_current_source_api() -> BTreeSet<(ApiKind, String)> {
+fn assert_binary_crate_root_has_no_public_items() {
     let file = syn::parse_file(include_str!("main.rs")).expect("parse binary crate root");
     for item in file.items {
         let visibility = match item {
@@ -1293,10 +1270,10 @@ fn collect_current_source_api() -> BTreeSet<(ApiKind, String)> {
         };
         assert!(
             visibility.as_ref().is_none_or(|vis| !is_public(vis)),
-            "the binary crate root contains an externally public Rust item"
+            "src/main.rs contains a top-level externally public Rust item; \
+             issue_54_binary_only_package checks visibility across the complete source tree"
         );
     }
-    BTreeSet::new()
 }
 
 fn is_public(visibility: &Visibility) -> bool {
