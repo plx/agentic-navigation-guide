@@ -1,7 +1,7 @@
 //! Filesystem verification for navigation guides
 
-use crate::errors::{Result, SemanticError};
-use crate::path_codec::render_os_component;
+use crate::errors::{AppError, Result, SemanticError};
+use crate::path_codec::{contains_forbidden_control, render_os_component, render_utf8_component};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -334,6 +334,13 @@ impl Verifier {
                 line: item.line_number,
                 path: PathBuf::from(render_os_component(&name)),
             })?;
+            if contains_forbidden_control(name) {
+                return Err(AppError::Other(format!(
+                    "line {}: unsupported control-bearing filesystem name {}",
+                    item.line_number,
+                    render_utf8_component(name)
+                )));
+            }
 
             if !mentioned_names.contains(name) {
                 unmentioned_count += 1;
