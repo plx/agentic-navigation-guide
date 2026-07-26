@@ -360,43 +360,15 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "indent-seventeen-spaces",
         source: "<agentic-navigation-guide>\n- src/\n                 - main.rs\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::Directory,
-                    path: "src",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "src/main.rs",
-                },
-            ]),
-        },
-        pending_issue: Some(37),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "indent-child-under-file",
         source: "<agentic-navigation-guide>\n- a/\n- b\n  - c\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::Directory,
-                    path: "a",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "a/c",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "b",
-                },
-            ]),
-        },
-        pending_issue: Some(37),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "indent-skipped-depth",
@@ -409,20 +381,8 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "indent-tab",
         source: "<agentic-navigation-guide>\n- src/\n\t- main.rs\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::Directory,
-                    path: "src",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "src/main.rs",
-                },
-            ]),
-        },
-        pending_issue: Some(37),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-comment-escaped-hash",

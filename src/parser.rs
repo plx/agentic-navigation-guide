@@ -4,6 +4,30 @@ use crate::errors::{Result, SyntaxError};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use regex::Regex;
 
+const MAX_INDENT_SIZE: usize = 16;
+const MAX_LOGICAL_DEPTH: usize = 256;
+
+#[derive(Clone, Copy)]
+enum HierarchyEvent {
+    VisitItem,
+    AppendItem,
+    CloseDirectory,
+    OpenDirectory { stack_depth: usize },
+}
+
+trait HierarchyObserver {
+    fn observe(&mut self, event: HierarchyEvent);
+}
+
+impl HierarchyObserver for () {
+    #[inline(always)]
+    fn observe(&mut self, event: HierarchyEvent) {
+        if let HierarchyEvent::OpenDirectory { stack_depth } = event {
+            let _ = stack_depth;
+        }
+    }
+}
+
 /// Parser for navigation guide markdown content
 pub struct Parser {
     /// Regular expression for detecting list items
@@ -210,6 +234,8 @@ impl Parser {
 
         let mut items = Vec::new();
         let mut indent_size = None;
+        let mut previous_depth = None;
+        let mut previous_line_can_own_children = false;
         let lines: Vec<&str> = content.lines().collect();
 
         for (idx, line) in lines.iter().enumerate() {
@@ -223,11 +249,20 @@ impl Parser {
 
             // Parse the list item
             if let Some(captures) = self.list_item_regex.captures(line) {
-                let indent = captures.get(1).unwrap().as_str().len();
+                let indent_text = captures.get(1).unwrap().as_str();
+                if !indent_text.bytes().all(|byte| byte == b' ') {
+                    return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
+                }
+                let indent = indent_text.len();
                 let content = captures.get(2).unwrap().as_str();
 
                 // Determine indent size from first indented item
                 if indent > 0 && indent_size.is_none() {
+                    if indent > MAX_INDENT_SIZE {
+                        return Err(
+                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
+                        );
+                    }
                     indent_size = Some(indent);
                 }
 
@@ -235,20 +270,47 @@ impl Parser {
                 let indent_level = if indent == 0 {
                     0
                 } else if let Some(size) = indent_size {
-                    if indent % size != 0 {
+                    let depth = indent
+                        .checked_div(size)
+                        .ok_or(SyntaxError::InvalidIndentationLevel { line: line_number })?;
+                    if depth.checked_mul(size) != Some(indent) {
                         return Err(
                             SyntaxError::InvalidIndentationLevel { line: line_number }.into()
                         );
                     }
-                    indent / size
+                    depth
                 } else {
-                    // First indented item
-                    1
+                    unreachable!("a positive first indentation always establishes its unit")
                 };
+
+                if indent_level > MAX_LOGICAL_DEPTH {
+                    return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
+                }
+
+                match previous_depth {
+                    None if indent_level != 0 => {
+                        return Err(
+                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
+                        );
+                    }
+                    Some(depth)
+                        if indent_level > depth
+                            && (depth.checked_add(1) != Some(indent_level)
+                                || !previous_line_can_own_children) =>
+                    {
+                        return Err(
+                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
+                        );
+                    }
+                    _ => {}
+                }
 
                 // Parse path and comment
                 let (path, comment) = self.parse_path_comment(content, line_number)?;
-                let expanded_paths = Self::expand_wildcard_path(&path, line_number)?;
+                let (expanded_paths, is_choice) =
+                    Self::expand_wildcard_path_with_kind(&path, line_number)?;
+                let line_can_own_children =
+                    !is_choice && expanded_paths.len() == 1 && expanded_paths[0].ends_with('/');
 
                 for expanded in expanded_paths {
                     // Determine item type
@@ -276,6 +338,9 @@ impl Parser {
                         item,
                     });
                 }
+
+                previous_depth = Some(indent_level);
+                previous_line_can_own_children = line_can_own_children;
             } else {
                 return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
             }
@@ -426,7 +491,21 @@ impl Parser {
     /// // Quoted strings and escapes
     /// expand_wildcard_path("file[\"a, b\", \\,c]", 1) → Ok(vec!["filea, b", "file,c"])
     /// ```
+    #[cfg(test)]
     fn expand_wildcard_path(path: &str, line_number: usize) -> Result<Vec<String>> {
+        let (paths, _) = Self::expand_wildcard_path_with_kind(path, line_number)?;
+        Ok(paths)
+    }
+
+    /// Expand a path and report whether it contained a physical choice list.
+    ///
+    /// Hierarchy validation needs the source-level distinction because even a
+    /// one-alternative choice is not exactly one directory entry and therefore
+    /// cannot own an indented child.
+    fn expand_wildcard_path_with_kind(
+        path: &str,
+        line_number: usize,
+    ) -> Result<(Vec<String>, bool)> {
         let mut prefix = String::new();
         let mut suffix = String::new();
         let mut block_content = String::new();
@@ -507,7 +586,7 @@ impl Parser {
 
         if !block_found {
             // No wildcard block - just process escapes in the prefix and return
-            return Ok(vec![Self::process_escapes(&prefix)]);
+            return Ok((vec![Self::process_escapes(&prefix)], false));
         }
 
         let choices = Self::parse_choice_block(&block_content, path, line_number)?;
@@ -526,7 +605,7 @@ impl Parser {
             results.push(expanded);
         }
 
-        Ok(results)
+        Ok((results, true))
     }
 
     /// Parse the contents of a wildcard choice block into individual options.
@@ -625,75 +704,87 @@ impl Parser {
 
     /// Build a hierarchical structure from flat list items
     fn build_hierarchy(&self, items: Vec<NavigationGuideLine>) -> Result<Vec<NavigationGuideLine>> {
-        if items.is_empty() {
-            return Ok(Vec::new());
-        }
+        self.build_hierarchy_with_observer(items, &mut ())
+    }
 
-        // First pass: organize items by their parent-child relationships
-        let mut result: Vec<NavigationGuideLine> = Vec::new();
-        let mut parent_indices: Vec<Option<usize>> = vec![None; items.len()];
+    fn build_hierarchy_with_observer<O: HierarchyObserver>(
+        &self,
+        items: Vec<NavigationGuideLine>,
+        observer: &mut O,
+    ) -> Result<Vec<NavigationGuideLine>> {
+        let mut roots = Vec::new();
+        let mut open_directories = Vec::with_capacity(MAX_LOGICAL_DEPTH + 1);
 
-        // Find parent index for each item
-        for i in 0..items.len() {
-            let current_level = items[i].indent_level;
+        for item in items {
+            observer.observe(HierarchyEvent::VisitItem);
+            let depth = item.indent_level;
+            if depth > MAX_LOGICAL_DEPTH {
+                return Err(SyntaxError::InvalidIndentationLevel {
+                    line: item.line_number,
+                }
+                .into());
+            }
 
-            if current_level == 0 {
-                parent_indices[i] = None; // Root item
+            while open_directories.len() > depth {
+                Self::close_directory(&mut roots, &mut open_directories, observer)?;
+            }
+
+            if open_directories.len() != depth {
+                return Err(SyntaxError::InvalidIndentationLevel {
+                    line: item.line_number,
+                }
+                .into());
+            }
+
+            if item.is_directory() {
+                open_directories.push(item);
+                observer.observe(HierarchyEvent::OpenDirectory {
+                    stack_depth: open_directories.len(),
+                });
             } else {
-                // Find the nearest preceding directory at level current_level - 1
-                let mut parent_found = false;
-                for j in (0..i).rev() {
-                    if items[j].indent_level == current_level - 1 && items[j].is_directory() {
-                        parent_indices[i] = Some(j);
-                        parent_found = true;
-                        break;
-                    } else if items[j].indent_level < current_level - 1 {
-                        // Gone too far up the hierarchy
-                        break;
-                    }
-                }
-
-                if !parent_found {
-                    return Err(SyntaxError::InvalidIndentationLevel {
-                        line: items[i].line_number,
-                    }
-                    .into());
-                }
+                Self::append_hierarchy_item(&mut roots, &mut open_directories, item, observer)?;
             }
         }
 
-        // Second pass: build the tree
-        // We need to process items in reverse order to ensure children are complete before adding to parents
-        let mut processed_items: Vec<Option<NavigationGuideLine>> =
-            items.into_iter().map(Some).collect();
-
-        // Process from last to first
-        for i in (0..processed_items.len()).rev() {
-            if let Some(item) = processed_items[i].take() {
-                if let Some(parent_idx) = parent_indices[i] {
-                    // Add this item to its parent's children
-                    if let Some(ref mut parent) = processed_items[parent_idx] {
-                        match &mut parent.item {
-                            FilesystemItem::Directory { children, .. } => {
-                                // Insert at the beginning to maintain order
-                                children.insert(0, item);
-                            }
-                            _ => {
-                                return Err(SyntaxError::InvalidIndentationLevel {
-                                    line: item.line_number,
-                                }
-                                .into());
-                            }
-                        }
-                    }
-                } else {
-                    // Root item - add to result
-                    result.insert(0, item);
-                }
-            }
+        while !open_directories.is_empty() {
+            Self::close_directory(&mut roots, &mut open_directories, observer)?;
         }
 
-        Ok(result)
+        Ok(roots)
+    }
+
+    fn close_directory<O: HierarchyObserver>(
+        roots: &mut Vec<NavigationGuideLine>,
+        open_directories: &mut Vec<NavigationGuideLine>,
+        observer: &mut O,
+    ) -> Result<()> {
+        observer.observe(HierarchyEvent::CloseDirectory);
+        let directory = open_directories
+            .pop()
+            .expect("close_directory is called only for a non-empty stack");
+        Self::append_hierarchy_item(roots, open_directories, directory, observer)
+    }
+
+    fn append_hierarchy_item<O: HierarchyObserver>(
+        roots: &mut Vec<NavigationGuideLine>,
+        open_directories: &mut [NavigationGuideLine],
+        item: NavigationGuideLine,
+        observer: &mut O,
+    ) -> Result<()> {
+        observer.observe(HierarchyEvent::AppendItem);
+        let Some(parent) = open_directories.last_mut() else {
+            roots.push(item);
+            return Ok(());
+        };
+
+        let FilesystemItem::Directory { children, .. } = &mut parent.item else {
+            return Err(SyntaxError::InvalidIndentationLevel {
+                line: item.line_number,
+            }
+            .into());
+        };
+        children.push(item);
+        Ok(())
     }
 }
 
@@ -706,6 +797,94 @@ impl Default for Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    #[derive(Default)]
+    struct HierarchyMetrics {
+        visits: usize,
+        appends: usize,
+        closes: usize,
+        opens: usize,
+        max_stack_depth: usize,
+    }
+
+    impl HierarchyMetrics {
+        fn work(&self) -> usize {
+            self.visits + self.appends + self.closes + self.opens
+        }
+    }
+
+    impl HierarchyObserver for HierarchyMetrics {
+        fn observe(&mut self, event: HierarchyEvent) {
+            match event {
+                HierarchyEvent::VisitItem => self.visits += 1,
+                HierarchyEvent::AppendItem => self.appends += 1,
+                HierarchyEvent::CloseDirectory => self.closes += 1,
+                HierarchyEvent::OpenDirectory { stack_depth } => {
+                    self.opens += 1;
+                    self.max_stack_depth = self.max_stack_depth.max(stack_depth);
+                }
+            }
+        }
+    }
+
+    fn flat_file_items(count: usize) -> Vec<NavigationGuideLine> {
+        (0..count)
+            .map(|index| NavigationGuideLine {
+                line_number: index + 2,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: format!("file-{index}.txt"),
+                    comment: None,
+                },
+            })
+            .collect()
+    }
+
+    fn nested_directory_items(deepest_depth: usize) -> Vec<NavigationGuideLine> {
+        (0..=deepest_depth)
+            .map(|depth| NavigationGuideLine {
+                line_number: depth + 2,
+                indent_level: depth,
+                item: FilesystemItem::Directory {
+                    path: format!("directory-{depth}"),
+                    comment: None,
+                    children: Vec::new(),
+                },
+            })
+            .collect()
+    }
+
+    fn flat_guide_source(count: usize) -> String {
+        let mut source = String::from("<agentic-navigation-guide>\n");
+        for index in 0..count {
+            source.push_str(&format!("- file-{index}.txt\n"));
+        }
+        source.push_str("</agentic-navigation-guide>");
+        source
+    }
+
+    fn median_flat_hierarchy_time(parser: &Parser, count: usize) -> Duration {
+        const WARMUPS: usize = 3;
+        const SAMPLES: usize = 10;
+
+        let source = flat_guide_source(count);
+        for _ in 0..WARMUPS {
+            let guide = parser.parse(&source).unwrap();
+            black_box(guide.items.len());
+        }
+
+        let mut samples = Vec::with_capacity(SAMPLES);
+        for _ in 0..SAMPLES {
+            let started = Instant::now();
+            let guide = parser.parse(&source).unwrap();
+            samples.push(started.elapsed());
+            black_box(guide.items.len());
+        }
+        samples.sort_unstable();
+        samples[SAMPLES / 2]
+    }
 
     #[test]
     fn test_parse_minimal_guide() {
@@ -729,6 +908,281 @@ mod tests {
             assert_eq!(children[0].path(), "main.rs");
         } else {
             panic!("src/ should have children");
+        }
+    }
+
+    #[test]
+    fn test_rejects_audited_child_under_intervening_file() {
+        let content = r#"<agentic-navigation-guide>
+- a/
+- b
+  - c
+</agentic-navigation-guide>"#;
+
+        let result = Parser::new().parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 4 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_rejects_direct_child_beneath_file() {
+        let content = r#"<agentic-navigation-guide>
+- parent.txt
+  - child.txt
+</agentic-navigation-guide>"#;
+
+        let result = Parser::new().parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 3 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_rejects_child_after_intervening_file_sequence() {
+        let content = r#"<agentic-navigation-guide>
+- a/
+- first.txt
+- second.txt
+  - child.txt
+</agentic-navigation-guide>"#;
+
+        let result = Parser::new().parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 5 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_rejects_child_beneath_placeholder() {
+        let content = r#"<agentic-navigation-guide>
+- a/
+- ... # unlisted roots
+  - child.txt
+</agentic-navigation-guide>"#;
+
+        let result = Parser::new().parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 4 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_rejects_child_after_physical_choice_line() {
+        for content in [
+            r#"<agentic-navigation-guide>
+- root[a,b]/
+  - child.txt
+</agentic-navigation-guide>"#,
+            r#"<agentic-navigation-guide>
+- root[a]/
+  - child.txt
+</agentic-navigation-guide>"#,
+        ] {
+            let result = Parser::new().parse(content);
+
+            assert!(matches!(
+                result,
+                Err(crate::errors::AppError::Syntax(
+                    SyntaxError::InvalidIndentationLevel { line: 3 }
+                ))
+            ));
+        }
+    }
+
+    #[test]
+    fn test_rejects_stale_parent_after_dedent_to_file() {
+        let content = r#"<agentic-navigation-guide>
+- directory/
+  - nested.txt
+- root.txt
+  - misplaced.txt
+</agentic-navigation-guide>"#;
+
+        let result = Parser::new().parse(content);
+
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 5 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_rejects_indented_first_entry_and_non_space_indentation() {
+        for (content, line) in [
+            (
+                "<agentic-navigation-guide>\n - first.txt\n</agentic-navigation-guide>",
+                2,
+            ),
+            (
+                "<agentic-navigation-guide>\n- root/\n \t- child.txt\n</agentic-navigation-guide>",
+                3,
+            ),
+            (
+                "<agentic-navigation-guide>\n- root/\n\u{a0}- child.txt\n</agentic-navigation-guide>",
+                3,
+            ),
+        ] {
+            assert!(matches!(
+                Parser::new().parse(content),
+                Err(crate::errors::AppError::Syntax(
+                    SyntaxError::InvalidIndentationLevel { line: actual }
+                )) if actual == line
+            ));
+        }
+    }
+
+    #[test]
+    fn test_accepts_one_and_sixteen_space_indentation_units() {
+        for indent in [1, MAX_INDENT_SIZE] {
+            let content = format!(
+                "<agentic-navigation-guide>\n- root/\n{}- child.txt\n</agentic-navigation-guide>",
+                " ".repeat(indent)
+            );
+            let guide = Parser::new().parse(&content).unwrap();
+            assert_eq!(guide.items[0].children().unwrap()[0].path(), "child.txt");
+        }
+    }
+
+    #[test]
+    fn test_dedent_then_reindent_uses_the_immediate_directory() {
+        let content = r#"<agentic-navigation-guide>
+- first/
+  - nested/
+    - leaf.txt
+- second/
+  - child.txt
+- root.txt
+</agentic-navigation-guide>"#;
+
+        let guide = Parser::new().parse(content).unwrap();
+
+        assert_eq!(
+            guide
+                .items
+                .iter()
+                .map(NavigationGuideLine::path)
+                .collect::<Vec<_>>(),
+            vec!["first", "second", "root.txt"]
+        );
+        let first_children = guide.items[0].children().unwrap();
+        assert_eq!(first_children.len(), 1);
+        assert_eq!(first_children[0].path(), "nested");
+        assert_eq!(first_children[0].children().unwrap()[0].path(), "leaf.txt");
+        assert_eq!(guide.items[1].children().unwrap()[0].path(), "child.txt");
+    }
+
+    #[test]
+    fn test_wide_hierarchies_preserve_append_order() {
+        const SIBLINGS: usize = 4_096;
+
+        let mut content = String::from("<agentic-navigation-guide>\n- root/\n");
+        for index in 0..SIBLINGS {
+            content.push_str(&format!("  - child-{index}.txt\n"));
+        }
+        for index in 0..SIBLINGS {
+            content.push_str(&format!("- root-{index}.txt\n"));
+        }
+        content.push_str("</agentic-navigation-guide>");
+
+        let guide = Parser::new().parse(&content).unwrap();
+        let children = guide.items[0].children().unwrap();
+        assert_eq!(children.len(), SIBLINGS);
+        assert_eq!(children[0].path(), "child-0.txt");
+        assert_eq!(
+            children[SIBLINGS - 1].path(),
+            format!("child-{}.txt", SIBLINGS - 1)
+        );
+        assert_eq!(guide.items.len(), SIBLINGS + 1);
+        assert_eq!(guide.items[1].path(), "root-0.txt");
+        assert_eq!(
+            guide.items[SIBLINGS].path(),
+            format!("root-{}.txt", SIBLINGS - 1)
+        );
+    }
+
+    #[test]
+    fn test_hierarchy_work_is_linear_and_stack_is_bounded() {
+        let parser = Parser::new();
+        let mut previous_work = None;
+
+        for count in [10_000, 20_000, 40_000] {
+            let mut metrics = HierarchyMetrics::default();
+            let result = parser
+                .build_hierarchy_with_observer(flat_file_items(count), &mut metrics)
+                .unwrap();
+
+            assert_eq!(result.len(), count);
+            assert_eq!(metrics.visits, count);
+            assert_eq!(metrics.appends, count);
+            assert_eq!(metrics.closes, 0);
+            assert_eq!(metrics.opens, 0);
+            assert_eq!(metrics.work(), count * 2);
+            if let Some(previous) = previous_work {
+                assert_eq!(metrics.work(), previous * 2);
+            }
+            previous_work = Some(metrics.work());
+        }
+
+        let mut depth_metrics = HierarchyMetrics::default();
+        parser
+            .build_hierarchy_with_observer(
+                nested_directory_items(MAX_LOGICAL_DEPTH),
+                &mut depth_metrics,
+            )
+            .unwrap();
+        assert_eq!(depth_metrics.max_stack_depth, MAX_LOGICAL_DEPTH + 1);
+        assert_eq!(depth_metrics.visits, MAX_LOGICAL_DEPTH + 1);
+        assert_eq!(depth_metrics.opens, MAX_LOGICAL_DEPTH + 1);
+        assert_eq!(depth_metrics.closes, MAX_LOGICAL_DEPTH + 1);
+        assert_eq!(depth_metrics.appends, MAX_LOGICAL_DEPTH + 1);
+
+        let mut over_limit_metrics = HierarchyMetrics::default();
+        assert!(parser
+            .build_hierarchy_with_observer(
+                nested_directory_items(MAX_LOGICAL_DEPTH + 1),
+                &mut over_limit_metrics,
+            )
+            .is_err());
+        assert_eq!(over_limit_metrics.max_stack_depth, MAX_LOGICAL_DEPTH + 1);
+    }
+
+    #[test]
+    #[ignore = "manual release-mode hierarchy scaling evidence"]
+    fn benchmark_flat_hierarchy_scaling() {
+        let parser = Parser::new();
+        let mut previous: Option<(usize, Duration)> = None;
+
+        for count in [10_000, 20_000, 40_000, 80_000, 120_000] {
+            let median = median_flat_hierarchy_time(&parser, count);
+            eprintln!("flat hierarchy {count}: median {median:?}");
+
+            if let Some((previous_count, previous_median)) = previous {
+                let ratio = median.as_secs_f64() / previous_median.as_secs_f64();
+                assert!(
+                    ratio <= 2.5,
+                    "flat hierarchy {previous_count}->{count} scaled by {ratio:.3}x"
+                );
+            }
+            previous = Some((count, median));
         }
     }
 

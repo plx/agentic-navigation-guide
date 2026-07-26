@@ -259,6 +259,75 @@ fn test_check_command_invalid_syntax() {
 }
 
 #[test]
+fn test_verify_rejects_child_under_intervening_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    fs::create_dir(root.join("a")).unwrap();
+    fs::write(root.join("a/c"), "").unwrap();
+    fs::write(root.join("b"), "").unwrap();
+
+    let guide_content = r#"<agentic-navigation-guide>
+- a/
+- b
+  - c
+</agentic-navigation-guide>"#;
+    let guide_path = root.join("GUIDE.md");
+    fs::write(&guide_path, guide_content).unwrap();
+
+    let mut check = get_command();
+    check
+        .arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 4"))
+        .stderr(predicate::str::contains(
+            "indent only immediately after a directory",
+        ));
+
+    let mut github_actions = get_command();
+    github_actions
+        .arg("check")
+        .arg("--github-actions-check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("GUIDE.md:4:"))
+        .stderr(predicate::str::contains(
+            "indent only immediately after a directory",
+        ));
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 4"))
+        .stderr(predicate::str::contains(
+            "indent only immediately after a directory",
+        ));
+
+    let mut post_tool_use = get_command();
+    post_tool_use
+        .env("AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE", "post-tool-use")
+        .arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(root)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "indent only immediately after a directory",
+        ));
+}
+
+#[test]
 fn test_check_command_accepts_path_without_trailing_slash() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path();

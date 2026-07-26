@@ -66,10 +66,10 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 ## Navigation Guide Format
 
 The full, versioned v0.2 format and filesystem contract is
-[`docs/v0.2-contract.md`](docs/v0.2-contract.md). The summary below is the
-legacy `0.1.4` overview; the contract's staged conformance ledger identifies
-known differences until the focused v0.2 implementation work and #66's
-documentation pass land.
+[`docs/v0.2-contract.md`](docs/v0.2-contract.md). The summary below tracks the
+currently implemented behavior as focused v0.2 conformance work lands; the
+contract's staged conformance ledger identifies the remaining known
+differences until #66's final documentation pass.
 
 A "navigation guide" looks like this:
 
@@ -93,7 +93,10 @@ A "navigation guide" looks like this:
 The main rules are:
 
 - each entry must be a list item (start with `-`)
-- nesting is indicated by indentation
+- the first entry is unindented; nesting then uses one inferred space-only
+  indentation unit of 1–16 spaces, may increase by one level only when the
+  immediately preceding physical line represents exactly one directory, and
+  is limited to depth 256
 - a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a regular-file path
 - comments are optional; the first unescaped `#` starts the comment portion
 - use `\#` to include a literal `#` character in a path

@@ -102,7 +102,9 @@ pub enum SyntaxError {
     },
 
     /// Invalid indentation level
-    #[error("line {line}: invalid indentation level - must be a multiple of the indent size")]
+    #[error(
+        "line {line}: invalid hierarchy indentation - use a 1-16 space unit, do not exceed depth 256, and indent only immediately after a directory"
+    )]
     InvalidIndentationLevel { line: usize },
 
     /// Blank line in guide block
