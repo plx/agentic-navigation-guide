@@ -136,6 +136,10 @@ pub struct VerifyArgs {
     #[arg(long, requires = "recursive")]
     pub guide_name: Option<String>,
 
+    /// Resolved implicit filename from the environment or built-in default
+    #[arg(skip)]
+    pub(crate) implicit_guide_name: Option<String>,
+
     /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
     #[arg(long = "exclude", requires = "recursive")]
     pub exclude_patterns: Vec<String>,
@@ -186,7 +190,7 @@ impl VerifyArgs {
             }
             None => {
                 let name = self
-                    .guide_name
+                    .implicit_guide_name
                     .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
                 guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
                 (
@@ -326,6 +330,7 @@ impl VerifyArgs {
         // Determine the guide name to search for
         let guide_name = self
             .guide_name
+            .or(self.implicit_guide_name)
             .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
 
         log::debug!(

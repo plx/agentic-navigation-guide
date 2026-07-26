@@ -160,7 +160,7 @@ impl Cli {
                     args.guide = defaults.guide_path()?;
                 }
                 if args.guide.is_none() {
-                    args.guide_name = Some(defaults.guide_name()?);
+                    args.implicit_guide_name = Some(defaults.guide_name()?);
                 }
             }
             Command::Verify(args) => {
@@ -169,14 +169,14 @@ impl Cli {
                 }
                 if args.recursive {
                     if args.guide_name.is_none() {
-                        args.guide_name = Some(defaults.guide_name()?);
+                        args.implicit_guide_name = Some(defaults.guide_name()?);
                     }
                 } else {
                     if args.guide.is_none() {
                         args.guide = defaults.guide_path()?;
                     }
-                    if args.guide.is_none() && args.guide_name.is_none() {
-                        args.guide_name = Some(defaults.guide_name()?);
+                    if args.guide.is_none() {
+                        args.implicit_guide_name = Some(defaults.guide_name()?);
                     }
                 }
             }

@@ -15,8 +15,9 @@ pub struct CheckArgs {
     #[arg(short, long)]
     pub guide: Option<PathBuf>,
 
+    /// Resolved implicit filename from the environment or built-in default
     #[arg(skip)]
-    pub(crate) guide_name: Option<String>,
+    pub(crate) implicit_guide_name: Option<String>,
 
     /// Fail when the guide is marked with ignore=true
     #[arg(long)]
@@ -58,7 +59,7 @@ impl CheckArgs {
             }
             None => {
                 let name = self
-                    .guide_name
+                    .implicit_guide_name
                     .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
                 guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
                 (
