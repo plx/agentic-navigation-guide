@@ -9,6 +9,7 @@
   - validator.rs # logic for validating syntax of guide
   - verifier.rs # logic for verifying guide against file system
   - dumper.rs # file-system-hierarchy "dumping" logic
+  - exclusion.rs # shared exclusion-pattern validation and matching
   - cli/
     - mod.rs
     - check.rs # check subcommand

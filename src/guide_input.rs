@@ -276,23 +276,6 @@ pub(crate) fn is_link_like(metadata: &Metadata) -> bool {
     platform_is_link_like(metadata)
 }
 
-pub(crate) fn is_directory_like(metadata: &Metadata) -> bool {
-    if metadata.is_dir() {
-        return true;
-    }
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY;
-
-        metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-
-    #[cfg(not(windows))]
-    false
-}
-
 pub(crate) fn render_path(path: &Path) -> String {
     match path.to_str() {
         Some(text)

@@ -21,7 +21,7 @@ pub struct DumpArgs {
     #[arg(short, long, value_parser = parse_depth)]
     pub depth: Option<usize>,
 
-    /// Glob patterns to exclude (can be repeated)
+    /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
     #[arg(short, long)]
     pub exclude: Vec<String>,
 

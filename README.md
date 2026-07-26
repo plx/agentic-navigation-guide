@@ -95,6 +95,12 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   `--indent` is limited to 1–16 and `--depth` to 0–256 instead of flattening,
   wrapping, panicking, or allocating pathologically. This is an intentional
   tightening under #43.
+- **2026-07-26 — Exclusions use one depth-aware glob dialect.** Unlike
+  `0.1.4`, a no-slash pattern such as `target` or `.git` matches basenames at
+  every depth, while a slash pattern matches one complete root-relative path.
+  `dump`, `init`, and recursive discovery now validate and use the same
+  case-sensitive, platform-independent matcher. This corrects the nested
+  traversal bug under #44.
 
 ## Navigation Guide Format
 
@@ -392,6 +398,46 @@ If you're adding a navigation guide to your repository, I'd suggest:
 - run `agentic-navigation-guide verify` to check for errors
 - commit the file to your repository
 - update your CLAUDE.md (etc.) to include the guide using the `@` syntax
+
+### Exclusion Patterns
+
+`dump`, `init`, and `verify --recursive` use the same exclusion language.
+Every match input is a UTF-8 path relative to the selected root, with `/` as
+the logical separator on every operating system. Matching is case-sensitive,
+performs no Unicode normalization, and consumes the complete basename or
+root-relative path.
+
+- A pattern without `/`, such as `target` or `*.tmp`, is matched against every
+  basename at every depth.
+- A pattern with `/`, such as `project/target`, matches only that complete
+  root-relative path; it has no implicit `**/` prefix.
+- `*` consumes zero or more Unicode scalars within one component, `?` consumes
+  exactly one, and a complete `**` component consumes zero or more path
+  components.
+- Classes support sets (`[abc]`), inclusive ranges (`[a-z]`), and leading-`!`
+  negation (`[!0-9]`). Outside classes, the documented escapes are `\\`,
+  `\*`, `\?`, `\[`, and `\]`; inside classes they are `\\`, `\]`, and `\-`.
+- Repeated `--exclude` options form a union. A leading `!` outside a class and
+  braces are literals, not re-inclusion or alternation syntax.
+
+For example:
+
+| Pattern | Matches | Does not match |
+| --- | --- | --- |
+| `target` | `target`, `project/target` | `targets` |
+| `*.tmp` | `a.tmp`, `nested/a.tmp` | `a.tmp.keep` |
+| `project/target` | exactly that root-relative path | `other/project/target` |
+| `projects/*/target` | one component between | `projects/a/b/target` |
+| `projects/**/target` | `projects/target`, `projects/a/b/target` | `projects/a/b/target/file` |
+
+Empty patterns, invalid separators or dot components, malformed `**`, invalid
+classes, and unknown or dangling escapes fail before traversal. A matched
+directory is pruned before its children are read; a non-UTF-8 entry encountered
+before pruning fails actionably. `init` excludes `.git`, `.svn`, `.hg`, `.bzr`,
+`CVS`, and `_darcs` as nested basenames by default unless
+`--include-vcs-directories` is passed. `.gitignore` files are not interpreted.
+The [normative contract](docs/v0.2-contract.md#exclusion-patterns) contains the
+complete grammar.
 
 ### Guide-Input Safety
 
