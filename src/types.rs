@@ -22,15 +22,6 @@ pub enum FilesystemItem {
         /// Child items within this directory
         children: Vec<NavigationGuideLine>,
     },
-    /// A symbolic link
-    Symlink {
-        /// The symlink path relative to its parent
-        path: String,
-        /// Optional comment describing the symlink
-        comment: Option<String>,
-        /// The target of the symlink (if specified in the guide)
-        target: Option<String>,
-    },
     /// A placeholder representing one or more unlisted items
     Placeholder {
         /// Optional comment describing what the placeholder represents
@@ -53,9 +44,7 @@ impl NavigationGuideLine {
     /// Get the path of the filesystem item
     pub fn path(&self) -> &str {
         match &self.item {
-            FilesystemItem::File { path, .. }
-            | FilesystemItem::Directory { path, .. }
-            | FilesystemItem::Symlink { path, .. } => path,
+            FilesystemItem::File { path, .. } | FilesystemItem::Directory { path, .. } => path,
             FilesystemItem::Placeholder { .. } => "...",
         }
     }
@@ -65,7 +54,6 @@ impl NavigationGuideLine {
         match &self.item {
             FilesystemItem::File { comment, .. }
             | FilesystemItem::Directory { comment, .. }
-            | FilesystemItem::Symlink { comment, .. }
             | FilesystemItem::Placeholder { comment, .. } => comment.as_deref(),
         }
     }

@@ -37,9 +37,6 @@ fn flatten_paths(lines: &[NavigationGuideLine], parent: &str, paths: &mut BTreeS
             FilesystemItem::Placeholder { .. } => {
                 paths.insert(join_path(parent, "..."));
             }
-            FilesystemItem::Symlink { path, .. } => {
-                panic!("generated guide unexpectedly contained symlink {path}")
-            }
         }
     }
 }

@@ -14,7 +14,11 @@ use tempfile::TempDir;
 mod issue_42_entry_type;
 
 const ALLOWED_PENDING_OWNERS: &[u32] = &[];
-const REALIZED_API_REMOVAL_IDS: &[&str] = &["api-method-navigation-guide-get-full-path"];
+const REALIZED_API_REMOVAL_IDS: &[&str] = &[
+    "api-method-navigation-guide-get-full-path",
+    "api-variant-filesystem-item-symlink",
+    "api-variant-semantic-error-symlink-target-mismatch",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -424,9 +428,6 @@ fn flatten_items(
                 kind: ItemKind::Placeholder,
                 path: join_path(parent, "..."),
             }),
-            FilesystemItem::Symlink { path, .. } => {
-                panic!("the v0.2 parser fixture must not construct a symlink for '{path}'")
-            }
         }
     }
 }
@@ -999,10 +1000,9 @@ fn api_ledger_matches_current_rust_source_and_cargo_target() {
     );
 
     let mut expected_variant_order: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for case in api_fixtures::CASES
-        .iter()
-        .filter(|case| case.kind == ApiKind::Variant)
-    {
+    for case in api_fixtures::CASES.iter().filter(|case| {
+        case.kind == ApiKind::Variant && !REALIZED_API_REMOVAL_IDS.contains(&case.id)
+    }) {
         let (type_name, remainder) = case
             .symbol
             .split_once("::")
@@ -1034,8 +1034,7 @@ fn api_ledger_matches_current_rust_source_and_cargo_target() {
     );
 }
 
-#[test]
-fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
+fn realized_api_removal_rows() -> Vec<&'static ApiCase> {
     let unique_realized_ids = REALIZED_API_REMOVAL_IDS
         .iter()
         .copied()
@@ -1055,6 +1054,12 @@ fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
         REALIZED_API_REMOVAL_IDS.len(),
         "every realized-removal ID must resolve to exactly one historical disposition row"
     );
+    realized_rows
+}
+
+#[test]
+fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
+    let realized_rows = realized_api_removal_rows();
 
     let row = realized_rows
         .iter()
@@ -1117,6 +1122,110 @@ fn issue_52_removed_full_path_method_is_absent_but_its_ledger_row_remains() {
             "#52 has now implemented this disposition while preserving the historical inventory row"
         ),
         "the normative inventory must distinguish the realized removal from ledger deletion"
+    );
+}
+
+#[test]
+fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
+    let realized_rows = realized_api_removal_rows();
+    let issue_rows = realized_rows
+        .iter()
+        .copied()
+        .filter(|case| case.owner_issue == 53)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        issue_rows
+            .iter()
+            .map(|case| case.id)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "api-variant-filesystem-item-symlink",
+            "api-variant-semantic-error-symlink-target-mismatch",
+        ]),
+        "#53 must retain exactly its two historical disposition rows"
+    );
+
+    let expected_rows = [
+        (
+            "api-variant-filesystem-item-symlink",
+            "FilesystemItem::Symlink { path: String, comment: Option<String>, target: Option<String> }",
+        ),
+        (
+            "api-variant-semantic-error-symlink-target-mismatch",
+            "SemanticError::SymlinkTargetMismatch { line: usize, path: String, expected: String, actual: String }",
+        ),
+    ];
+    let current_source = collect_current_source_api();
+    for (id, symbol) in expected_rows {
+        let row = issue_rows
+            .iter()
+            .find(|case| case.id == id)
+            .unwrap_or_else(|| panic!("missing #53 historical disposition row '{id}'"));
+        assert_eq!(row.kind, ApiKind::Variant);
+        assert_eq!(row.symbol, symbol);
+        assert_eq!(row.disposition, ApiDisposition::RemoveUnsupportedLinkModel);
+        assert!(
+            !current_source.contains(&(row.kind, row.symbol.to_string())),
+            "#53's unsupported variant is still exported: {symbol}"
+        );
+    }
+
+    fn enum_contains_variant(source: &str, enum_name: &str, variant_name: &str) -> bool {
+        let file = syn::parse_file(source).expect("parse enum source for exact #53 removals");
+        file.items.iter().any(|item| {
+            matches!(
+                item,
+                Item::Enum(item)
+                    if item.ident == enum_name
+                        && item.variants.iter().any(|variant| variant.ident == variant_name)
+            )
+        })
+    }
+
+    assert!(
+        !enum_contains_variant(include_str!("../src/types.rs"), "FilesystemItem", "Symlink"),
+        "#53 must delete FilesystemItem::Symlink"
+    );
+    assert!(
+        !enum_contains_variant(
+            include_str!("../src/errors.rs"),
+            "SemanticError",
+            "SymlinkTargetMismatch"
+        ),
+        "#53 must delete SemanticError::SymlinkTargetMismatch"
+    );
+
+    let readme = include_str!("../README.md");
+    let normalized_readme = readme.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized_readme.contains(
+            "`FilesystemItem::Symlink` and `SemanticError::SymlinkTargetMismatch` are removed without replacement in v0.2"
+        ),
+        "the v0.2 changelog must name both exact removals and the no-replacement migration"
+    );
+    assert!(
+        normalized_readme.contains("filesystem links remain unsupported entries")
+            && normalized_readme.contains("invoke the installed CLI")
+            && normalized_readme.contains("pinned to unsupported `0.1.4`"),
+        "the removal must distinguish internal link rejection and retain both migration choices"
+    );
+
+    let contributor_guide = include_str!("../CLAUDE.md");
+    assert!(
+        contributor_guide
+            .contains("`FilesystemItem`: Enum representing File, Directory, or Placeholder")
+            && !contributor_guide
+                .contains("`FilesystemItem`: Enum representing File, Directory, or Symlink"),
+        "active contributor guidance must list only the realizable filesystem-item variants"
+    );
+
+    let contract = include_str!("../docs/v0.2-contract.md");
+    let normalized_contract = contract.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized_contract.contains(
+            "#53 has now implemented this disposition while preserving its two historical inventory rows"
+        ),
+        "the normative inventory must distinguish #53's realized removals from ledger deletion"
     );
 }
 

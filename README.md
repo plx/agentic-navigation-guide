@@ -58,8 +58,8 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 ### Known Intentional Divergences
 
 - **2026-07-25 — Legacy library target remains during staged cleanup.** The
-  current source still builds a linkable library so #53–#54 can remove and
-  privatize the audited current-source surface in focused changes. The
+  current source still builds a linkable library so #54 can privatize the
+  remaining audited current-source surface and remove the target. The
   immutable published `0.1.4` artifact is #64's separate migration baseline.
   Neither library is part of the supported v0.2 product.
 - **2026-07-26 — The legacy full-path helper is removed without replacement.**
@@ -70,6 +70,17 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   its documented process or machine contract, or remain pinned to unsupported
   `0.1.4` at their own risk. #64 will carry this break into the complete
   `0.2.0` changelog.
+- **2026-07-26 — The unsupported programmatic symlink model is removed without
+  replacement.** `FilesystemItem::Symlink` and
+  `SemanticError::SymlinkTargetMismatch` are removed without replacement in
+  v0.2. The guide language has no link or target-matching form; filesystem
+  links remain unsupported entries. The CLI continues to classify symlink and
+  reparse entries internally only to reject them without following or
+  traversing them. Existing Rust integrations may migrate supported regular
+  file and directory workflows to invoke the installed CLI through its
+  documented process or machine contract, or remain pinned to unsupported
+  `0.1.4` at their own risk. Link inventory and target matching have no v0.2
+  equivalent. #64 will carry this break into the complete `0.2.0` changelog.
 - **2026-07-25 — File output is intentionally create-only.** Unlike `0.1.4`,
   v0.2 `dump --output` does not overwrite an existing destination; it shares
   `init`'s create-new policy and has no force mode. This breaking CLI change
