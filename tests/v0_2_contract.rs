@@ -1580,8 +1580,11 @@ fn issue_40_choice_token_preservation_is_executable() {
 
     for source in [
         "<agentic-navigation-guide>\n- [..., name]\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- src/[..., name]\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- data[\\,comma, \",comma\"].txt\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- x[\"a\"junk, b]y\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- x[a\tb, c]y\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- x[\"a\u{7f}b\", c]y\n</agentic-navigation-guide>",
     ] {
         assert_eq!(observe(source), ObservedResult::Reject, "{source}");
     }

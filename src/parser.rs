@@ -2042,6 +2042,24 @@ More prose mentions </agentic-navigation-guides>."#;
     }
 
     #[test]
+    fn test_choice_limit_rejects_before_tokenizing_unbounded_alternatives() {
+        let content = format!("{}\\", "a,".repeat(MAX_CHOICE_ALTERNATIVES));
+        let result = Parser::parse_choice_block(&content, "path", 1);
+
+        let Err(crate::errors::AppError::Syntax(SyntaxError::InvalidWildcardSyntax {
+            message,
+            ..
+        })) = result
+        else {
+            panic!("an over-limit choice must fail with a wildcard syntax error")
+        };
+        assert!(
+            message.contains("between 2 and 256"),
+            "the count limit must win before the trailing token is parsed: {message}"
+        );
+    }
+
+    #[test]
     fn test_parse_wildcard_with_empty_choice_and_whitespace() {
         let content = r#"<agentic-navigation-guide>
 - Config[, .local].json
