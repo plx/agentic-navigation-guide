@@ -145,6 +145,15 @@ fn run_recursive_zero_case(
     allow_empty: bool,
 ) -> Output {
     let mut command = get_command();
+    for variable in [
+        "AGENTIC_NAVIGATION_GUIDE_PATH",
+        "AGENTIC_NAVIGATION_GUIDE_ROOT",
+        "AGENTIC_NAVIGATION_GUIDE_NAME",
+        "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
+        "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
+    ] {
+        command.env_remove(variable);
+    }
     command
         .arg("verify")
         .arg("--recursive")
@@ -2445,11 +2454,13 @@ fn test_recursive_verify_with_invalid_glob_pattern_reports_error() {
         .arg("--recursive")
         .arg("--exclude")
         .arg("[")
+        .arg("--allow-empty")
         .arg("--root")
         .arg(root)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid glob pattern"));
+        .stderr(predicate::str::contains("invalid glob pattern"))
+        .stderr(predicate::str::contains("zero navigation guides were verified").not());
 }
 
 #[test]
@@ -2483,6 +2494,7 @@ fn test_recursive_verify_with_ignored_guides() {
     let mut cmd = get_command();
     cmd.arg("verify")
         .arg("--recursive")
+        .arg("--allow-empty")
         .arg("--root")
         .arg(root)
         .assert()
@@ -2512,6 +2524,7 @@ fn test_recursive_verify_rejects_non_ignore_attribute() {
     let mut cmd = get_command();
     cmd.arg("verify")
         .arg("--recursive")
+        .arg("--allow-empty")
         .arg("--root")
         .arg(root)
         .assert()
@@ -2519,7 +2532,8 @@ fn test_recursive_verify_rejects_non_ignore_attribute() {
         .stderr(predicate::str::contains("line 1"))
         .stderr(predicate::str::contains("invalid guide document"))
         .stderr(predicate::str::contains("missing opening"))
-        .stderr(predicate::str::contains("Skipping").not());
+        .stderr(predicate::str::contains("Skipping").not())
+        .stderr(predicate::str::contains("zero navigation guides were verified").not());
 }
 
 #[test]
@@ -2532,6 +2546,11 @@ fn test_recursive_verify_zero_discovery_is_fail_closed_unless_explicitly_allowed
         for mode in RECURSIVE_ZERO_MODES {
             let rejected = run_recursive_zero_case(&fixture, mode, false);
             let rejected_stderr = String::from_utf8_lossy(&rejected.stderr);
+            let search_root_name = fixture
+                .search_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap();
 
             assert_eq!(
                 rejected.status.code(),
@@ -2548,7 +2567,7 @@ fn test_recursive_verify_zero_discovery_is_fail_closed_unless_explicitly_allowed
             );
             assert!(
                 rejected_stderr.contains(fixture.guide_name)
-                    && rejected_stderr.contains(&fixture.search_root.display().to_string())
+                    && rejected_stderr.contains(search_root_name)
                     && rejected_stderr.contains("--root")
                     && rejected_stderr.contains("--guide-name")
                     && rejected_stderr.contains("--exclude")
@@ -2589,7 +2608,7 @@ fn test_recursive_verify_zero_discovery_is_fail_closed_unless_explicitly_allowed
 fn test_recursive_verify_ignored_guide_is_discovered_not_absent() {
     const IGNORED_SUMMARY: &str = "Discovered: 1, Passed: 0, Failed: 0, Ignored: 1, Absent: 0";
     const IGNORED_GUIDE: &str = "<agentic-navigation-guide ignore=true>\n\
-                                deliberately opaque body\n\
+                                - deliberately-missing.txt\n\
                                 </agentic-navigation-guide>";
 
     let temp = TempDir::new().unwrap();
@@ -2648,8 +2667,22 @@ fn test_allow_empty_requires_recursive() {
         .arg("--root")
         .arg(temp.path())
         .assert()
-        .failure()
+        .code(2)
         .stderr(predicate::str::contains("--recursive"));
+}
+
+#[test]
+fn test_recursive_verify_help_documents_allow_empty() {
+    let mut command = get_command();
+    command
+        .arg("verify")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--allow-empty"))
+        .stdout(predicate::str::contains(
+            "Allow a recursive search to succeed after discovering zero guides",
+        ));
 }
 
 #[test]

@@ -2,11 +2,92 @@
 
 use agentic_navigation_guide::errors::{AppError, ErrorFormatter, Result};
 use agentic_navigation_guide::parser::Parser;
+use agentic_navigation_guide::recursive::{self, GuideLocation};
 use agentic_navigation_guide::types::{Config, ExecutionMode, LogLevel};
 use agentic_navigation_guide::validator::Validator;
 use agentic_navigation_guide::verifier::Verifier;
 use clap::Args;
+use std::fmt;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RecursiveAggregate {
+    discovered: usize,
+    passed: usize,
+    failed: usize,
+    ignored: usize,
+    absent: usize,
+}
+
+impl RecursiveAggregate {
+    const fn absent() -> Self {
+        Self {
+            discovered: 0,
+            passed: 0,
+            failed: 0,
+            ignored: 0,
+            // This is one absent-search outcome, not a count of files that
+            // might have been expected to exist.
+            absent: 1,
+        }
+    }
+}
+
+impl fmt::Display for RecursiveAggregate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "Total: {}, Discovered: {}, Passed: {}, Failed: {}, Ignored: {}, Absent: {}",
+            self.discovered, self.discovered, self.passed, self.failed, self.ignored, self.absent
+        )
+    }
+}
+
+#[derive(Debug, Error)]
+#[error(
+    "zero navigation guides were verified: no files named {guide_name:?} were discovered under \
+     {search_root:?}. Check --root, --guide-name, and --exclude; pass --allow-empty only when an \
+     empty recursive search is intentional."
+)]
+struct NoGuidesFound {
+    search_root: PathBuf,
+    guide_name: String,
+    aggregate: RecursiveAggregate,
+}
+
+enum RecursiveDiscovery {
+    Found(Vec<GuideLocation>),
+    Absent(NoGuidesFound),
+}
+
+impl RecursiveDiscovery {
+    fn classify(guides: Vec<GuideLocation>, search_root: PathBuf, guide_name: String) -> Self {
+        if guides.is_empty() {
+            Self::Absent(NoGuidesFound {
+                search_root,
+                guide_name,
+                aggregate: RecursiveAggregate::absent(),
+            })
+        } else {
+            Self::Found(guides)
+        }
+    }
+}
+
+fn finish_empty_discovery(error: NoGuidesFound, allow_empty: bool, config: &Config) -> Result<()> {
+    if allow_empty {
+        if config.log_level != LogLevel::Quiet {
+            println!("--allow-empty accepted: zero navigation guides were verified");
+            println!("  {}", error.aggregate);
+        }
+        Ok(())
+    } else {
+        eprintln!("{error}");
+        eprintln!("  {}", error.aggregate);
+        Err(AppError::Other(error.to_string()).reported())
+    }
+}
 
 /// Arguments for the verify subcommand
 #[derive(Args, Debug)]
@@ -35,6 +116,10 @@ pub struct VerifyArgs {
     /// Glob patterns to exclude from recursive search (can be specified multiple times)
     #[arg(long = "exclude", requires = "recursive")]
     pub exclude_patterns: Vec<String>,
+
+    /// Allow a recursive search to succeed after discovering zero guides
+    #[arg(long, requires = "recursive")]
+    pub allow_empty: bool,
 
     /// Running as post-tool-use hook
     #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
@@ -224,8 +309,6 @@ impl VerifyArgs {
 
     /// Execute verification in recursive mode
     fn execute_recursive(self, config: &Config) -> Result<()> {
-        use agentic_navigation_guide::recursive;
-
         // Determine the root path for recursive search
         let search_root = match self.root {
             Some(root) => root,
@@ -238,24 +321,20 @@ impl VerifyArgs {
             .unwrap_or_else(|| "AGENTIC_NAVIGATION_GUIDE.md".to_string());
 
         log::debug!(
-            "Recursively searching for '{}' guides in {}",
+            "Recursively searching for {:?} guides in {:?}",
             guide_name,
-            search_root.display()
+            search_root
         );
 
         // Find all guide files
         let guides = recursive::find_guides(&search_root, &guide_name, &self.exclude_patterns)?;
-
-        if guides.is_empty() {
-            if config.log_level != LogLevel::Quiet {
-                eprintln!(
-                    "No navigation guide files named '{}' found in {}",
-                    guide_name,
-                    search_root.display()
-                );
-            }
-            return Ok(());
-        }
+        let guides =
+            match RecursiveDiscovery::classify(guides, search_root.clone(), guide_name.clone()) {
+                RecursiveDiscovery::Found(guides) => guides,
+                RecursiveDiscovery::Absent(error) => {
+                    return finish_empty_discovery(error, self.allow_empty, config);
+                }
+            };
 
         if config.log_level != LogLevel::Quiet {
             match config.execution_mode {

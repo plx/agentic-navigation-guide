@@ -6,6 +6,7 @@ use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
 use crate::verifier::Verifier;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -29,6 +30,42 @@ pub struct GuideVerificationResult {
     pub error: Option<String>,
     /// Whether the guide was ignored (has ignore=true)
     pub ignored: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VerificationAggregate {
+    discovered: usize,
+    passed: usize,
+    failed: usize,
+    ignored: usize,
+    absent: usize,
+}
+
+impl VerificationAggregate {
+    fn from_results(results: &[GuideVerificationResult]) -> Self {
+        let discovered = results.len();
+        Self {
+            discovered,
+            passed: results
+                .iter()
+                .filter(|result| result.success && !result.ignored)
+                .count(),
+            failed: results.iter().filter(|result| !result.success).count(),
+            ignored: results.iter().filter(|result| result.ignored).count(),
+            // Absence is one aggregate search outcome, not a count of files.
+            absent: usize::from(discovered == 0),
+        }
+    }
+}
+
+impl fmt::Display for VerificationAggregate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "Total: {}, Discovered: {}, Passed: {}, Failed: {}, Ignored: {}, Absent: {}",
+            self.discovered, self.discovered, self.passed, self.failed, self.ignored, self.absent
+        )
+    }
 }
 
 /// Recursively find all navigation guide files
@@ -193,10 +230,18 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
 
 /// Format and display verification results
 pub fn display_results(results: &[GuideVerificationResult], config: &Config) -> bool {
-    let total = results.len();
-    let passed = results.iter().filter(|r| r.success && !r.ignored).count();
-    let ignored = results.iter().filter(|r| r.ignored).count();
-    let failed = results.iter().filter(|r| !r.success).count();
+    let aggregate = VerificationAggregate::from_results(results);
+
+    // Keep the legacy public function from treating an empty slice as
+    // vacuous success. The CLI normally handles this richer outcome first so
+    // it can include the selected root, guide name, and explicit remedy.
+    if aggregate.absent != 0 {
+        if config.log_level != LogLevel::Quiet {
+            eprintln!("zero navigation guides were verified");
+            eprintln!("  {aggregate}");
+        }
+        return false;
+    }
 
     // Display individual results based on execution mode
     match config.execution_mode {
@@ -215,27 +260,25 @@ pub fn display_results(results: &[GuideVerificationResult], config: &Config) -> 
     if config.log_level != LogLevel::Quiet {
         match config.execution_mode {
             ExecutionMode::GitHubActions => {
-                if failed == 0 {
-                    println!("✓ All navigation guides verified ({total} total)");
+                if aggregate.failed == 0 {
+                    println!("✓ All navigation guides verified ({aggregate})");
                 } else {
-                    eprintln!("❌ Navigation guide verification failed: {passed} passed, {failed} failed, {ignored} ignored");
+                    eprintln!("❌ Navigation guide verification failed: {aggregate}");
                 }
             }
             _ => {
-                if failed == 0 {
+                if aggregate.failed == 0 {
                     println!("✓ All navigation guides are valid and match filesystem");
-                    println!("  Total: {total}, Passed: {passed}, Ignored: {ignored}");
+                    println!("  {aggregate}");
                 } else {
                     eprintln!("✗ Some navigation guides failed verification");
-                    eprintln!(
-                        "  Total: {total}, Passed: {passed}, Failed: {failed}, Ignored: {ignored}"
-                    );
+                    eprintln!("  {aggregate}");
                 }
             }
         }
     }
 
-    failed == 0
+    aggregate.failed == 0
 }
 
 /// Display results for GitHub Actions mode
@@ -300,5 +343,31 @@ fn display_default_results(results: &[GuideVerificationResult], config: &Config)
             eprintln!("{error}");
             eprintln!();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_result_slice_is_an_absent_failure_not_vacuous_success() {
+        let config = Config {
+            log_level: LogLevel::Quiet,
+            ..Config::default()
+        };
+
+        let aggregate = VerificationAggregate::from_results(&[]);
+        assert_eq!(
+            aggregate,
+            VerificationAggregate {
+                discovered: 0,
+                passed: 0,
+                failed: 0,
+                ignored: 0,
+                absent: 1,
+            }
+        );
+        assert!(!display_results(&[], &config));
     }
 }
