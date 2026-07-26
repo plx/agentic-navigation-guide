@@ -1,16 +1,17 @@
 //! Recursive navigation guide discovery and verification
 
 use crate::errors::{AppError, ErrorFormatter, Result};
+use crate::exclusion::ExclusionMatcher;
 use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use crate::parser::Parser;
 use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
 use crate::verifier::Verifier;
-use globset::{Glob, GlobSet, GlobSetBuilder};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 /// Represents a single guide file to be verified
 #[derive(Debug, Clone)]
@@ -73,115 +74,149 @@ impl fmt::Display for VerificationAggregate {
     }
 }
 
+type ChildNames = Box<dyn Iterator<Item = io::Result<OsString>>>;
+
 /// Recursively find all navigation guide files
 pub fn find_guides(
     root: &Path,
     guide_name: &str,
     exclude_patterns: &[String],
 ) -> Result<Vec<GuideLocation>> {
-    let mut guides = Vec::new();
-
     guide_input::validate_implicit_name(guide_name).map_err(map_guide_input_error)?;
 
-    // Build exclusion glob set
-    let exclude_globs = if exclude_patterns.is_empty() {
-        None
-    } else {
-        let mut builder = GlobSetBuilder::new();
-        for pattern in exclude_patterns {
-            builder.add(Glob::new(pattern)?);
-        }
-        Some(builder.build()?)
-    };
+    // Validate every pattern before touching the selected root.
+    let exclude_matcher = ExclusionMatcher::compile(exclude_patterns)?;
+    let mut enumerate = read_child_names;
+    find_guides_with(root, guide_name, &exclude_matcher, &mut enumerate)
+}
 
-    // Walk the selected root without following descendant links. WalkDir
-    // follows a root link by default, which permits a caller-selected root
-    // alias while the checks below reject link/reparse entries beneath it.
-    let mut walker = WalkDir::new(root).follow_links(false).into_iter();
-    // Preserve traversal failures as traversal failures (rather than empty
-    // discovery) while still validating names and globs before root access.
-    if let Some(root_entry) = walker.next() {
-        root_entry?;
+fn find_guides_with<E>(
+    root: &Path,
+    guide_name: &str,
+    exclude_matcher: &ExclusionMatcher,
+    enumerate: &mut E,
+) -> Result<Vec<GuideLocation>>
+where
+    E: FnMut(&Path) -> io::Result<ChildNames>,
+{
+    // Read the selected root before anchor construction to preserve traversal
+    // failures as traversal failures. A caller-selected root link is followed
+    // by this one explicit read and accepted as the anchor below.
+    let root_metadata = fs::metadata(root).map_err(|error| {
+        AppError::Other(format!(
+            "filesystem walk error: could not inspect the selected recursive root {} ({:?})",
+            guide_input::render_path(root),
+            error.kind()
+        ))
+    })?;
+    if !root_metadata.is_dir() {
+        return Err(AppError::Other(format!(
+            "filesystem walk error: the selected recursive root {} is not a directory",
+            guide_input::render_path(root)
+        )));
     }
+    let root_children = enumerate(root)
+        .map_err(|error| discovery_enumeration_error(root, Path::new(""), error.kind()))?;
     let anchor = GuideAnchor::new(root).map_err(map_guide_input_error)?;
+    let mut guides = Vec::new();
+    let mut root_children = Some(root_children);
+    let mut pending_directories = vec![PathBuf::new()];
 
-    while let Some(entry) = walker.next() {
-        let entry = entry?;
-        let path = entry.path();
+    // Scan and close each directory before visiting any included child
+    // directory. This keeps one live traversal-enumeration handle at a time
+    // without buffering ordinary file entries from very wide directories.
+    while let Some(relative_directory) = pending_directories.pop() {
+        let directory = if relative_directory.as_os_str().is_empty() {
+            root.to_path_buf()
+        } else {
+            root.join(&relative_directory)
+        };
+        let children = match root_children.take() {
+            Some(children) => children,
+            None => enumerate(&directory).map_err(|error| {
+                discovery_enumeration_error(root, &relative_directory, error.kind())
+            })?,
+        };
 
-        // Explicit exclusions win before unsafe matching-entry
-        // classification, and excluded directories are pruned pre-descent.
-        if !should_include_entry(&entry, root, &exclude_globs) {
-            if entry.file_type().is_dir() {
-                walker.skip_current_dir();
+        for name in children {
+            let name = name.map_err(|error| {
+                discovery_enumeration_error(root, &relative_directory, error.kind())
+            })?;
+            let path = directory.join(&name);
+            let relative_path = relative_directory.join(&name);
+
+            // Match the child name before metadata access or opening the child
+            // as a directory. Excluded directories therefore never reach
+            // `read_dir`.
+            if exclude_matcher.is_match(&relative_path)? {
+                continue;
             }
-            continue;
-        }
-        if entry.depth() == 0 {
-            continue;
-        }
 
-        let matches_guide_name = entry.file_name() == OsStr::new(guide_name);
-        let metadata = std::fs::symlink_metadata(path)?;
-        if guide_input::is_link_like(&metadata) {
-            if guide_input::is_directory_like(&metadata) {
-                walker.skip_current_dir();
+            let matches_guide_name = name == OsStr::new(guide_name);
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| discovery_entry_error(&relative_path, error.kind()))?;
+            if guide_input::is_link_like(&metadata) {
+                if matches_guide_name {
+                    anchor
+                        .validate_implicit(&path, &relative_path)
+                        .map_err(map_guide_input_error)?;
+                }
+                continue;
             }
+
             if matches_guide_name {
-                let logical_path = path.strip_prefix(root).unwrap_or(path);
                 anchor
-                    .validate_implicit(path, logical_path)
+                    .validate_implicit(&path, &relative_path)
                     .map_err(map_guide_input_error)?;
+
+                // Preserve the caller-facing spelling for diagnostics and
+                // root-alias behavior. GuideAnchor and Verifier canonicalize
+                // this already validated real containing directory internally.
+                let root_path = path.parent().unwrap_or(root).to_path_buf();
+                guides.push(GuideLocation {
+                    guide_path: path,
+                    root_path,
+                });
+                continue;
             }
-            continue;
-        }
-        if !matches_guide_name {
-            continue;
-        }
 
-        let logical_path = path.strip_prefix(root).unwrap_or(path);
-        anchor
-            .validate_implicit(path, logical_path)
-            .map_err(map_guide_input_error)?;
-
-        // Preserve the caller-facing spelling for diagnostics and root-alias
-        // behavior. GuideAnchor and Verifier canonicalize this already
-        // validated real containing directory internally.
-        let root_path = path.parent().unwrap_or(root).to_path_buf();
-        guides.push(GuideLocation {
-            guide_path: path.to_path_buf(),
-            root_path,
-        });
+            if metadata.is_dir() {
+                pending_directories.push(relative_path);
+            }
+        }
     }
 
     Ok(guides)
 }
 
-/// Check if a directory entry should be included in the walk
-fn should_include_entry(
-    entry: &walkdir::DirEntry,
-    root: &Path,
-    exclude_globs: &Option<GlobSet>,
-) -> bool {
-    if let Some(globs) = exclude_globs {
-        let path = entry.path();
-        if let Ok(relative_path) = path.strip_prefix(root) {
-            // Check the full relative path
-            if globs.is_match(relative_path) {
-                return false;
-            }
+fn read_child_names(directory: &Path) -> io::Result<ChildNames> {
+    Ok(Box::new(
+        fs::read_dir(directory)?.map(|entry| entry.map(|entry| entry.file_name())),
+    ))
+}
 
-            // For directories, check if any parent component matches
-            let mut current_path = PathBuf::new();
-            for component in relative_path.components() {
-                current_path.push(component);
-                if globs.is_match(&current_path) {
-                    return false;
-                }
-            }
-        }
+fn discovery_enumeration_error(
+    root: &Path,
+    relative_directory: &Path,
+    kind: io::ErrorKind,
+) -> AppError {
+    if relative_directory.as_os_str().is_empty() {
+        return AppError::Other(format!(
+            "filesystem walk error: could not enumerate the selected recursive root {} ({kind:?})",
+            guide_input::render_path(root)
+        ));
     }
-    true
+    AppError::Other(format!(
+        "filesystem walk error: could not enumerate included directory {} ({kind:?})",
+        guide_input::render_path(relative_directory)
+    ))
+}
+
+fn discovery_entry_error(relative_path: &Path, kind: io::ErrorKind) -> AppError {
+    AppError::Other(format!(
+        "filesystem walk error: could not inspect included entry {} ({kind:?})",
+        guide_input::render_path(relative_path)
+    ))
 }
 
 /// Verify multiple guides and collect results
@@ -428,6 +463,28 @@ fn render_location(location: &GuideLocation) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    struct CountingChildNames {
+        inner: ChildNames,
+        live: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl Iterator for CountingChildNames {
+        type Item = io::Result<OsString>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.inner.next()
+        }
+    }
+
+    impl Drop for CountingChildNames {
+        fn drop(&mut self) {
+            let live = self.live.get();
+            assert!(live > 0, "live enumerator count underflow");
+            self.live.set(live - 1);
+        }
+    }
 
     #[test]
     fn empty_result_slice_is_an_absent_failure_not_vacuous_success() {
@@ -448,5 +505,87 @@ mod tests {
             }
         );
         assert!(!display_results(&[], &config));
+    }
+
+    #[test]
+    fn issue_44_excluded_directories_do_not_reach_the_enumerator() {
+        let root = TempDir::new().expect("temporary root");
+        fs::create_dir_all(root.path().join("project/target/deep")).expect("excluded subtree");
+        fs::write(root.path().join("project/keep.txt"), "").expect("included sibling");
+
+        let matcher = ExclusionMatcher::compile(&["target".to_string()]).expect("valid exclusion");
+        let mut enumerated = Vec::new();
+        let mut enumerate = |directory: &Path| {
+            let relative = directory
+                .strip_prefix(root.path())
+                .expect("enumerated path beneath fixture root");
+            if relative == Path::new("project/target") {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "excluded directory reached the enumeration seam",
+                ));
+            }
+            enumerated.push(
+                relative
+                    .components()
+                    .map(|component| {
+                        component
+                            .as_os_str()
+                            .to_str()
+                            .expect("UTF-8 fixture component")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("/"),
+            );
+            read_child_names(directory)
+        };
+
+        let guides = find_guides_with(root.path(), "GUIDE.md", &matcher, &mut enumerate)
+            .expect("excluded subtree must not be enumerated");
+        assert!(guides.is_empty());
+        assert_eq!(enumerated, ["", "project"]);
+    }
+
+    #[test]
+    fn issue_44_recursive_discovery_keeps_one_live_enumerator() {
+        let root = TempDir::new().expect("temporary root");
+        let mut deepest = root.path().to_path_buf();
+        for _ in 0..64 {
+            deepest.push("d");
+            fs::create_dir(&deepest).expect("deep fixture directory");
+        }
+        let deepest_guide = deepest.join("GUIDE.md");
+        fs::write(&deepest_guide, "").expect("deep fixture guide");
+
+        let matcher = ExclusionMatcher::compile(&[]).expect("empty exclusion set");
+        let live = std::rc::Rc::new(std::cell::Cell::new(0));
+        let maximum = std::rc::Rc::new(std::cell::Cell::new(0));
+        let openings = std::rc::Rc::new(std::cell::Cell::new(0));
+        let closure_live = std::rc::Rc::clone(&live);
+        let closure_maximum = std::rc::Rc::clone(&maximum);
+        let closure_openings = std::rc::Rc::clone(&openings);
+        let mut enumerate = move |directory: &Path| {
+            assert_eq!(
+                closure_live.get(),
+                0,
+                "a parent enumerator remained live while opening a child"
+            );
+            let inner = read_child_names(directory)?;
+            closure_openings.set(closure_openings.get() + 1);
+            closure_live.set(1);
+            closure_maximum.set(closure_maximum.get().max(1));
+            Ok(Box::new(CountingChildNames {
+                inner,
+                live: std::rc::Rc::clone(&closure_live),
+            }) as ChildNames)
+        };
+
+        let guides = find_guides_with(root.path(), "GUIDE.md", &matcher, &mut enumerate)
+            .expect("deep discovery must keep its enumeration handles bounded");
+        assert_eq!(guides.len(), 1);
+        assert_eq!(guides[0].guide_path, deepest_guide);
+        assert_eq!(openings.get(), 65);
+        assert_eq!(maximum.get(), 1);
+        assert_eq!(live.get(), 0);
     }
 }

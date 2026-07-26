@@ -4,12 +4,12 @@ use crate::entry_type::{
     classify_path, EntryClassification, SupportedEntryKind, UnsupportedEntryKind,
 };
 use crate::errors::{AppError, Result};
+use crate::exclusion::ExclusionMatcher;
 use crate::path_codec::{
     contains_forbidden_control, has_windows_drive_prefix, render_os_component,
     render_utf8_component, serialize_component,
 };
-use globset::{Glob, GlobSet, GlobSetBuilder};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -24,6 +24,13 @@ struct TraversalLimit {
     reject_beyond_limit: bool,
 }
 
+#[derive(Clone, Copy)]
+struct DirectoryPosition<'a> {
+    physical: &'a Path,
+    relative: &'a Path,
+    depth: usize,
+}
+
 /// Dumper for creating navigation guides from directory structures
 pub struct Dumper {
     /// Root path to dump from
@@ -31,7 +38,7 @@ pub struct Dumper {
     /// Maximum depth to traverse
     max_depth: Option<usize>,
     /// Glob patterns to exclude
-    exclude_globs: Option<GlobSet>,
+    exclude_matcher: ExclusionMatcher,
     /// Number of spaces for indentation
     indent_size: usize,
 }
@@ -42,7 +49,7 @@ impl Dumper {
         Self {
             root_path: root_path.to_path_buf(),
             max_depth: None,
-            exclude_globs: None,
+            exclude_matcher: ExclusionMatcher::default(),
             indent_size: 2,
         }
     }
@@ -55,15 +62,7 @@ impl Dumper {
 
     /// Set exclude patterns
     pub fn with_exclude_patterns(mut self, patterns: &[String]) -> Result<Self> {
-        if patterns.is_empty() {
-            self.exclude_globs = None;
-        } else {
-            let mut builder = GlobSetBuilder::new();
-            for pattern in patterns {
-                builder.add(Glob::new(pattern)?);
-            }
-            self.exclude_globs = Some(builder.build()?);
-        }
+        self.exclude_matcher = ExclusionMatcher::compile(patterns)?;
         Ok(self)
     }
 
@@ -142,17 +141,32 @@ impl Dumper {
     where
         F: FnMut(&Path) -> io::Result<EntryClassification>,
     {
-        let traversal_limit = self.validate_configuration()?;
-        self.collect_entries_with_limit(traversal_limit, classify)
+        let mut enumerate = read_child_names;
+        self.collect_entries_with_operations(classify, &mut enumerate)
     }
 
-    fn collect_entries_with_limit<F>(
+    fn collect_entries_with_operations<F, E>(
         &self,
-        traversal_limit: TraversalLimit,
         classify: &mut F,
+        enumerate: &mut E,
     ) -> Result<Vec<CollectedEntry>>
     where
         F: FnMut(&Path) -> io::Result<EntryClassification>,
+        E: FnMut(&Path) -> io::Result<Vec<OsString>>,
+    {
+        let traversal_limit = self.validate_configuration()?;
+        self.collect_entries_with_limit(traversal_limit, classify, enumerate)
+    }
+
+    fn collect_entries_with_limit<F, E>(
+        &self,
+        traversal_limit: TraversalLimit,
+        classify: &mut F,
+        enumerate: &mut E,
+    ) -> Result<Vec<CollectedEntry>>
+    where
+        F: FnMut(&Path) -> io::Result<EntryClassification>,
+        E: FnMut(&Path) -> io::Result<Vec<OsString>>,
     {
         let canonical_root = fs::canonicalize(&self.root_path)
             .map_err(|error| self.root_access_error("resolve the generation root", error.kind()))?;
@@ -167,43 +181,41 @@ impl Dumper {
 
         let mut entries = Vec::new();
         self.collect_directory(
-            &canonical_root,
-            Path::new(""),
-            0,
+            DirectoryPosition {
+                physical: &canonical_root,
+                relative: Path::new(""),
+                depth: 0,
+            },
             traversal_limit,
             classify,
+            enumerate,
             &mut entries,
         )?;
         Ok(entries)
     }
 
-    fn collect_directory<F>(
+    fn collect_directory<F, E>(
         &self,
-        directory: &Path,
-        relative_directory: &Path,
-        directory_depth: usize,
+        position: DirectoryPosition<'_>,
         traversal_limit: TraversalLimit,
         classify: &mut F,
+        enumerate: &mut E,
         entries: &mut Vec<CollectedEntry>,
     ) -> Result<()>
     where
         F: FnMut(&Path) -> io::Result<EntryClassification>,
+        E: FnMut(&Path) -> io::Result<Vec<OsString>>,
     {
-        let read_dir = fs::read_dir(directory)
-            .map_err(|error| self.enumeration_error(relative_directory, error.kind()))?;
-        let mut children = read_dir
-            .map(|entry| entry.map(|entry| entry.file_name()))
-            .collect::<io::Result<Vec<_>>>()
-            .map_err(|error| self.enumeration_error(relative_directory, error.kind()))?;
-        children.sort();
+        let children = enumerate(position.physical)
+            .map_err(|error| self.enumeration_error(position.relative, error.kind()))?;
 
         for name in children {
-            let relative_path = relative_directory.join(&name);
-            if self.is_excluded(&relative_path) {
+            let relative_path = position.relative.join(&name);
+            if self.is_excluded(&relative_path)? {
                 continue;
             }
 
-            let depth = directory_depth.checked_add(1).ok_or_else(|| {
+            let depth = position.depth.checked_add(1).ok_or_else(|| {
                 AppError::Other("generation entry depth could not be represented".to_string())
             })?;
             if depth > traversal_limit.maximum_entry_depth {
@@ -213,7 +225,7 @@ impl Dumper {
             }
             Self::validate_included_name(&name, depth == 1)?;
 
-            let physical_path = directory.join(&name);
+            let physical_path = position.physical.join(&name);
             let kind = match classify(&physical_path) {
                 Ok(Ok(kind)) => kind,
                 Ok(Err(kind)) => {
@@ -233,11 +245,14 @@ impl Dumper {
                     || traversal_limit.reject_beyond_limit)
             {
                 self.collect_directory(
-                    &physical_path,
-                    &relative_path,
-                    depth,
+                    DirectoryPosition {
+                        physical: &physical_path,
+                        relative: &relative_path,
+                        depth,
+                    },
                     traversal_limit,
                     classify,
+                    enumerate,
                     entries,
                 )?;
             }
@@ -268,24 +283,8 @@ impl Dumper {
         render_os_component(self.root_path.as_os_str())
     }
 
-    fn is_excluded(&self, relative_path: &Path) -> bool {
-        let Some(globs) = &self.exclude_globs else {
-            return false;
-        };
-
-        if globs.is_match(relative_path) {
-            return true;
-        }
-
-        let mut current_path = PathBuf::new();
-        for component in relative_path.components() {
-            current_path.push(component);
-            if globs.is_match(&current_path) {
-                return true;
-            }
-        }
-
-        false
+    fn is_excluded(&self, relative_path: &Path) -> Result<bool> {
+        self.exclude_matcher.is_match(relative_path)
     }
 
     fn unsupported_entry_error(relative_path: &Path, kind: UnsupportedEntryKind) -> AppError {
@@ -467,6 +466,14 @@ impl Dumper {
 
         Ok(())
     }
+}
+
+fn read_child_names(directory: &Path) -> io::Result<Vec<OsString>> {
+    let mut children = fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<io::Result<Vec<_>>>()?;
+    children.sort();
+    Ok(children)
 }
 
 struct CollectedEntry {
@@ -846,6 +853,22 @@ mod tests {
         let dumper = Dumper::new(root.path())
             .with_exclude_patterns(&patterns)
             .expect("valid basename exclusion");
+        let mut enumerated = Vec::new();
+        let mut enumerate = |directory: &Path| {
+            let name = directory
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap_or("<root>")
+                .to_string();
+            if name == "target" {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "excluded directory reached the enumeration seam",
+                ));
+            }
+            enumerated.push(name);
+            read_child_names(directory)
+        };
         let mut classified = Vec::new();
         let mut classifier = |path: &Path| {
             classified.push(
@@ -858,9 +881,11 @@ mod tests {
         };
 
         let entries = dumper
-            .collect_entries_with(&mut classifier)
-            .expect("excluded subtree must not be classified");
+            .collect_entries_with_operations(&mut classifier, &mut enumerate)
+            .expect("excluded subtree must not be enumerated or classified");
 
+        assert_eq!(enumerated.len(), 2);
+        assert_eq!(enumerated[1], "project");
         assert_eq!(classified, ["project", "keep.txt"]);
         assert_eq!(entries.len(), 2);
     }

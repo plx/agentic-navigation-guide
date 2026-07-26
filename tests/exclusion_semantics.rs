@@ -52,16 +52,20 @@ fn join_path(parent: &str, child: &str) -> String {
     }
 }
 
+fn parsed_paths(source: &str) -> BTreeSet<String> {
+    let guide = Parser::new().parse(source).expect("parse generated guide");
+    let mut paths = BTreeSet::new();
+    flatten_paths(&guide.items, "", &mut paths);
+    paths
+}
+
 fn dump_paths(root: &Path, patterns: &[&str]) -> BTreeSet<String> {
     let source = Dumper::new(root)
         .with_exclude_patterns(&strings(patterns))
         .expect("valid exclusion patterns")
         .dump_with_wrapper()
         .expect("generate fixture");
-    let guide = Parser::new().parse(&source).expect("parse generated guide");
-    let mut paths = BTreeSet::new();
-    flatten_paths(&guide.items, "", &mut paths);
-    paths
+    parsed_paths(&source)
 }
 
 fn discovered_paths(root: &Path, patterns: &[&str]) -> BTreeSet<String> {
@@ -83,6 +87,13 @@ fn discovered_paths(root: &Path, patterns: &[&str]) -> BTreeSet<String> {
 
 fn command() -> Command {
     Command::cargo_bin("agentic-navigation-guide").expect("binary")
+}
+
+fn write_valid_guide(root: &Path, relative_directory: &str) {
+    let directory = root.join(relative_directory);
+    fs::create_dir_all(&directory).expect("create guide directory");
+    fs::write(directory.join("keep.txt"), "").expect("kept guide entry");
+    fs::write(directory.join(GUIDE_NAME), VALID_GUIDE).expect("valid guide");
 }
 
 #[test]
@@ -206,6 +217,18 @@ fn issue_44_contract_literals_are_not_gitignore_or_globset_extensions() {
 }
 
 #[test]
+fn issue_44_gitignore_files_have_no_exclusion_authority() {
+    let root = TempDir::new().expect("temporary root");
+    fs::write(root.path().join(".gitignore"), "target\n").expect("gitignore fixture");
+    write_file(root.path(), "target/kept.txt");
+
+    assert_eq!(
+        dump_paths(root.path(), &[]),
+        expected_paths(&[".gitignore", "target", "target/kept.txt"])
+    );
+}
+
+#[test]
 fn issue_44_invalid_patterns_reject_before_root_traversal() {
     let invalid_patterns = [
         "", "/a", "a/", "a//b", ".", "..", "a/./b", "a/../b", "***", "a/**b", "a/b**", "a/***/b",
@@ -276,6 +299,116 @@ fn issue_44_recursive_discovery_uses_the_same_nested_basename_matcher() {
 }
 
 #[test]
+fn issue_44_recursive_verify_covers_root_relative_globstar_and_union_patterns() {
+    let root = TempDir::new().expect("temporary root");
+    for directory in [
+        "target",
+        "project/target",
+        "other/project/target",
+        "project/src",
+        "projects/target",
+        "projects/a/b/target",
+    ] {
+        write_valid_guide(root.path(), directory);
+    }
+
+    let cases: &[(&[&str], &[&str])] = &[
+        (
+            &["project/target"],
+            &[
+                "other/project/target/AGENTIC_NAVIGATION_GUIDE.md",
+                "project/src/AGENTIC_NAVIGATION_GUIDE.md",
+                "projects/a/b/target/AGENTIC_NAVIGATION_GUIDE.md",
+                "projects/target/AGENTIC_NAVIGATION_GUIDE.md",
+                "target/AGENTIC_NAVIGATION_GUIDE.md",
+            ],
+        ),
+        (
+            &["projects/**/target"],
+            &[
+                "other/project/target/AGENTIC_NAVIGATION_GUIDE.md",
+                "project/src/AGENTIC_NAVIGATION_GUIDE.md",
+                "project/target/AGENTIC_NAVIGATION_GUIDE.md",
+                "target/AGENTIC_NAVIGATION_GUIDE.md",
+            ],
+        ),
+        (&["target", "project/src"], &[]),
+    ];
+
+    for (patterns, expected) in cases {
+        assert_eq!(
+            discovered_paths(root.path(), patterns),
+            expected_paths(expected),
+            "recursive discovery differed for {patterns:?}"
+        );
+
+        let mut verify = command();
+        verify
+            .args(["verify", "--recursive", "--root"])
+            .arg(root.path());
+        for pattern in *patterns {
+            verify.args(["--exclude", pattern]);
+        }
+        if expected.is_empty() {
+            verify.arg("--allow-empty");
+        }
+        let assertion = verify.assert().success();
+        if !expected.is_empty() {
+            assertion.stdout(predicates::str::contains(format!(
+                "Found {} navigation guide(s)",
+                expected.len()
+            )));
+        }
+    }
+}
+
+#[test]
+fn issue_44_init_user_patterns_share_root_relative_globstar_and_union_semantics() {
+    let root = TempDir::new().expect("temporary root");
+    for path in [
+        "other/keep.txt",
+        "project/keep.txt",
+        "project/target/hidden.txt",
+        "projects/target/hidden.txt",
+        "projects/a/b/keep.txt",
+        "projects/a/b/target/hidden.txt",
+    ] {
+        write_file(root.path(), path);
+    }
+
+    let output_parent = TempDir::new().expect("output parent");
+    let output = output_parent.path().join("guide.md");
+    command()
+        .args(["init", "--root"])
+        .arg(root.path())
+        .arg("--output")
+        .arg(&output)
+        .args([
+            "--exclude",
+            "project/target",
+            "--exclude",
+            "projects/**/target",
+        ])
+        .assert()
+        .success();
+
+    let source = fs::read_to_string(output).expect("read generated init guide");
+    assert_eq!(
+        parsed_paths(&source),
+        expected_paths(&[
+            "other",
+            "other/keep.txt",
+            "project",
+            "project/keep.txt",
+            "projects",
+            "projects/a",
+            "projects/a/b",
+            "projects/a/b/keep.txt",
+        ])
+    );
+}
+
+#[test]
 fn issue_44_init_vcs_defaults_apply_at_root_and_nested_depths() {
     let root = TempDir::new().expect("temporary root");
     const VCS_NAMES: [&str; 6] = [".git", ".svn", ".hg", ".bzr", "CVS", "_darcs"];
@@ -318,6 +451,25 @@ fn issue_44_init_vcs_defaults_apply_at_root_and_nested_depths() {
             "--include-vcs-directories did not restore {name}"
         );
     }
+
+    let explicit_output = output_parent.path().join("explicit.md");
+    command()
+        .args(["init", "--root"])
+        .arg(root.path())
+        .arg("--output")
+        .arg(&explicit_output)
+        .args(["--include-vcs-directories", "--exclude", ".git"])
+        .assert()
+        .success();
+    let explicit = fs::read_to_string(&explicit_output).expect("read explicit exclusion guide");
+    assert!(
+        !explicit.contains(".git"),
+        "an explicit user exclusion must still win when VCS defaults are disabled"
+    );
+    assert!(
+        explicit.contains(".svn"),
+        "disabling VCS defaults must not retain unrelated implicit exclusions"
+    );
 }
 
 #[test]

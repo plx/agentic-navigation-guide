@@ -11,7 +11,7 @@ use tempfile::TempDir;
 #[path = "../src/entry_type.rs"]
 mod issue_42_entry_type;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -2562,7 +2562,7 @@ fn conformance_request_rejects_unknown_owners() {
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
     for invalid in [
-        "ALL", "owner", "36", "37", "38", "39", "40", "41", "42", "43", "99",
+        "ALL", "owner", "36", "37", "38", "39", "40", "41", "42", "43", "44", "99",
     ] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),

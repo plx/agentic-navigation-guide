@@ -141,7 +141,7 @@ pub struct VerifyArgs {
     #[arg(long, requires = "recursive", env = "AGENTIC_NAVIGATION_GUIDE_NAME")]
     pub guide_name: Option<String>,
 
-    /// Glob patterns to exclude from recursive search (can be specified multiple times)
+    /// Exclusion glob: no `/` matches basenames at every depth; `/` matches the full root-relative path; `**` spans path components (repeatable)
     #[arg(long = "exclude", requires = "recursive")]
     pub exclude_patterns: Vec<String>,
 
