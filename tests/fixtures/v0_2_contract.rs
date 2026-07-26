@@ -73,79 +73,43 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "marker-concatenated-attribute",
         source: "<agentic-navigation-guideignore=true>\n- missing.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: true,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "missing.txt",
-            }]),
-        },
-        pending_issue: Some(38),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-unknown-attribute",
         source: "<agentic-navigation-guide mode=example>\n- example.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
-        },
-        pending_issue: Some(38),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-duplicate-attribute",
         source: "<agentic-navigation-guide ignore=true ignore=true>\n- example.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: true,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
-        },
-        pending_issue: Some(38),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-false-attribute",
         source: "<agentic-navigation-guide ignore=false>\n- example.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
-        },
-        pending_issue: Some(38),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-space-without-attribute",
         source: "<agentic-navigation-guide >\n- example.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
-        },
-        pending_issue: Some(38),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-unterminated-quote",
         source: "<agentic-navigation-guide ignore=\"true>\n- example.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
-        },
-        pending_issue: Some(38),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "marker-closing-attribute",

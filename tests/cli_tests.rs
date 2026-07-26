@@ -7,6 +7,19 @@ fn get_command() -> Command {
     Command::cargo_bin("agentic-navigation-guide").unwrap()
 }
 
+fn write_concatenated_ignore_bypass(
+    root: &std::path::Path,
+    guide_name: &str,
+) -> std::path::PathBuf {
+    let guide_path = root.join(guide_name);
+    fs::write(
+        &guide_path,
+        "<agentic-navigation-guideignore=true>\n- definitely-missing.txt\n</agentic-navigation-guide>",
+    )
+    .unwrap();
+    guide_path
+}
+
 #[test]
 fn test_dump_command_basic() {
     let temp_dir = TempDir::new().unwrap();
@@ -256,6 +269,60 @@ fn test_check_command_invalid_syntax() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("indentation"));
+}
+
+#[test]
+fn test_check_rejects_concatenated_ignore_marker() {
+    let temp_dir = TempDir::new().unwrap();
+    let guide_path = write_concatenated_ignore_bypass(temp_dir.path(), "GUIDE.md");
+
+    let mut cmd = get_command();
+    cmd.arg("check")
+        .arg("--guide")
+        .arg(&guide_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 1"))
+        .stderr(predicate::str::contains("invalid guide document"))
+        .stderr(predicate::str::contains("missing opening"))
+        .stderr(predicate::str::contains("Skipping").not());
+}
+
+#[test]
+fn test_verify_rejects_concatenated_ignore_marker_with_missing_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let guide_path = write_concatenated_ignore_bypass(temp_dir.path(), "GUIDE.md");
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--guide")
+        .arg(&guide_path)
+        .arg("--root")
+        .arg(temp_dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 1"))
+        .stderr(predicate::str::contains("invalid guide document"))
+        .stderr(predicate::str::contains("missing opening"))
+        .stderr(predicate::str::contains("Skipping").not());
+}
+
+#[test]
+fn test_recursive_verify_rejects_concatenated_ignore_marker_with_missing_path() {
+    let temp_dir = TempDir::new().unwrap();
+    write_concatenated_ignore_bypass(temp_dir.path(), "AGENTIC_NAVIGATION_GUIDE.md");
+
+    let mut cmd = get_command();
+    cmd.arg("verify")
+        .arg("--recursive")
+        .arg("--root")
+        .arg(temp_dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 1"))
+        .stderr(predicate::str::contains("invalid guide document"))
+        .stderr(predicate::str::contains("missing opening"))
+        .stderr(predicate::str::contains("Skipping").not());
 }
 
 #[test]
@@ -1399,11 +1466,11 @@ fn test_recursive_verify_with_ignored_guides() {
 }
 
 #[test]
-fn test_recursive_verify_with_non_ignore_attribute_is_not_skipped() {
+fn test_recursive_verify_rejects_non_ignore_attribute() {
     let temp_dir = TempDir::new().unwrap();
     let root = temp_dir.path();
 
-    // Create structure with a guide that should NOT be treated as ignored.
+    // Create a guide with an unknown attribute that contains "ignore".
     fs::create_dir_all(root.join("docs/examples")).unwrap();
 
     let non_ignored_guide = r#"<agentic-navigation-guide notignore=true>
@@ -1416,7 +1483,7 @@ fn test_recursive_verify_with_non_ignore_attribute_is_not_skipped() {
     )
     .unwrap();
 
-    // Run recursive verify - should fail because the guide is not ignored.
+    // Recursive verify must reject the malformed marker rather than skip it.
     let mut cmd = get_command();
     cmd.arg("verify")
         .arg("--recursive")
@@ -1424,8 +1491,10 @@ fn test_recursive_verify_with_non_ignore_attribute_is_not_skipped() {
         .arg(root)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("missing.txt"))
-        .stderr(predicate::str::contains("ignore=true").not());
+        .stderr(predicate::str::contains("line 1"))
+        .stderr(predicate::str::contains("invalid guide document"))
+        .stderr(predicate::str::contains("missing opening"))
+        .stderr(predicate::str::contains("Skipping").not());
 }
 
 #[test]
