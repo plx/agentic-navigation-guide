@@ -7,7 +7,7 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[40, 41, 42, 43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[41, 42, 43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -1627,15 +1627,10 @@ fn generated_choice_count_boundary_is_executable() {
     assert_exact_choice_expansion(&observe(&at_limit), MAX_CHOICE_ALTERNATIVES);
 
     let over_limit = choice_count_source(MAX_CHOICE_ALTERNATIVES + 1);
-    let observed = observe(&over_limit);
-    if requires_normative_owner(40) {
-        assert!(
-            matches!(observed, ObservedResult::Reject),
-            "more than {MAX_CHOICE_ALTERNATIVES} alternatives must be rejected"
-        );
-    } else {
-        assert_exact_choice_expansion(&observed, MAX_CHOICE_ALTERNATIVES + 1);
-    }
+    assert!(
+        matches!(observe(&over_limit), ObservedResult::Reject),
+        "more than {MAX_CHOICE_ALTERNATIVES} alternatives must be rejected"
+    );
 }
 
 #[test]
@@ -1648,13 +1643,9 @@ fn marker_line_endings_are_platform_independent() {
 
 #[test]
 fn conformance_request_rejects_unknown_owners() {
-    assert_eq!(
-        parse_conformance_request("40"),
-        ConformanceRequest::Owner(40)
-    );
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "37", "38", "39", "99"] {
+    for invalid in ["ALL", "owner", "36", "37", "38", "39", "40", "99"] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"
@@ -2393,10 +2384,6 @@ fn fixture(id: &str) -> &'static ContractCase {
         .iter()
         .find(|case| case.id == id)
         .unwrap_or_else(|| panic!("missing contract fixture '{id}'"))
-}
-
-fn requires_normative_owner(issue: u32) -> bool {
-    conformance_request().requires_normative(Some(issue))
 }
 
 fn assert_exact_nested_tree(observed: &ObservedResult, deepest_depth: usize) {

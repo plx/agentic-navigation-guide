@@ -114,17 +114,25 @@ A "navigation guide" looks like this:
 
 The main rules are:
 
-- each entry must be a list item (start with `-`)
+- each entry uses the exact list delimiter `- `; a tab or a second unescaped
+  space after the dash is invalid
 - the first entry is unindented; nesting then uses one inferred space-only
   indentation unit of 1–16 spaces, may increase by one level only when the
   immediately preceding physical line represents exactly one directory, and
   is limited to depth 256
-- a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a regular-file path
+- exactly one trailing `/` marks a directory entry; repeated separators and
+  empty path components are invalid before the marker is removed
 - comments are optional; the first unescaped `#` starts the comment portion
 - use `\#` to include a literal `#` character in a path
-- if an entry has no unescaped `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
+- if an entry has no unescaped `#`, everything after the exact list delimiter
+  is part of the path (for example, `- src/ source code` is a literal path,
+  not a comment)
 - blank lines are not allowed within the guide block
-- paths are validated structurally (must be relative, cannot contain empty components like `//`, and cannot contain `.` or `..` components)
+- `/` is the only logical separator; paths must be relative, cannot contain
+  empty, `.` or `..` components, and cannot use a leading slash/backslash or a
+  first-component Windows drive prefix
+- decoded file and directory paths must be unique across the complete guide,
+  including equivalent flat and nested spellings
 - no ordering requirement is imposed
 - placeholder entries (`...`) can be used to indicate unlisted items (see below)
 
@@ -194,17 +202,26 @@ is equivalent to writing:
 - FooCoordinator.cpp # Coordinates foo interactions
 ```
 
-Each entry may contain at most one choice list and it expands into one concrete item for every option in the brackets. The same
-comment is attached to every expanded item.
+Each bare regular-file entry may contain at most one choice list with 2–256
+alternatives. It expands into one sibling file for every option in source
+order, and the same comment is attached to every expanded item.
 
 Choice lists follow these rules:
 
-- Whitespace inside the brackets is ignored unless it appears inside a quoted string.
-- An empty string may be included by leaving an empty slot (e.g. `[, .local]`).
+- Spaces and tabs surrounding an unquoted alternative are layout. Interior
+  unquoted whitespace and every character inside a quoted alternative are
+  preserved.
+- An empty alternative may be included by leaving an empty slot (for example,
+  `[, .local]`) when at least one other alternative is nonempty.
 - Use a backslash to escape individual characters (e.g. `\,` for a literal comma, `\ ` for a literal space, `\#` for a literal `#`, `\[` for a literal
   `[` character).
 - Surround complex values with double quotes to preserve punctuation or embedded brackets. Within quotes, escape `"` to include
   a literal quote character.
+- Decoded expansions must be unique, valid regular-file paths with the same
+  parent components. A choice cannot produce a directory or placeholder or
+  own indented children.
+- A second list, unmatched bracket or quote, dangling/invalid escape,
+  all-empty list, or malformed quoted alternative is rejected.
 
 **Examples:**
 

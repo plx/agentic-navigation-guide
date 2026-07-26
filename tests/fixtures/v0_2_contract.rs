@@ -175,27 +175,15 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "body-extra-list-space",
         source: "<agentic-navigation-guide>\n-  leading-space.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "leading-space.txt",
-            }]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "body-tab-after-dash",
         source: "<agentic-navigation-guide>\n-\texample.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "example.txt",
-            }]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "indent-two-spaces",
@@ -493,14 +481,8 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "path-repeated-trailing-separator",
         source: "<agentic-navigation-guide>\n- foo///\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::Directory,
-                path: "foo",
-            }]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-dot-component",
@@ -527,14 +509,8 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "path-windows-prefix",
         source: "<agentic-navigation-guide>\n- C:/Windows/System32\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "C:/Windows/System32",
-            }]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-nested-drive-looking-component",
@@ -585,33 +561,15 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "path-unmatched-closing-bracket",
         source: "<agentic-navigation-guide>\n- bad]name.txt\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "bad]name.txt",
-            }]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "path-duplicate-decoded",
         source: "<agentic-navigation-guide>\n- report\\#draft\n- report\\#draft\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "report#draft",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "report#draft",
-                },
-            ]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "choice-simple",
@@ -696,7 +654,7 @@ pub(super) const CASES: &[ContractCase] = &[
             items: Some(&[
                 ExpectedItem {
                     kind: ItemKind::File,
-                    path: "xfooy",
+                    path: "x foo y",
                 },
                 ExpectedItem {
                     kind: ItemKind::File,
@@ -704,7 +662,7 @@ pub(super) const CASES: &[ContractCase] = &[
                 },
             ]),
         },
-        pending_issue: Some(40),
+        pending_issue: None,
     },
     ContractCase {
         id: "choice-escaped-comma",
@@ -779,14 +737,8 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "choice-single-alternative",
         source: "<agentic-navigation-guide>\n- File[.rs]\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[ExpectedItem {
-                kind: ItemKind::File,
-                path: "File.rs",
-            }]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "choice-unclosed",
@@ -806,58 +758,22 @@ pub(super) const CASES: &[ContractCase] = &[
         id: "choice-duplicate-expansion",
         source: "<agentic-navigation-guide>\n- File[.rs, .rs]\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "File.rs",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "File.rs",
-                },
-            ]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "choice-directory-result",
         source: "<agentic-navigation-guide>\n- module[One, Two]/\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::Directory,
-                    path: "moduleOne",
-                },
-                ExpectedItem {
-                    kind: ItemKind::Directory,
-                    path: "moduleTwo",
-                },
-            ]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "choice-different-parents",
         source: "<agentic-navigation-guide>\n- x[a/b, c/d]y\n</agentic-navigation-guide>",
         normative: ExpectedResult::Reject,
-        current: ExpectedResult::Accept {
-            ignore: false,
-            items: Some(&[
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "xa/by",
-                },
-                ExpectedItem {
-                    kind: ItemKind::File,
-                    path: "xc/dy",
-                },
-            ]),
-        },
-        pending_issue: Some(40),
+        current: ExpectedResult::Reject,
+        pending_issue: None,
     },
     ContractCase {
         id: "placeholder-forms",
