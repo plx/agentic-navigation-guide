@@ -7,7 +7,7 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
-const ALLOWED_PENDING_OWNERS: &[u32] = &[40, 41, 42, 43, 44, 50];
+const ALLOWED_PENDING_OWNERS: &[u32] = &[41, 42, 43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConformanceRequest {
@@ -1424,6 +1424,192 @@ fn comments_and_choice_comment_inheritance_are_executable() {
 }
 
 #[test]
+fn issue_40_owned_contract_rows_are_executable() {
+    const IDS: [&str; 11] = [
+        "body-extra-list-space",
+        "body-tab-after-dash",
+        "path-repeated-trailing-separator",
+        "path-windows-prefix",
+        "path-unmatched-closing-bracket",
+        "path-duplicate-decoded",
+        "choice-quoted-whitespace",
+        "choice-single-alternative",
+        "choice-duplicate-expansion",
+        "choice-directory-result",
+        "choice-different-parents",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = fixture(id);
+            let observed = observe(case.source);
+            (!matches_expected(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #40 contract mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
+#[test]
+fn issue_40_path_normalization_boundaries_are_executable() {
+    for source in [
+        "<agentic-navigation-guide>\n- \tfoo.txt\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- foo//\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- foo///\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- C:relative\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- C:/absolute\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- \\\\root\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- bad]name.txt\n</agentic-navigation-guide>",
+    ] {
+        assert_eq!(observe(source), ObservedResult::Reject, "{source}");
+    }
+
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- foo/\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::Directory,
+                path: "foo".to_string(),
+            }],
+        }
+    );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- dir/C:notes\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::File,
+                path: "dir/C:notes".to_string(),
+            }],
+        }
+    );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- dir\\\\..\\\\name\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![ObservedItem {
+                kind: ItemKind::File,
+                path: "dir\\..\\name".to_string(),
+            }],
+        },
+        "decoded backslashes are literal because slash is the only logical separator"
+    );
+}
+
+#[test]
+fn issue_40_choice_token_preservation_is_executable() {
+    let quoted = fixture("choice-quoted-whitespace");
+    assert!(
+        matches_expected(&observe(quoted.source), quoted.normative),
+        "quoted edge whitespace must survive decoding"
+    );
+
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- x[foo bar, baz]y\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "xfoo bary".to_string(),
+                },
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "xbazy".to_string(),
+                },
+            ],
+        },
+        "unquoted interior spaces are path data, not layout"
+    );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- x[\\ foo\\ , bar]y\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "x foo y".to_string(),
+                },
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "xbary".to_string(),
+                },
+            ],
+        },
+        "escaped edge spaces are path data"
+    );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- x[ \"a, [b]\" , c ]y\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "xa, [b]y".to_string(),
+                },
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "xcy".to_string(),
+                },
+            ],
+        }
+    );
+    assert_eq!(
+        observe("<agentic-navigation-guide>\n- src[/main, /lib].rs\n</agentic-navigation-guide>"),
+        ObservedResult::Accept {
+            ignore: false,
+            items: vec![
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "src/main.rs".to_string(),
+                },
+                ObservedItem {
+                    kind: ItemKind::File,
+                    path: "src/lib.rs".to_string(),
+                },
+            ],
+        },
+        "slash-containing choices may expand to siblings under one parent"
+    );
+
+    for source in [
+        "<agentic-navigation-guide>\n- [..., name]\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- src/[..., name]\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- data[\\,comma, \",comma\"].txt\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- x[\"a\"junk, b]y\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- x[a\tb, c]y\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- x[\"a\u{7f}b\", c]y\n</agentic-navigation-guide>",
+    ] {
+        assert_eq!(observe(source), ObservedResult::Reject, "{source}");
+    }
+}
+
+#[test]
+fn issue_40_duplicate_full_paths_are_executable() {
+    for source in [
+        "<agentic-navigation-guide>\n- same.txt\n- same.txt\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- src/main.rs\n- src/\n  - main.rs\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- File[.h, .rs]\n- File.rs\n</agentic-navigation-guide>",
+    ] {
+        assert_eq!(observe(source), ObservedResult::Reject, "{source}");
+    }
+
+    assert!(matches!(
+        observe(
+            "<agentic-navigation-guide>\n- first/\n  - same.txt\n- second/\n  - same.txt\n- café\n- cafe\u{301}\n</agentic-navigation-guide>"
+        ),
+        ObservedResult::Accept { .. }
+    ));
+}
+
+#[test]
 fn generated_depth_boundary_is_executable() {
     const MAX_LOGICAL_DEPTH: usize = 256;
 
@@ -1445,15 +1631,10 @@ fn generated_choice_count_boundary_is_executable() {
     assert_exact_choice_expansion(&observe(&at_limit), MAX_CHOICE_ALTERNATIVES);
 
     let over_limit = choice_count_source(MAX_CHOICE_ALTERNATIVES + 1);
-    let observed = observe(&over_limit);
-    if requires_normative_owner(40) {
-        assert!(
-            matches!(observed, ObservedResult::Reject),
-            "more than {MAX_CHOICE_ALTERNATIVES} alternatives must be rejected"
-        );
-    } else {
-        assert_exact_choice_expansion(&observed, MAX_CHOICE_ALTERNATIVES + 1);
-    }
+    assert!(
+        matches!(observe(&over_limit), ObservedResult::Reject),
+        "more than {MAX_CHOICE_ALTERNATIVES} alternatives must be rejected"
+    );
 }
 
 #[test]
@@ -1466,13 +1647,9 @@ fn marker_line_endings_are_platform_independent() {
 
 #[test]
 fn conformance_request_rejects_unknown_owners() {
-    assert_eq!(
-        parse_conformance_request("40"),
-        ConformanceRequest::Owner(40)
-    );
     assert_eq!(parse_conformance_request("all"), ConformanceRequest::All);
 
-    for invalid in ["ALL", "owner", "36", "37", "38", "39", "99"] {
+    for invalid in ["ALL", "owner", "36", "37", "38", "39", "40", "99"] {
         assert!(
             std::panic::catch_unwind(|| parse_conformance_request(invalid)).is_err(),
             "invalid conformance request '{invalid}' was accepted"
@@ -2211,10 +2388,6 @@ fn fixture(id: &str) -> &'static ContractCase {
         .iter()
         .find(|case| case.id == id)
         .unwrap_or_else(|| panic!("missing contract fixture '{id}'"))
-}
-
-fn requires_normative_owner(issue: u32) -> bool {
-    conformance_request().requires_normative(Some(issue))
 }
 
 fn assert_exact_nested_tree(observed: &ObservedResult, deepest_depth: usize) {

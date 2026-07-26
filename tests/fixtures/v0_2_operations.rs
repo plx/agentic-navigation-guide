@@ -3,7 +3,7 @@ pub(super) const CASES: &[OperationCase] = &[
         id: "operation-dump-hash-name",
         kind: OperationKind::DumpHashName,
         normative: ExpectedOperationResult::GeneratedPaths(&["report", "report#draft"]),
-        current: ExpectedOperationResult::GeneratedPaths(&["report", "report"]),
+        current: ExpectedOperationResult::GeneratedInvalid,
         pending_issue: Some(41),
     },
     OperationCase {
