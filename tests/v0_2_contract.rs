@@ -1664,6 +1664,178 @@ fn issue_41_owned_operations_are_executable() {
 }
 
 #[test]
+fn issue_42_owned_operations_are_executable() {
+    const IDS: [&str; 14] = [
+        "operation-dump-file-symlink",
+        "operation-dump-directory-symlink",
+        "operation-dump-dangling-symlink",
+        "operation-dump-symlink-chain",
+        "operation-dump-symlink-loop",
+        "operation-verify-file-symlink",
+        "operation-verify-directory-symlink",
+        "operation-dump-fifo",
+        "operation-dump-unix-socket",
+        "operation-dump-character-device",
+        "operation-dump-block-device",
+        "operation-dump-windows-junction",
+        "operation-verify-windows-junction",
+        "operation-dump-unknown-entry-type",
+    ];
+
+    let mismatches = IDS
+        .iter()
+        .filter_map(|id| {
+            let case = operation_fixtures::CASES
+                .iter()
+                .find(|case| case.id == *id)
+                .unwrap_or_else(|| panic!("missing operation fixture '{id}'"));
+            let observed = run_operation(case.kind);
+            (!matches_expected_operation(&observed, case.normative))
+                .then(|| format!("{id}: expected {:?}, observed {observed:?}", case.normative))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        mismatches.is_empty(),
+        "issue #42 operation mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_link_rejection_does_not_disclose_targets() {
+    use std::os::unix::fs::symlink;
+
+    const TARGET_SENTINEL: &str = "ISSUE42_TARGET_SECRET_2a86b4dd";
+
+    for (name, target) in [
+        ("relative-link", format!("../{TARGET_SENTINEL}")),
+        (
+            "absolute-link",
+            format!("/definitely-absent/{TARGET_SENTINEL}"),
+        ),
+    ] {
+        let temp = TempDir::new().expect("temporary link-disclosure root");
+        symlink(&target, temp.path().join(name)).expect("dangling symlink fixture");
+
+        let diagnostic = Dumper::new(temp.path())
+            .dump()
+            .expect_err("an included dangling link must abort generation")
+            .to_string();
+
+        assert!(
+            diagnostic.contains(name),
+            "diagnostic omitted the logical included name: {diagnostic}"
+        );
+        assert!(
+            diagnostic.contains("symbolic link"),
+            "diagnostic omitted the rejected entry kind: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(TARGET_SENTINEL),
+            "diagnostic disclosed the link target: {diagnostic}"
+        );
+    }
+
+    let temp = TempDir::new().expect("temporary verifier-disclosure root");
+    let root = temp.path().join("root");
+    fs::create_dir(&root).expect("verification root");
+    let target = temp.path().join(TARGET_SENTINEL);
+    fs::write(&target, "private target").expect("external target");
+    symlink(&target, root.join("linked.txt")).expect("external file link");
+    let guide = Parser::new()
+        .parse("<agentic-navigation-guide>\n- linked.txt\n</agentic-navigation-guide>")
+        .expect("verification guide");
+
+    let diagnostic = Verifier::new(&root)
+        .verify(&guide)
+        .expect_err("a final textual file link must be rejected without following")
+        .to_string();
+    assert!(
+        diagnostic.contains("linked.txt"),
+        "diagnostic omitted the logical guide path: {diagnostic}"
+    );
+    assert!(
+        diagnostic.contains("symbolic link"),
+        "diagnostic omitted the rejected entry kind: {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains(TARGET_SENTINEL),
+        "verifier diagnostic disclosed the resolved target: {diagnostic}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_exclusion_precedes_unsupported_entry_classification() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary exclusion root");
+    fs::write(temp.path().join("keep.txt"), "").expect("regular control");
+    symlink("missing-target", temp.path().join("excluded-link"))
+        .expect("excluded unsupported entry");
+
+    let patterns = vec!["excluded-link".to_string()];
+    let output = Dumper::new(temp.path())
+        .with_exclude_patterns(&patterns)
+        .expect("valid exclusion")
+        .dump()
+        .expect("an excluded unsupported entry must be pruned before classification");
+
+    assert_eq!(output, "- keep.txt\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_directory_links_never_generate_non_round_trippable_guides() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temporary directory-link root");
+    let root = temp.path().join("root");
+    let target = temp.path().join("target");
+    fs::create_dir(&root).expect("generation root");
+    fs::create_dir(&target).expect("directory-link target");
+    fs::write(target.join("secret.txt"), "").expect("target child");
+    symlink(&target, root.join("linked")).expect("directory link");
+
+    let generated = Dumper::new(&root).dump_with_wrapper();
+    if let Ok(source) = &generated {
+        let guide = Parser::new()
+            .parse(source)
+            .expect("pre-fix generated source remains syntactically parseable");
+        assert!(
+            Verifier::new(&root).verify(&guide).is_err(),
+            "a directory link was emitted as a guide that falsely round-tripped:\n{source}"
+        );
+    }
+
+    assert!(
+        generated.is_err(),
+        "generation must reject the directory link before emitting a guide; observed:\n{}",
+        generated.unwrap_or_default()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_regular_file_directory_and_hard_link_controls_remain_supported() {
+    let temp = TempDir::new().expect("temporary regular-entry root");
+    fs::create_dir(temp.path().join("directory")).expect("directory control");
+    fs::write(temp.path().join("first.txt"), "").expect("regular-file control");
+    fs::hard_link(
+        temp.path().join("first.txt"),
+        temp.path().join("second.txt"),
+    )
+    .expect("hard-link control");
+
+    assert_eq!(
+        Dumper::new(temp.path()).dump().expect("supported entries"),
+        "- directory/\n- first.txt\n- second.txt\n"
+    );
+}
+
+#[test]
 fn issue_41_path_lexer_boundaries_are_executable() {
     assert_eq!(
         observe(
