@@ -1459,6 +1459,7 @@ fn issue_40_owned_contract_rows_are_executable() {
 #[test]
 fn issue_40_path_normalization_boundaries_are_executable() {
     for source in [
+        "<agentic-navigation-guide>\n- \tfoo.txt\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- foo//\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- foo///\n</agentic-navigation-guide>",
         "<agentic-navigation-guide>\n- C:relative\n</agentic-navigation-guide>",
