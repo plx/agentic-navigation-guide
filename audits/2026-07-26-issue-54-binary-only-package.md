@@ -313,7 +313,7 @@ GUIDE_FORMAT_REQUIRE_CONFORMANCE=all \
 | Debug all-target/all-feature suite | Pass: 330 tests; 2 intentional benchmark ignores |
 | Release all-target/all-feature suite | Pass: 330 tests; 2 intentional benchmark ignores |
 | Host and Windows GNU all-target/all-feature checks | Pass |
-| Strict host and Windows GNU all-target/all-feature Clippy | Pass with warnings denied under the declared Rust 1.70 MSRV |
+| Strict host and Windows GNU all-target/all-feature Clippy | Pass with warnings denied, including Clippy's configured Rust 1.70 compatibility lint |
 | `cargo package --locked` | Pass: verified 110-file binary package |
 | Warning-denied binary/private rustdoc | Pass; generated docs state the no-library boundary |
 | CLI check and verification of `AGENTIC_NAVIGATION_GUIDE.md` | Pass |

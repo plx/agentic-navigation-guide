@@ -3323,7 +3323,7 @@ fn test_recursive_verify_preserves_failed_and_ignored_counts() {
                     "{context} did not report both failure reasons:\n{diagnostics}"
                 );
                 assert_eq!(
-                    stderr.lines().filter(|line| !line.is_empty()).next_back(),
+                    stderr.lines().rfind(|line| !line.is_empty()),
                     Some(combined_reason),
                     "{context} did not leave the combined reason as the terminal diagnostic:\n\
                      {diagnostics}"
