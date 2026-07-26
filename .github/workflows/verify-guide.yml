@@ -16,4 +16,4 @@ jobs:
       - name: Build agentic-navigation-guide
         run: cargo build --release
       - name: Verify navigation guide
-        run: cargo run --release -- verify --github-actions-check
+        run: cargo run --release -- verify --github-actions-check --deny-ignored

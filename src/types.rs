@@ -98,7 +98,10 @@ pub struct NavigationGuide {
     pub prologue: Option<String>,
     /// The original epilogue content (after the guide block)
     pub epilogue: Option<String>,
-    /// Whether this guide should be ignored during verification
+    /// Whether the exact opening marker selected the ignored outcome.
+    ///
+    /// Parsed ignored guides have an opaque body and no parsed items. The
+    /// supported CLI reports this separately from checked or verified work.
     pub ignore: bool,
 }
 

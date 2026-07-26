@@ -30,6 +30,27 @@ A navigation guide is a markdown block with one list item per file, directory, o
 - Blank lines are not allowed inside a guide block.
 - Paths must be relative and cannot contain `.`, `..`, or empty path components.
 
+## Ignored bodies
+
+An opening marker may contain exactly one `ignore=true` or `ignore="true"`
+attribute:
+
+```md
+<agentic-navigation-guide ignore=true>
+This body is intentionally opaque and need not be a list.
+</agentic-navigation-guide>
+```
+
+The exact one-block envelope, marker grammar, closing marker, and
+full-document marker-candidate scan are still enforced. Once that envelope is
+valid, the UTF-8 body may be arbitrary or empty; list, indentation, path,
+choice, placeholder, and filesystem rules do not apply. A malformed opening
+marker can never activate ignore.
+
+The CLI reports ignored separately from checked or verified work. Ignored
+guides are allowed by default; pass `--deny-ignored` to `check` or `verify`
+when they must make the command fail.
+
 ## Placeholders
 
 Use `...` to indicate omitted entries.

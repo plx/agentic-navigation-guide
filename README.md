@@ -78,6 +78,11 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   regular file directly. This breaking correction prevents an untrusted
   checkout from redirecting guide reads and source-context diagnostics to a
   different local file.
+- **2026-07-25 — Ignored guide bodies are opaque.** Unlike `0.1.4`, a valid
+  `ignore=true` envelope may contain arbitrary UTF-8 text or an empty body.
+  The CLI reports a distinct ignored outcome instead of checked or verified
+  success. Ignored guides are allowed by default; automation that forbids the
+  opt-out must pass `--deny-ignored`.
 
 ## Navigation Guide Format
 
@@ -240,14 +245,32 @@ After permitted outer spaces or tabs are removed, marker-like lines that begin
 with the exact opening or closing prefix are validated everywhere in the
 document, including the prologue, guide body, and epilogue.
 
-In `0.1.4`, the body must still pass the parser's list grammar before the
-ignored result is available. After that parse, the tool will:
-- Skip validator and filesystem verification
-- Emit a warning that the guide was skipped
-- Provide an additional note if the ignored guide is in a standalone `AGENTIC_NAVIGATION_GUIDE.md` file
+After the exact envelope and full-document marker-candidate scan succeed, an
+ignored body is opaque UTF-8 text and may be empty. List, indentation, path,
+choice, placeholder, syntax-validator, and filesystem checks are skipped. A
+malformed marker candidate anywhere in the document still fails before ignore
+can apply.
 
-The v0.2 target makes the ignored body opaque and adds an explicit deny policy;
-see the [normative contract](docs/v0.2-contract.md#ignored-guides).
+`check`, single-guide `verify`, and recursive `verify` all produce a distinct
+ignored outcome. The command exits successfully by default and reports the
+ignored guide in non-quiet modes; `--quiet` suppresses that ordinary chatter
+without changing the result. Ignored work is never described or counted as
+checked or verified success.
+
+Pass `--deny-ignored` to `check` or `verify` when ignored guides must make the
+run nonzero:
+
+```bash
+agentic-navigation-guide check --deny-ignored
+agentic-navigation-guide verify --recursive --deny-ignored
+```
+
+Recursive totals count ignored guides separately. An ignored-only search is
+discovered work, not zero discovery, and reports `Passed: 0`, `Ignored: 1`,
+and `Absent: 0`. Denial preserves those categories and counts. Execution-mode
+flags do not silently enable denial; CI and hooks must opt in explicitly.
+There is no supported v0.2 Rust library facade from which to obtain an ignored
+result. See the [normative contract](docs/v0.2-contract.md#ignored-guides).
 
 ## Suggested Usage
 
@@ -361,7 +384,7 @@ To set it up as a post-tool-use-hook, you can update your `~/.claude/settings.js
         "hooks": [
           {
             "type": "command",
-            "command": "agentic-navigation-guide verify --post-tool-use-hook"
+            "command": "agentic-navigation-guide verify --post-tool-use-hook --deny-ignored"
           }
         ]
       }
@@ -369,6 +392,9 @@ To set it up as a post-tool-use-hook, you can update your `~/.claude/settings.js
   }
 }
 ```
+
+This required hook passes `--deny-ignored` so an opt-out cannot silently
+disable it. Omit that flag only when ignored guides are intentionally allowed.
 
 ## GitHub Actions Integration
 
@@ -386,7 +412,7 @@ verify-navigation-guide:
     - name: Verify installation
       run: agentic-navigation-guide --version
     - name: Verify navigation guide
-      run: agentic-navigation-guide verify --github-actions-check
+      run: agentic-navigation-guide verify --github-actions-check --deny-ignored
 ```
 
 The `--github-actions-check` flag provides:
@@ -395,10 +421,13 @@ The `--github-actions-check` flag provides:
 - Exit code 1 on failure (standard for CI checks)
 - Visual indicators (emoji) for quick scanning
 
+The examples also pass `--deny-ignored` because they are required gates.
+Execution mode alone does not forbid ignored guides.
+
 You can also set the execution mode via environment variable:
 ```yaml
 - name: Verify navigation guide
-  run: agentic-navigation-guide verify
+  run: agentic-navigation-guide verify --deny-ignored
   env:
     AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE: github-actions
 ```
@@ -408,7 +437,7 @@ empty-search opt-out:
 
 ```yaml
 - name: Verify every navigation guide
-  run: agentic-navigation-guide verify --recursive --github-actions-check
+  run: agentic-navigation-guide verify --recursive --github-actions-check --deny-ignored
 ```
 
 This command fails if discovery verifies zero guides, so a wrong root, a

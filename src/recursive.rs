@@ -26,11 +26,14 @@ pub struct GuideLocation {
 pub struct GuideVerificationResult {
     /// The guide that was verified
     pub location: GuideLocation,
-    /// Whether verification succeeded
+    /// Whether processing completed without a failure.
+    ///
+    /// An ignored result also sets this transitional transport field, but is
+    /// excluded from verified-success counts by `ignored`.
     pub success: bool,
     /// Error message if verification failed
     pub error: Option<String>,
-    /// Whether the guide was ignored (has ignore=true)
+    /// Whether the guide produced the distinct ignored outcome.
     pub ignored: bool,
 }
 
@@ -321,14 +324,28 @@ pub fn display_results(results: &[GuideVerificationResult], config: &Config) -> 
         match config.execution_mode {
             ExecutionMode::GitHubActions => {
                 if aggregate.failed == 0 {
-                    println!("✓ All navigation guides verified ({aggregate})");
+                    if aggregate.ignored == 0 {
+                        println!("✓ All navigation guides verified ({aggregate})");
+                    } else {
+                        println!("Navigation guide verification complete ({aggregate})");
+                    }
                 } else {
                     eprintln!("❌ Navigation guide verification failed: {aggregate}");
                 }
             }
             _ => {
                 if aggregate.failed == 0 {
-                    println!("✓ All navigation guides are valid and match filesystem");
+                    if aggregate.ignored == 0 {
+                        println!("✓ All navigation guides are valid and match filesystem");
+                    } else if aggregate.passed == 0 {
+                        println!(
+                            "No navigation guides were verified; ignored guides were discovered"
+                        );
+                    } else {
+                        println!(
+                            "Navigation guide verification complete; active guides passed and ignored guides were skipped"
+                        );
+                    }
                     println!("  {aggregate}");
                 } else {
                     eprintln!("✗ Some navigation guides failed verification");

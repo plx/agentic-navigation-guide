@@ -107,7 +107,7 @@ export const siteConfig = {
       {
         "eyebrow": "ci",
         "title": "Run it in CI",
-        "body": "Use --github-actions-check for file:line annotations and failing exits when a guide drifts.",
+        "body": "Use --github-actions-check for annotations and --deny-ignored when opt-outs must fail.",
         "href": "docs/ci/"
       }
     ],
@@ -121,7 +121,7 @@ export const siteConfig = {
         "OK guide syntax valid",
         "OK listed paths exist",
         "OK placeholders valid",
-        "$ agentic-navigation-guide verify --github-actions-check",
+        "$ agentic-navigation-guide verify --github-actions-check --deny-ignored",
         "Emits GitHub Actions annotations on failure"
       ]
     }

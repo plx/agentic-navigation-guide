@@ -15,6 +15,10 @@ pub struct CheckArgs {
     #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_PATH")]
     pub guide: Option<PathBuf>,
 
+    /// Fail when the guide is marked with ignore=true
+    #[arg(long)]
+    pub deny_ignored: bool,
+
     /// Running as post-tool-use hook
     #[arg(long, conflicts_with_all = ["execution_mode", "pre_commit_hook", "github_actions_check"])]
     pub post_tool_use_hook: bool,
@@ -30,7 +34,7 @@ pub struct CheckArgs {
 
 impl CheckArgs {
     /// Execute the check command
-    pub fn execute(self, config: &mut Config) -> Result<()> {
+    pub fn execute(self, config: &mut Config) -> Result<super::CommandOutcome> {
         // Update execution mode based on flags
         if self.post_tool_use_hook {
             config.execution_mode = ExecutionMode::PostToolUse;
@@ -116,7 +120,7 @@ impl CheckArgs {
                 }
             }
 
-            return Ok(());
+            return super::finish_ignored_policy(1, self.deny_ignored);
         }
 
         // Validate syntax
@@ -133,7 +137,7 @@ impl CheckArgs {
                         }
                     }
                 }
-                Ok(())
+                super::finish_ignored_policy(0, self.deny_ignored)
             }
             Err(e) => {
                 if config.execution_mode == ExecutionMode::GitHubActions {

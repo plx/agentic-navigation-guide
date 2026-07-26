@@ -58,6 +58,25 @@ a traversal error, an unsafe matching guide entry, or a failure from a
 discovered guide. Exclusions are applied before unsafe-entry classification;
 non-matching descendant links are not traversed.
 
+## Ignored guides
+
+After the exact document envelope is validated, an `ignore=true` body is
+opaque and may be empty. `check`, single-guide `verify`, and recursive
+`verify` report a distinct ignored outcome and succeed by default. Quiet mode
+suppresses ordinary ignored diagnostics without changing that outcome.
+
+Use the explicit policy flag when ignored guides must fail a run:
+
+```sh
+agentic-navigation-guide check --deny-ignored
+agentic-navigation-guide verify --recursive --deny-ignored
+```
+
+Recursive output keeps ignored guides in `Total` and `Discovered`, counts them
+under `Ignored`, and excludes them from `Passed`, `Failed`, and `Absent`.
+Denial changes the exit status without changing those categories. Execution
+modes do not enable this policy implicitly.
+
 ## Guide-input safety
 
 Default `check` anchors its implicit guide at the current working directory.

@@ -52,14 +52,24 @@ impl Parser {
         }
     }
 
-    /// Parse navigation guide content from a markdown string
+    /// Parse navigation guide content from a markdown string.
+    ///
+    /// The exact document envelope and marker-candidate scan are always
+    /// validated. When the opening marker contains `ignore=true`, the body is
+    /// opaque and may be empty; the returned guide has no parsed items.
     pub fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
         let (prologue, guide_content, epilogue, line_offset, ignore) =
             self.extract_guide_block(content)?;
 
-        // Parse the guide content
-        let items = self.parse_guide_content(&guide_content, line_offset)?;
+        // The exact envelope and global marker-candidate scan above always
+        // run. Once that scan recognizes ignore=true, however, the body is
+        // intentionally opaque UTF-8 text and may be empty.
+        let items = if ignore {
+            Vec::new()
+        } else {
+            self.parse_guide_content(&guide_content, line_offset)?
+        };
 
         Ok(NavigationGuide {
             items,
@@ -1494,7 +1504,7 @@ More prose mentions </agentic-navigation-guides>."#;
             let source = format!(" \t{opening}\t \n- file.txt\n\t</agentic-navigation-guide> ");
             let guide = Parser::new().parse(&source).unwrap();
             assert_eq!(guide.ignore, opening != "<agentic-navigation-guide>");
-            assert_eq!(guide.items.len(), 1);
+            assert_eq!(guide.items.len(), usize::from(!guide.ignore));
 
             let crlf = source.replace('\n', "\r\n");
             let crlf_guide = Parser::new().parse(&crlf).unwrap();
@@ -1665,7 +1675,7 @@ More prose mentions </agentic-navigation-guides>."#;
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
-        assert_eq!(guide.items.len(), 2);
+        assert!(guide.items.is_empty());
     }
 
     #[test]
@@ -1679,7 +1689,7 @@ More prose mentions </agentic-navigation-guides>."#;
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
-        assert_eq!(guide.items.len(), 2);
+        assert!(guide.items.is_empty());
     }
 
     #[test]
@@ -1706,7 +1716,7 @@ More prose mentions </agentic-navigation-guides>."#;
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert!(guide.items.is_empty());
     }
 
     #[test]
@@ -1759,7 +1769,7 @@ More prose mentions </agentic-navigation-guides>."#;
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
         assert!(guide.ignore);
-        assert_eq!(guide.items.len(), 1);
+        assert!(guide.items.is_empty());
     }
 
     #[test]
