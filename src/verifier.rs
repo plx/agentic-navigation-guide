@@ -240,6 +240,13 @@ impl<'a> VerificationRun<'a> {
         parent_path: &Path,
         at_root: bool,
     ) -> Result<()> {
+        // Reject every observable host alias before native containment
+        // resolution can follow or otherwise inspect a differently spelled
+        // intermediate entry. Stop at an exact non-directory component so the
+        // established containment/type precedence for exact symlinks and
+        // special entries remains unchanged.
+        self.preflight_exact_identity(item, parent_path, at_root)?;
+
         let candidate_path = parent_path.join(item.path());
         // Preserve the existing containment boundary check. Filesystem
         // identity and type decisions below come only from exact snapshots;
@@ -312,6 +319,41 @@ impl<'a> VerificationRun<'a> {
             FilesystemItem::Placeholder { .. } => {
                 unreachable!("placeholder items are handled as sibling assertions")
             }
+        }
+
+        Ok(())
+    }
+
+    fn preflight_exact_identity(
+        &mut self,
+        item: &NavigationGuideLine,
+        parent_path: &Path,
+        at_root: bool,
+    ) -> Result<()> {
+        let components = item.path().split('/').collect::<Vec<_>>();
+        let full_path = parent_path.join(item.path());
+        let mut current_parent = parent_path.to_path_buf();
+        let mut current_at_root = at_root;
+
+        for (index, component) in components.iter().enumerate() {
+            let snapshot = self.snapshot(&current_parent, item.line_number, current_at_root)?;
+            let exact_entry = snapshot
+                .entries
+                .get(*component)
+                .map(|entry| (entry.path.clone(), entry.classification));
+            let Some((entry_path, classification)) = exact_entry else {
+                return self
+                    .missing_exact_component(item, &current_parent, component, &full_path)
+                    .map(|_| ());
+            };
+
+            if index + 1 == components.len() || classification != Ok(SupportedEntryKind::Directory)
+            {
+                return Ok(());
+            }
+
+            current_parent = entry_path;
+            current_at_root = false;
         }
 
         Ok(())
