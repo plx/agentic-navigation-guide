@@ -2912,36 +2912,73 @@ fn test_recursive_verify_preserves_failed_and_ignored_counts() {
     )
     .unwrap();
 
-    for deny_ignored in [false, true] {
-        let mut command = isolated_command();
-        command
-            .arg("verify")
-            .arg("--recursive")
-            .arg("--root")
-            .arg(temp.path());
-        if deny_ignored {
-            command.arg("--deny-ignored");
-        }
-        let output = command.output().unwrap();
-        let diagnostics = combined_output(&output);
+    for mode in ISSUE39_MODES {
+        for deny_ignored in [false, true] {
+            let mut command = isolated_command();
+            command
+                .arg("verify")
+                .arg("--recursive")
+                .arg("--root")
+                .arg(temp.path());
+            mode.configure(&mut command);
+            if deny_ignored {
+                command.arg("--deny-ignored");
+            }
+            let output = command.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let diagnostics = format!("{stdout}{stderr}");
+            let context = format!("{mode:?}/deny_ignored={deny_ignored}");
 
-        assert_eq!(output.status.code(), Some(1), "{diagnostics}");
-        assert!(
-            diagnostics.contains(MIXED_FAILURE_SUMMARY),
-            "mixed failed/ignored run lost a category:\n{diagnostics}"
-        );
-        assert!(
-            diagnostics.contains("missing.txt") && diagnostics.contains("ignore=true"),
-            "mixed failed/ignored run did not finish classifying both guides:\n{diagnostics}"
-        );
-        if deny_ignored {
-            assert!(
-                diagnostics.contains(
-                    "Some guides failed verification, and --deny-ignored rejected the run because \
-                     1 ignored navigation guide was discovered"
-                ),
-                "mixed failed/ignored denial did not report both failure reasons:\n{diagnostics}"
+            assert_eq!(
+                output.status.code(),
+                Some(mode.failure_code()),
+                "{context} returned the wrong failure code:\n{diagnostics}"
             );
+            assert!(
+                diagnostics.contains("missing.txt"),
+                "{context} lost the genuine verification failure:\n{diagnostics}"
+            );
+
+            let expected_summary_count = usize::from(deny_ignored || !mode.is_quiet());
+            assert_eq!(
+                diagnostics.matches(MIXED_FAILURE_SUMMARY).count(),
+                expected_summary_count,
+                "{context} reported the mixed aggregate incorrectly:\n{diagnostics}"
+            );
+
+            if deny_ignored {
+                let combined_reason =
+                    "Some guides failed verification, and --deny-ignored rejected the run because \
+                     1 ignored navigation guide was discovered";
+                assert!(
+                    stderr.contains(combined_reason),
+                    "{context} did not report both failure reasons:\n{diagnostics}"
+                );
+                assert_eq!(
+                    stderr.lines().filter(|line| !line.is_empty()).next_back(),
+                    Some(combined_reason),
+                    "{context} did not leave the combined reason as the terminal diagnostic:\n\
+                     {diagnostics}"
+                );
+            } else {
+                assert!(
+                    !stderr.contains("--deny-ignored rejected"),
+                    "{context} enforced an unrequested ignore policy:\n{diagnostics}"
+                );
+            }
+
+            if mode.is_quiet() {
+                assert!(
+                    !diagnostics.contains("ignore=true"),
+                    "{context} leaked ordinary ignored-guide chatter in quiet mode:\n{diagnostics}"
+                );
+            } else {
+                assert!(
+                    diagnostics.contains("ignore=true"),
+                    "{context} did not classify the ignored guide:\n{diagnostics}"
+                );
+            }
         }
     }
 }
