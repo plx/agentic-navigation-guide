@@ -390,7 +390,7 @@ impl VerifyArgs {
         if !all_passed {
             Err(AppError::Other("Some guides failed verification".to_string()).reported())
         } else {
-            super::finish_ignored_policy(aggregate.ignored, false)
+            super::finish_ignored_policy(aggregate.ignored, self.deny_ignored)
         }
     }
 }
