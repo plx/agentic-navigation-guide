@@ -200,6 +200,14 @@ changes. Alternating-placeholder versus plain-workload median ratios were
 0.973×, 0.978×, and 0.981× for 500, 1,000, and 2,000 listed files.
 Alternating-workload scaling was 1.992× and 2.079×, within its 2.5× threshold.
 
+An independent review then identified repeated canonicalization of shared
+ancestors as a possible deep/wide cost. A release-mode fixture with 500 flat
+guide paths at depths 8, 16, 32, and 64 initially recorded medians of 47.932,
+119.633, 365.618, and 1,412.965 ms. Caching only successful canonical
+containment decisions for exact paths reduced those medians to 20.623, 36.450,
+75.181, and 180.301 ms. Entry and ancestor identity revalidation remains
+binding around every dependent use.
+
 The verifier now performs additional non-following identity observations and
 canonical containment checks. Comprehensive constant-factor, sparse-guide,
 network-filesystem, RSS, and throughput analysis remains assigned to #59.

@@ -95,6 +95,7 @@ struct VerificationRun<'a, C> {
     verifier: &'a Verifier,
     canonical_root_path: PathBuf,
     snapshots: HashMap<PathBuf, Rc<DirectorySnapshot>>,
+    contained_paths: HashSet<PathBuf>,
     control: C,
 }
 
@@ -196,10 +197,12 @@ fn canonicalize_root_preserving_parent_order(path: &Path) -> io::Result<PathBuf>
 
 impl<'a, C: VerificationControl> VerificationRun<'a, C> {
     fn new(verifier: &'a Verifier, canonical_root_path: PathBuf, control: C) -> Self {
+        let contained_paths = HashSet::from([canonical_root_path.clone()]);
         Self {
             verifier,
             canonical_root_path,
             snapshots: HashMap::new(),
+            contained_paths,
             control,
         }
     }
@@ -453,10 +456,17 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
     }
 
     fn require_canonical_containment(
-        &self,
+        &mut self,
         entry_path: &Path,
         item: &NavigationGuideLine,
     ) -> Result<()> {
+        // A successful stable-tree containment decision may be reused for the
+        // same exact path. Entry and ancestor identity revalidation remains
+        // binding before and after dependent use.
+        if self.contained_paths.contains(entry_path) {
+            return Ok(());
+        }
+
         let resolved = match std::fs::canonicalize(entry_path) {
             Ok(resolved) => resolved,
             Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
@@ -476,6 +486,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
             Err(error) => return Err(error.into()),
         };
         if resolved.starts_with(&self.canonical_root_path) {
+            self.contained_paths.insert(entry_path.to_path_buf());
             return Ok(());
         }
 
