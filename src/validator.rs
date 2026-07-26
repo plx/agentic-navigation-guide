@@ -3,7 +3,6 @@
 use crate::errors::{Result, SyntaxError};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::HashSet;
-use std::path::{Component, Path};
 
 /// Validator for navigation guide syntax
 pub struct Validator;
@@ -28,6 +27,12 @@ impl Validator {
 
         // Validate indentation consistency
         self.validate_indentation(&guide.items)?;
+
+        // Reject duplicate decoded file/directory identities, including paths
+        // reached through different hierarchy spellings. Placeholders are
+        // structural wildcards rather than filesystem identities.
+        let mut full_paths = HashSet::new();
+        Self::validate_unique_full_paths(&guide.items, "", &mut full_paths)?;
 
         Ok(())
     }
@@ -96,10 +101,9 @@ impl Validator {
             .into());
         }
 
-        let path_obj = Path::new(path);
-
-        // Paths must be relative.
-        if path_obj.is_absolute() {
+        // `/` is the sole logical separator, but a leading backslash is still
+        // a rooted Windows spelling and rejects on every host.
+        if path.starts_with(['/', '\\']) {
             return Err(SyntaxError::InvalidPathFormat {
                 line: item.line_number,
                 path: path.to_string(),
@@ -107,9 +111,9 @@ impl Validator {
             .into());
         }
 
-        // Validate raw separator-delimited components so we preserve `.` / `..` and empty components.
-        // Treat both `/` and `\` as separators to make validation platform-agnostic.
-        for component in path.split(['/', '\\']) {
+        // Validate raw slash-delimited components before any normalization so
+        // `.` / `..` and empty components remain observable.
+        for (index, component) in path.split('/').enumerate() {
             if component.is_empty() {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
@@ -125,24 +129,49 @@ impl Validator {
                 }
                 .into());
             }
-        }
 
-        // Reject rooted/prefixed paths and platform-native `.` / `..` components.
-        for component in path_obj.components() {
-            if matches!(component, Component::RootDir | Component::Prefix(_)) {
+            if index == 0 && Self::has_windows_drive_prefix(component) {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
                     path: path.to_string(),
                 }
                 .into());
             }
+        }
 
-            if matches!(component, Component::CurDir | Component::ParentDir) {
-                return Err(SyntaxError::InvalidSpecialDirectory {
+        Ok(())
+    }
+
+    fn has_windows_drive_prefix(component: &str) -> bool {
+        let bytes = component.as_bytes();
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    }
+
+    fn validate_unique_full_paths(
+        items: &[NavigationGuideLine],
+        parent: &str,
+        full_paths: &mut HashSet<String>,
+    ) -> Result<()> {
+        for item in items {
+            if item.is_placeholder() {
+                continue;
+            }
+
+            let full_path = if parent.is_empty() {
+                item.path().to_string()
+            } else {
+                format!("{parent}/{}", item.path())
+            };
+            if !full_paths.insert(full_path.clone()) {
+                return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
-                    path: path.to_string(),
+                    path: full_path,
                 }
                 .into());
+            }
+
+            if let Some(children) = item.children() {
+                Self::validate_unique_full_paths(children, &full_path, full_paths)?;
             }
         }
 
@@ -378,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_rejects_dot_components_with_backslash_separator() {
+    fn test_validate_allows_dot_text_with_literal_backslashes() {
         let mut guide = NavigationGuide::new();
         guide.items.push(NavigationGuideLine {
             line_number: 1,
@@ -391,16 +420,11 @@ mod tests {
 
         let validator = Validator::new();
         let result = validator.validate_syntax(&guide);
-        assert!(matches!(
-            result,
-            Err(crate::errors::AppError::Syntax(
-                SyntaxError::InvalidSpecialDirectory { .. }
-            ))
-        ));
+        assert!(result.is_ok());
     }
 
     #[test]
-    fn test_validate_rejects_parent_components_with_backslash_separator() {
+    fn test_validate_allows_parent_text_with_literal_backslashes() {
         let mut guide = NavigationGuide::new();
         guide.items.push(NavigationGuideLine {
             line_number: 1,
@@ -413,12 +437,7 @@ mod tests {
 
         let validator = Validator::new();
         let result = validator.validate_syntax(&guide);
-        assert!(matches!(
-            result,
-            Err(crate::errors::AppError::Syntax(
-                SyntaxError::InvalidSpecialDirectory { .. }
-            ))
-        ));
+        assert!(result.is_ok());
     }
 
     #[test]

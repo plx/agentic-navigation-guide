@@ -3,9 +3,12 @@
 use crate::errors::{Result, SyntaxError};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use regex::Regex;
+use std::collections::HashSet;
 
 const MAX_INDENT_SIZE: usize = 16;
 const MAX_LOGICAL_DEPTH: usize = 256;
+const MIN_CHOICE_ALTERNATIVES: usize = 2;
+const MAX_CHOICE_ALTERNATIVES: usize = 256;
 const OPENING_MARKER_PREFIX: &str = "<agentic-navigation-guide";
 const CLOSING_MARKER_PREFIX: &str = "</agentic-navigation-guide";
 const CLOSING_MARKER: &str = "</agentic-navigation-guide>";
@@ -15,6 +18,14 @@ enum MarkerLine {
     Ordinary,
     Opening { ignore: bool },
     Closing,
+}
+
+#[derive(Clone, Copy)]
+enum ChoiceState {
+    LeadingLayout,
+    Unquoted,
+    Quoted,
+    QuotedClosed,
 }
 
 #[derive(Clone, Copy)]
@@ -48,7 +59,7 @@ impl Parser {
     /// Create a new parser instance
     pub fn new() -> Self {
         Self {
-            list_item_regex: Regex::new(r"^(\s*)-\s+(.+)$").unwrap(),
+            list_item_regex: Regex::new(r"^(\s*)- (.+)$").unwrap(),
         }
     }
 
@@ -314,6 +325,9 @@ impl Parser {
                 }
                 let indent = indent_text.len();
                 let content = captures.get(2).unwrap().as_str();
+                if content.starts_with(' ') {
+                    return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
+                }
 
                 // Determine indent size from first indented item
                 if indent > 0 && indent_size.is_none() {
@@ -379,7 +393,10 @@ impl Parser {
                         }
                     } else if expanded.ends_with('/') {
                         FilesystemItem::Directory {
-                            path: expanded.trim_end_matches('/').to_string(),
+                            path: expanded
+                                .strip_suffix('/')
+                                .expect("ends_with established one directory marker")
+                                .to_string(),
                             comment: comment.clone(),
                             children: Vec::new(),
                         }
@@ -559,8 +576,8 @@ impl Parser {
     /// Expand a path and report whether it contained a physical choice list.
     ///
     /// Hierarchy validation needs the source-level distinction because even a
-    /// one-alternative choice is not exactly one directory entry and therefore
-    /// cannot own an indented child.
+    /// valid choice is not exactly one directory entry and therefore cannot
+    /// own an indented child.
     fn expand_wildcard_path_with_kind(
         path: &str,
         line_number: usize,
@@ -618,6 +635,14 @@ impl Parser {
                 ']' if in_block => {
                     block_content.push(ch);
                 }
+                ']' => {
+                    return Err(SyntaxError::InvalidWildcardSyntax {
+                        line: line_number,
+                        path: path.to_string(),
+                        message: "unmatched closing bracket".to_string(),
+                    }
+                    .into());
+                }
                 '"' if in_block => {
                     in_quotes = !in_quotes;
                     block_content.push(ch);
@@ -654,6 +679,8 @@ impl Parser {
         // Process escapes in prefix and suffix once
         let processed_prefix = Self::process_escapes(&prefix);
         let processed_suffix = Self::process_escapes(&suffix);
+        let mut unique_results = HashSet::with_capacity(choices.len());
+        let mut expected_parent = None;
 
         for choice in choices {
             // Process escapes in each choice and combine with prefix/suffix
@@ -661,10 +688,71 @@ impl Parser {
             let mut expanded = processed_prefix.clone();
             expanded.push_str(&processed_choice);
             expanded.push_str(&processed_suffix);
+
+            if !Self::valid_choice_expansion(&expanded) {
+                return Err(SyntaxError::InvalidWildcardSyntax {
+                    line: line_number,
+                    path: path.to_string(),
+                    message: "choice expansions must be valid regular-file paths".to_string(),
+                }
+                .into());
+            }
+
+            let parent = expanded
+                .rsplit_once('/')
+                .map_or("", |(parent, _)| parent)
+                .to_string();
+            if expected_parent
+                .as_ref()
+                .is_some_and(|expected: &String| expected != &parent)
+            {
+                return Err(SyntaxError::InvalidWildcardSyntax {
+                    line: line_number,
+                    path: path.to_string(),
+                    message: "choice expansions must be sibling files".to_string(),
+                }
+                .into());
+            }
+            expected_parent.get_or_insert(parent);
+
+            if !unique_results.insert(expanded.clone()) {
+                return Err(SyntaxError::InvalidWildcardSyntax {
+                    line: line_number,
+                    path: path.to_string(),
+                    message: "choice expansions must be unique".to_string(),
+                }
+                .into());
+            }
             results.push(expanded);
         }
 
         Ok((results, true))
+    }
+
+    fn valid_choice_expansion(path: &str) -> bool {
+        if path.is_empty() || path == "..." || path.starts_with(['/', '\\']) || path.ends_with('/')
+        {
+            return false;
+        }
+
+        let mut components = path.split('/');
+        let Some(first) = components.next() else {
+            return false;
+        };
+        if Self::invalid_decoded_component(first) || Self::has_windows_drive_prefix(first) {
+            return false;
+        }
+
+        components.all(|component| !Self::invalid_decoded_component(component))
+    }
+
+    fn invalid_decoded_component(component: &str) -> bool {
+        component.is_empty() || component == "." || component == ".."
+    }
+
+    fn has_windows_drive_prefix(component: &str) -> bool {
+        let bytes = component.as_bytes();
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
     }
 
     /// Parse the contents of a wildcard choice block into individual options.
@@ -675,7 +763,8 @@ impl Parser {
     /// # Parsing Rules
     /// - Choices are separated by commas (`,`)
     /// - Commas inside quoted strings (`"..."`) are not treated as separators
-    /// - Whitespace outside quotes is ignored/trimmed
+    /// - Surrounding spaces and tabs outside quotes are ignored
+    /// - Interior unquoted whitespace is preserved
     /// - Whitespace inside quotes is preserved
     /// - Escape sequences (`\,`, `\"`, etc.) are preserved for later processing
     /// - Quote characters (`"`) toggle quote mode but are not included in output
@@ -693,6 +782,7 @@ impl Parser {
     /// - Quote strings are unterminated
     /// - Escape sequences are incomplete (trailing backslash)
     /// - The choice block is empty or all choices are empty/whitespace
+    /// - The choice count falls outside 2–256
     ///
     /// # Examples
     /// ```ignore
@@ -704,40 +794,144 @@ impl Parser {
     fn parse_choice_block(content: &str, path: &str, line_number: usize) -> Result<Vec<String>> {
         let mut choices = Vec::new();
         let mut current = String::new();
+        let mut pending_layout = String::new();
         let mut chars = content.chars().peekable();
-        let mut in_quotes = false;
+        let mut state = ChoiceState::LeadingLayout;
 
         while let Some(ch) = chars.next() {
-            match ch {
-                '\\' => {
-                    let next = chars
-                        .next()
-                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+            match state {
+                ChoiceState::LeadingLayout => match ch {
+                    ' ' | '\t' => {}
+                    ',' => choices.push(String::new()),
+                    '"' => state = ChoiceState::Quoted,
+                    '\\' => {
+                        let next =
+                            chars
+                                .next()
+                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                                    line: line_number,
+                                    path: path.to_string(),
+                                    message: "incomplete escape sequence".to_string(),
+                                })?;
+                        if !Self::valid_unquoted_choice_escape(next) {
+                            return Err(SyntaxError::InvalidWildcardSyntax {
+                                line: line_number,
+                                path: path.to_string(),
+                                message: "invalid escape in unquoted choice".to_string(),
+                            }
+                            .into());
+                        }
+                        current.push('\\');
+                        current.push(next);
+                        state = ChoiceState::Unquoted;
+                    }
+                    '[' | ']' => {
+                        return Err(SyntaxError::InvalidWildcardSyntax {
                             line: line_number,
                             path: path.to_string(),
-                            message: "incomplete escape sequence".to_string(),
-                        })?;
-                    // Preserve escape sequences - they'll be processed later
-                    current.push('\\');
-                    current.push(next);
-                }
-                '"' => {
-                    in_quotes = !in_quotes;
-                }
-                ',' if !in_quotes => {
-                    choices.push(current.trim().to_string());
-                    current.clear();
-                }
-                ch if ch.is_whitespace() && !in_quotes => {
-                    // Ignore whitespace outside of quotes
-                }
-                _ => {
-                    current.push(ch);
-                }
+                            message: "unescaped bracket in unquoted choice".to_string(),
+                        }
+                        .into());
+                    }
+                    _ => {
+                        current.push(ch);
+                        state = ChoiceState::Unquoted;
+                    }
+                },
+                ChoiceState::Unquoted => match ch {
+                    ',' => {
+                        pending_layout.clear();
+                        choices.push(std::mem::take(&mut current));
+                        state = ChoiceState::LeadingLayout;
+                    }
+                    ' ' | '\t' => pending_layout.push(ch),
+                    '\\' => {
+                        let next =
+                            chars
+                                .next()
+                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                                    line: line_number,
+                                    path: path.to_string(),
+                                    message: "incomplete escape sequence".to_string(),
+                                })?;
+                        if !Self::valid_unquoted_choice_escape(next) {
+                            return Err(SyntaxError::InvalidWildcardSyntax {
+                                line: line_number,
+                                path: path.to_string(),
+                                message: "invalid escape in unquoted choice".to_string(),
+                            }
+                            .into());
+                        }
+                        current.push_str(&pending_layout);
+                        pending_layout.clear();
+                        current.push('\\');
+                        current.push(next);
+                    }
+                    '"' => {
+                        return Err(SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "quote must begin a choice alternative".to_string(),
+                        }
+                        .into());
+                    }
+                    '[' | ']' => {
+                        return Err(SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "unescaped bracket in unquoted choice".to_string(),
+                        }
+                        .into());
+                    }
+                    _ => {
+                        current.push_str(&pending_layout);
+                        pending_layout.clear();
+                        current.push(ch);
+                    }
+                },
+                ChoiceState::Quoted => match ch {
+                    '"' => state = ChoiceState::QuotedClosed,
+                    '\\' => {
+                        let next =
+                            chars
+                                .next()
+                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
+                                    line: line_number,
+                                    path: path.to_string(),
+                                    message: "incomplete escape sequence".to_string(),
+                                })?;
+                        if !matches!(next, '"' | '\\' | '#') {
+                            return Err(SyntaxError::InvalidWildcardSyntax {
+                                line: line_number,
+                                path: path.to_string(),
+                                message: "invalid escape in quoted choice".to_string(),
+                            }
+                            .into());
+                        }
+                        current.push('\\');
+                        current.push(next);
+                    }
+                    _ => current.push(ch),
+                },
+                ChoiceState::QuotedClosed => match ch {
+                    ' ' | '\t' => {}
+                    ',' => {
+                        choices.push(std::mem::take(&mut current));
+                        state = ChoiceState::LeadingLayout;
+                    }
+                    _ => {
+                        return Err(SyntaxError::InvalidWildcardSyntax {
+                            line: line_number,
+                            path: path.to_string(),
+                            message: "quoted choice must end before the separator".to_string(),
+                        }
+                        .into());
+                    }
+                },
             }
         }
 
-        if in_quotes {
+        if matches!(state, ChoiceState::Quoted) {
             return Err(SyntaxError::InvalidWildcardSyntax {
                 line: line_number,
                 path: path.to_string(),
@@ -746,7 +940,8 @@ impl Parser {
             .into());
         }
 
-        choices.push(current.trim().to_string());
+        pending_layout.clear();
+        choices.push(current);
 
         // Validate that the choice block is not empty
         if choices.is_empty() || choices.iter().all(|c| c.is_empty()) {
@@ -758,7 +953,23 @@ impl Parser {
             .into());
         }
 
+        if !(MIN_CHOICE_ALTERNATIVES..=MAX_CHOICE_ALTERNATIVES).contains(&choices.len()) {
+            return Err(SyntaxError::InvalidWildcardSyntax {
+                line: line_number,
+                path: path.to_string(),
+                message: format!(
+                    "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
+                     {MAX_CHOICE_ALTERNATIVES} alternatives"
+                ),
+            }
+            .into());
+        }
+
         Ok(choices)
+    }
+
+    fn valid_unquoted_choice_escape(ch: char) -> bool {
+        matches!(ch, '#' | '\\' | '[' | ']' | ',' | '"' | ' ')
     }
 
     /// Build a hierarchical structure from flat list items
@@ -1068,11 +1279,11 @@ mod tests {
     fn test_rejects_child_after_physical_choice_line() {
         for content in [
             r#"<agentic-navigation-guide>
-- root[a,b]/
+- root[a,b].txt
   - child.txt
 </agentic-navigation-guide>"#,
             r#"<agentic-navigation-guide>
-- root[a]/
+- root[,b].txt
   - child.txt
 </agentic-navigation-guide>"#,
         ] {
@@ -1924,14 +2135,15 @@ More prose mentions </agentic-navigation-guides>."#;
     #[test]
     fn test_parse_wildcard_with_escaped_quotes_in_quoted_strings() {
         let content = r#"<agentic-navigation-guide>
-- file[\"test\\\"quote\"].txt
+- file[\"test\\\"quote\", plain].txt
 </agentic-navigation-guide>"#;
 
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
 
-        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items.len(), 2);
         assert_eq!(guide.items[0].path(), r#"file"test\"quote".txt"#);
+        assert_eq!(guide.items[1].path(), "fileplain.txt");
     }
 
     #[test]
@@ -1988,15 +2200,16 @@ More prose mentions </agentic-navigation-guides>."#;
     fn test_parse_wildcard_complex_nested_escapes() {
         // Test escaped quotes with actual quoted string to preserve spaces
         let content = r#"<agentic-navigation-guide>
-- file["a \"b\" c"].txt
+- file["a \"b\" c", plain].txt
 </agentic-navigation-guide>"#;
 
         let parser = Parser::new();
         let guide = parser.parse(content).unwrap();
 
-        assert_eq!(guide.items.len(), 1);
+        assert_eq!(guide.items.len(), 2);
         // Note: Escaped quotes inside a quoted string are processed
         assert_eq!(guide.items[0].path(), r#"filea "b" c.txt"#);
+        assert_eq!(guide.items[1].path(), "fileplain.txt");
     }
 
     #[test]
