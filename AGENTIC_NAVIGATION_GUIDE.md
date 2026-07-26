@@ -97,6 +97,7 @@
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
+  - 2026-07-26-issue-30-supported-rust-api-gate.md # Rust API/SemVer gate proof
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
