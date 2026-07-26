@@ -20,7 +20,8 @@ The validation can be done in a stand-alone way, and also has special support fo
 ### Source-of-Truth Precedence
 
 1. [`docs/v0.2-contract.md`](docs/v0.2-contract.md) is the normative target
-   for the v0.2 guide language and filesystem representation.
+   for the v0.2 guide language, filesystem representation, and
+   stable-filesystem trust boundary.
 2. Current implementation (`src/` plus tests) is authoritative for realized
    `0.1.4` runtime behavior while the contract's explicitly owned v0.2
    divergences are being implemented.
@@ -75,7 +76,7 @@ The main rules are:
 
 - each entry must be a list item (start with `-`)
 - nesting is indicated by indentation
-- a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a file/symlink-style path
+- a trailing `/` marks a directory entry; without the trailing slash, an entry is parsed as a regular-file path
 - comments are optional; the first unescaped `#` starts the comment portion
 - use `\#` to include a literal `#` character in a path
 - if an entry has no unescaped `#`, everything after `-` is part of the path (for example, `- src/ source code` is a literal path, not a comment)
@@ -329,7 +330,7 @@ Each guide is verified relative to its parent directory, allowing you to maintai
 
 - **Automatic Discovery**: Finds all guide files matching the specified name throughout the directory tree
 - **Relative Verification**: Each guide is verified against its parent directory as the root
-- **Root Boundary Enforcement**: Paths that resolve outside the guide root (including symlink escapes) are rejected
+- **Root Boundary Enforcement**: On a stable filesystem, listed item paths that resolve outside the guide root are rejected; this consistency check is not a filesystem sandbox
 - **Custom Names**: Support for uniform custom guide filenames (e.g., `--guide-name GUIDE.md`)
 - **Exclusion Patterns**: Skip directories like `target`, `node_modules`, `.git` using glob patterns
 - **Aggregated Results**: Shows summary of all verified guides with pass/fail counts

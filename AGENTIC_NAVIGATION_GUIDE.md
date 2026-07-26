@@ -73,6 +73,7 @@
   - fixtures/
     - v0_2_contract.rs # Machine-readable v0.2 grammar conformance ledger
     - v0_2_operations.rs # Machine-readable v0.2 filesystem and CLI operation ledger
+    - v0_2_trust.rs # Machine-readable v0.2 filesystem trust and adversarial fixture ledger
   - v0_2_contract.rs # Contract fixture, documentation-sync, and staged conformance tests
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
