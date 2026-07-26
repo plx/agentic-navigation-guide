@@ -1196,16 +1196,17 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
     );
 
     let readme = include_str!("../README.md");
+    let normalized_readme = readme.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        readme.contains(
+        normalized_readme.contains(
             "`FilesystemItem::Symlink` and `SemanticError::SymlinkTargetMismatch` are removed without replacement in v0.2"
         ),
         "the v0.2 changelog must name both exact removals and the no-replacement migration"
     );
     assert!(
-        readme.contains("filesystem links remain unsupported entries")
-            && readme.contains("invoke the installed CLI")
-            && readme.contains("pinned to unsupported `0.1.4`"),
+        normalized_readme.contains("filesystem links remain unsupported entries")
+            && normalized_readme.contains("invoke the installed CLI")
+            && normalized_readme.contains("pinned to unsupported `0.1.4`"),
         "the removal must distinguish internal link rejection and retain both migration choices"
     );
 
