@@ -2028,6 +2028,50 @@ fn issue_41_placeholder_verification_rejects_control_bearing_names() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn issue_41_placeholder_verification_is_root_context_aware() {
+    let placeholder_source = "<agentic-navigation-guide>\n- ...\n</agentic-navigation-guide>";
+    let placeholder_guide = Parser::new()
+        .parse(placeholder_source)
+        .expect("root placeholder guide must parse");
+    Validator::new()
+        .validate_syntax(&placeholder_guide)
+        .expect("root placeholder guide must validate");
+
+    for (name, expected) in [("C:root", "\"C:root\""), ("\\root", "\"\\\\root\"")] {
+        let temp = TempDir::new().expect("temporary issue-41 root-prefix placeholder fixture");
+        fs::write(temp.path().join(name), "")
+            .unwrap_or_else(|error| panic!("create root-prefix name {name:?}: {error}"));
+
+        let error = match Verifier::new(temp.path()).verify(&placeholder_guide) {
+            Ok(()) => panic!("root placeholder accepted unsupported name {name:?}"),
+            Err(error) => error,
+        };
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains(expected),
+            "root-prefix diagnostic did not preserve {name:?}: {diagnostic}"
+        );
+    }
+
+    let temp = TempDir::new().expect("temporary issue-41 nested-prefix placeholder fixture");
+    fs::create_dir(temp.path().join("parent")).expect("nested-prefix parent");
+    fs::write(temp.path().join("parent/C:notes"), "").expect("nested drive-looking name");
+    fs::write(temp.path().join("parent/\\notes"), "").expect("nested backslash-leading name");
+    let nested_source =
+        "<agentic-navigation-guide>\n- parent/\n  - ...\n</agentic-navigation-guide>";
+    let nested_guide = Parser::new()
+        .parse(nested_source)
+        .expect("nested placeholder guide must parse");
+    Validator::new()
+        .validate_syntax(&nested_guide)
+        .expect("nested placeholder guide must validate");
+    Verifier::new(temp.path())
+        .verify(&nested_guide)
+        .expect("later drive/backslash spellings must remain representable");
+}
+
 #[test]
 fn issue_41_parser_diagnostics_escape_rejected_controls() {
     let temp = TempDir::new().expect("temporary issue-41 parser diagnostic fixture");
