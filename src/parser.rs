@@ -599,6 +599,19 @@ impl Parser {
         SyntaxError::InvalidPathFormat { line, path }
     }
 
+    fn invalid_wildcard_error(line: usize, path: &str, message: impl Into<String>) -> SyntaxError {
+        let path = if contains_forbidden_control(path) {
+            render_utf8_component(path)
+        } else {
+            path.to_string()
+        };
+        SyntaxError::InvalidWildcardSyntax {
+            line,
+            path,
+            message: message.into(),
+        }
+    }
+
     /// Process escape sequences in a string, converting escaped characters to their literal forms.
     ///
     /// Handles the following escape sequences:
@@ -703,19 +716,19 @@ impl Parser {
         while let Some(ch) = iter.next() {
             match ch {
                 '\\' => {
-                    let next = iter
-                        .next()
-                        .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "incomplete escape sequence".to_string(),
-                        })?;
+                    let next = iter.next().ok_or_else(|| {
+                        Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "incomplete escape sequence",
+                        )
+                    })?;
                     if !in_block && !Self::valid_unquoted_choice_escape(next) {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "invalid escape in bare path".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "invalid escape in bare path",
+                        )
                         .into());
                     }
 
@@ -733,12 +746,11 @@ impl Parser {
                 }
                 '[' if !in_block => {
                     if block_found {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "multiple wildcard choice blocks are not supported"
-                                .to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "multiple wildcard choice blocks are not supported",
+                        )
                         .into());
                     }
                     block_found = true;
@@ -753,11 +765,11 @@ impl Parser {
                     block_content.push(ch);
                 }
                 ']' => {
-                    return Err(SyntaxError::InvalidWildcardSyntax {
-                        line: line_number,
-                        path: path.to_string(),
-                        message: "unmatched closing bracket".to_string(),
-                    }
+                    return Err(Self::invalid_wildcard_error(
+                        line_number,
+                        path,
+                        "unmatched closing bracket",
+                    )
                     .into());
                 }
                 '"' if in_block => {
@@ -765,11 +777,11 @@ impl Parser {
                     block_content.push(ch);
                 }
                 '"' => {
-                    return Err(SyntaxError::InvalidWildcardSyntax {
-                        line: line_number,
-                        path: path.to_string(),
-                        message: "unescaped quote in bare path".to_string(),
-                    }
+                    return Err(Self::invalid_wildcard_error(
+                        line_number,
+                        path,
+                        "unescaped quote in bare path",
+                    )
                     .into());
                 }
                 _ => {
@@ -785,11 +797,11 @@ impl Parser {
         }
 
         if in_block {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: "unterminated wildcard choice block".to_string(),
-            }
+            return Err(Self::invalid_wildcard_error(
+                line_number,
+                path,
+                "unterminated wildcard choice block",
+            )
             .into());
         }
 
@@ -815,11 +827,11 @@ impl Parser {
             expanded.push_str(&processed_suffix);
 
             if !Self::valid_choice_expansion(&expanded, at_root) {
-                return Err(SyntaxError::InvalidWildcardSyntax {
-                    line: line_number,
-                    path: path.to_string(),
-                    message: "choice expansions must be valid regular-file paths".to_string(),
-                }
+                return Err(Self::invalid_wildcard_error(
+                    line_number,
+                    path,
+                    "choice expansions must be valid regular-file paths",
+                )
                 .into());
             }
 
@@ -831,21 +843,21 @@ impl Parser {
                 .as_ref()
                 .is_some_and(|expected: &String| expected != &parent)
             {
-                return Err(SyntaxError::InvalidWildcardSyntax {
-                    line: line_number,
-                    path: path.to_string(),
-                    message: "choice expansions must be sibling files".to_string(),
-                }
+                return Err(Self::invalid_wildcard_error(
+                    line_number,
+                    path,
+                    "choice expansions must be sibling files",
+                )
                 .into());
             }
             expected_parent.get_or_insert(parent);
 
             if !unique_results.insert(expanded.clone()) {
-                return Err(SyntaxError::InvalidWildcardSyntax {
-                    line: line_number,
-                    path: path.to_string(),
-                    message: "choice expansions must be unique".to_string(),
-                }
+                return Err(Self::invalid_wildcard_error(
+                    line_number,
+                    path,
+                    "choice expansions must be unique",
+                )
                 .into());
             }
             results.push(expanded);
@@ -971,20 +983,19 @@ impl Parser {
                     )?,
                     '"' => state = ChoiceState::Quoted,
                     '\\' => {
-                        let next =
-                            chars
-                                .next()
-                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                                    line: line_number,
-                                    path: path.to_string(),
-                                    message: "incomplete escape sequence".to_string(),
-                                })?;
+                        let next = chars.next().ok_or_else(|| {
+                            Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "incomplete escape sequence",
+                            )
+                        })?;
                         if !Self::valid_unquoted_choice_escape(next) {
-                            return Err(SyntaxError::InvalidWildcardSyntax {
-                                line: line_number,
-                                path: path.to_string(),
-                                message: "invalid escape in unquoted choice".to_string(),
-                            }
+                            return Err(Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "invalid escape in unquoted choice",
+                            )
                             .into());
                         }
                         current.push('\\');
@@ -992,11 +1003,11 @@ impl Parser {
                         state = ChoiceState::Unquoted;
                     }
                     '[' | ']' => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "unescaped bracket in unquoted choice".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "unescaped bracket in unquoted choice",
+                        )
                         .into());
                     }
                     _ => {
@@ -1017,20 +1028,19 @@ impl Parser {
                     }
                     ' ' | '\t' => pending_layout.push(ch),
                     '\\' => {
-                        let next =
-                            chars
-                                .next()
-                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                                    line: line_number,
-                                    path: path.to_string(),
-                                    message: "incomplete escape sequence".to_string(),
-                                })?;
+                        let next = chars.next().ok_or_else(|| {
+                            Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "incomplete escape sequence",
+                            )
+                        })?;
                         if !Self::valid_unquoted_choice_escape(next) {
-                            return Err(SyntaxError::InvalidWildcardSyntax {
-                                line: line_number,
-                                path: path.to_string(),
-                                message: "invalid escape in unquoted choice".to_string(),
-                            }
+                            return Err(Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "invalid escape in unquoted choice",
+                            )
                             .into());
                         }
                         current.push_str(&pending_layout);
@@ -1039,19 +1049,19 @@ impl Parser {
                         current.push(next);
                     }
                     '"' => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "quote must begin a choice alternative".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "quote must begin a choice alternative",
+                        )
                         .into());
                     }
                     '[' | ']' => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "unescaped bracket in unquoted choice".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "unescaped bracket in unquoted choice",
+                        )
                         .into());
                     }
                     _ => {
@@ -1063,20 +1073,19 @@ impl Parser {
                 ChoiceState::Quoted => match ch {
                     '"' => state = ChoiceState::QuotedClosed,
                     '\\' => {
-                        let next =
-                            chars
-                                .next()
-                                .ok_or_else(|| SyntaxError::InvalidWildcardSyntax {
-                                    line: line_number,
-                                    path: path.to_string(),
-                                    message: "incomplete escape sequence".to_string(),
-                                })?;
+                        let next = chars.next().ok_or_else(|| {
+                            Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "incomplete escape sequence",
+                            )
+                        })?;
                         if !matches!(next, '"' | '\\' | '#') {
-                            return Err(SyntaxError::InvalidWildcardSyntax {
-                                line: line_number,
-                                path: path.to_string(),
-                                message: "invalid escape in quoted choice".to_string(),
-                            }
+                            return Err(Self::invalid_wildcard_error(
+                                line_number,
+                                path,
+                                "invalid escape in quoted choice",
+                            )
                             .into());
                         }
                         current.push('\\');
@@ -1096,11 +1105,11 @@ impl Parser {
                         state = ChoiceState::LeadingLayout;
                     }
                     _ => {
-                        return Err(SyntaxError::InvalidWildcardSyntax {
-                            line: line_number,
-                            path: path.to_string(),
-                            message: "quoted choice must end before the separator".to_string(),
-                        }
+                        return Err(Self::invalid_wildcard_error(
+                            line_number,
+                            path,
+                            "quoted choice must end before the separator",
+                        )
                         .into());
                     }
                 },
@@ -1108,11 +1117,11 @@ impl Parser {
         }
 
         if matches!(state, ChoiceState::Quoted) {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: "unterminated quoted string in wildcard choices".to_string(),
-            }
+            return Err(Self::invalid_wildcard_error(
+                line_number,
+                path,
+                "unterminated quoted string in wildcard choices",
+            )
             .into());
         }
 
@@ -1124,11 +1133,11 @@ impl Parser {
 
         // Validate that the choice block is not empty
         if choices.is_empty() || choices.iter().all(|c| c.is_empty()) {
-            return Err(SyntaxError::InvalidWildcardSyntax {
-                line: line_number,
-                path: path.to_string(),
-                message: "choice block cannot be empty".to_string(),
-            }
+            return Err(Self::invalid_wildcard_error(
+                line_number,
+                path,
+                "choice block cannot be empty",
+            )
             .into());
         }
 
@@ -1156,14 +1165,14 @@ impl Parser {
     }
 
     fn choice_count_error(path: &str, line_number: usize) -> SyntaxError {
-        SyntaxError::InvalidWildcardSyntax {
-            line: line_number,
-            path: path.to_string(),
-            message: format!(
+        Self::invalid_wildcard_error(
+            line_number,
+            path,
+            format!(
                 "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
                  {MAX_CHOICE_ALTERNATIVES} alternatives"
             ),
-        }
+        )
     }
 
     fn valid_unquoted_choice_escape(ch: char) -> bool {

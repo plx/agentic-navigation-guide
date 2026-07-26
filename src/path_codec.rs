@@ -74,7 +74,7 @@ pub(crate) fn render_os_component(value: &OsStr) -> String {
             write!(rendered, "\\x{byte:02X}").expect("writing into a String cannot fail");
         }
         rendered.push('"');
-        return rendered;
+        rendered
     }
 
     #[cfg(windows)]
@@ -87,7 +87,7 @@ pub(crate) fn render_os_component(value: &OsStr) -> String {
             write!(rendered, "\\u{{{unit:04X}}}").expect("writing into a String cannot fail");
         }
         rendered.push('"');
-        return rendered;
+        rendered
     }
 
     #[cfg(not(any(unix, windows)))]

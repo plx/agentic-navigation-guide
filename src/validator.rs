@@ -94,12 +94,17 @@ impl Validator {
     /// Validate path structure without restricting character classes.
     fn validate_path_structure(&self, item: &NavigationGuideLine, at_root: bool) -> Result<()> {
         let path = item.path();
+        let diagnostic_path = if contains_forbidden_control(path) {
+            render_utf8_component(path)
+        } else {
+            path.to_string()
+        };
 
         // Check for empty path
         if path.is_empty() {
             return Err(SyntaxError::InvalidPathFormat {
                 line: item.line_number,
-                path: path.to_string(),
+                path: diagnostic_path,
             }
             .into());
         }
@@ -109,7 +114,7 @@ impl Validator {
         if path.starts_with('/') || (at_root && path.starts_with('\\')) {
             return Err(SyntaxError::InvalidPathFormat {
                 line: item.line_number,
-                path: path.to_string(),
+                path: diagnostic_path,
             }
             .into());
         }
@@ -120,7 +125,7 @@ impl Validator {
             if component.is_empty() {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
-                    path: path.to_string(),
+                    path: diagnostic_path,
                 }
                 .into());
             }
@@ -128,7 +133,7 @@ impl Validator {
             if component == "." || component == ".." {
                 return Err(SyntaxError::InvalidSpecialDirectory {
                     line: item.line_number,
-                    path: path.to_string(),
+                    path: diagnostic_path,
                 }
                 .into());
             }
@@ -136,7 +141,7 @@ impl Validator {
             if contains_forbidden_control(component) {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
-                    path: render_utf8_component(path),
+                    path: diagnostic_path,
                 }
                 .into());
             }
@@ -144,7 +149,7 @@ impl Validator {
             if at_root && index == 0 && has_windows_drive_prefix(component) {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
-                    path: path.to_string(),
+                    path: diagnostic_path,
                 }
                 .into());
             }
