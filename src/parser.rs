@@ -293,14 +293,14 @@ impl Parser {
                             SyntaxError::InvalidIndentationLevel { line: line_number }.into()
                         );
                     }
-                    Some(depth) if indent_level > depth => {
-                        if depth.checked_add(1) != Some(indent_level)
-                            || !previous_line_can_own_children
-                        {
-                            return Err(
-                                SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                            );
-                        }
+                    Some(depth)
+                        if indent_level > depth
+                            && (depth.checked_add(1) != Some(indent_level)
+                                || !previous_line_can_own_children) =>
+                    {
+                        return Err(
+                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
+                        );
                     }
                     _ => {}
                 }
