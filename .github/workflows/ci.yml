@@ -77,6 +77,8 @@ jobs:
       run: cargo build --verbose
     - name: Build release
       run: cargo build --release --verbose
+    - name: Run focused entry-type tests
+      run: cargo test --locked issue_42 -- --nocapture
 
   third-party-licenses:
     name: Third-Party Licenses

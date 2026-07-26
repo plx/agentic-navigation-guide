@@ -7,6 +7,10 @@ use std::process::Command;
 use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
+#[allow(dead_code)]
+#[path = "../src/entry_type.rs"]
+mod issue_42_entry_type;
+
 const ALLOWED_PENDING_OWNERS: &[u32] = &[42, 43, 44, 50];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1799,21 +1803,20 @@ fn issue_42_directory_links_never_generate_non_round_trippable_guides() {
     fs::write(target.join("secret.txt"), "").expect("target child");
     symlink(&target, root.join("linked")).expect("directory link");
 
-    let generated = Dumper::new(&root).dump_with_wrapper();
-    if let Ok(source) = &generated {
-        let guide = Parser::new()
-            .parse(source)
-            .expect("pre-fix generated source remains syntactically parseable");
-        assert!(
-            Verifier::new(&root).verify(&guide).is_err(),
-            "a directory link was emitted as a guide that falsely round-tripped:\n{source}"
-        );
-    }
+    let diagnostic = Dumper::new(&root)
+        .dump_with_wrapper()
+        .expect_err("generation must reject a directory link before emitting a guide")
+        .to_string();
 
+    assert!(diagnostic.contains("\"linked\""), "{diagnostic}");
+    assert!(diagnostic.contains("symbolic link"), "{diagnostic}");
     assert!(
-        generated.is_err(),
-        "generation must reject the directory link before emitting a guide; observed:\n{}",
-        generated.unwrap_or_default()
+        !diagnostic.contains("secret.txt"),
+        "generation traversed or disclosed the linked directory: {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains(&target.display().to_string()),
+        "generation disclosed the directory-link target: {diagnostic}"
     );
 }
 
@@ -1833,6 +1836,44 @@ fn issue_42_regular_file_directory_and_hard_link_controls_remain_supported() {
         Dumper::new(temp.path()).dump().expect("supported entries"),
         "- directory/\n- first.txt\n- second.txt\n"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn issue_42_textual_specials_reject_but_placeholders_remain_type_agnostic() {
+    use std::os::unix::net::UnixListener;
+
+    let temp = TempDir::new().expect("temporary special-entry root");
+    let fifo = Command::new("mkfifo")
+        .arg(temp.path().join("pipe"))
+        .output()
+        .expect("execute mkfifo");
+    assert!(
+        fifo.status.success(),
+        "mkfifo failed: {}",
+        String::from_utf8_lossy(&fifo.stderr)
+    );
+    let _listener =
+        UnixListener::bind(temp.path().join("socket")).expect("Unix-domain socket fixture");
+
+    for (path, kind) in [("pipe", "FIFO"), ("socket", "Unix-domain socket")] {
+        let source = format!("<agentic-navigation-guide>\n- {path}\n</agentic-navigation-guide>");
+        let guide = Parser::new().parse(&source).expect("special-entry guide");
+        let diagnostic = Verifier::new(temp.path())
+            .verify(&guide)
+            .expect_err("a textual file must not be satisfied by a special entry")
+            .to_string();
+
+        assert!(diagnostic.contains(path), "{diagnostic}");
+        assert!(diagnostic.contains(kind), "{diagnostic}");
+    }
+
+    let placeholder = Parser::new()
+        .parse("<agentic-navigation-guide>\n- ...\n</agentic-navigation-guide>")
+        .expect("placeholder guide");
+    Verifier::new(temp.path())
+        .verify(&placeholder)
+        .expect("a UTF-8-named special sibling may satisfy a type-agnostic placeholder");
 }
 
 #[test]
@@ -2973,11 +3014,13 @@ fn observe_unreadable_directory_dump() -> ObservedOperationResult {
 }
 
 fn observe_unknown_entry_type() -> ObservedOperationResult {
-    // Host filesystem APIs do not provide a portable way to construct an
-    // entry whose classification is unknown. Issue #42 must replace this
-    // sentinel with an injected classifier observation before its owner gate
-    // can pass.
-    ObservedOperationResult::CapabilityUnavailable
+    let observation = issue_42_entry_type::EntryTypeObservation::default();
+    match issue_42_entry_type::classify_observation(observation) {
+        Err(issue_42_entry_type::UnsupportedEntryKind::Unknown) => {
+            ObservedOperationResult::Rejected
+        }
+        other => panic!("an unclassified observation did not fail closed: {other:?}"),
+    }
 }
 
 #[cfg(unix)]

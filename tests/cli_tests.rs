@@ -854,8 +854,11 @@ fn test_verify_command_rejects_symlink_directory_escape() {
         .arg(&workspace_root)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("outside root boundary"))
-        .stderr(predicate::str::contains("linked"));
+        .stderr(predicate::str::contains(
+            "expected directory but found symbolic link",
+        ))
+        .stderr(predicate::str::contains("linked"))
+        .stderr(predicate::str::contains("outside root boundary").not());
 }
 
 #[test]
@@ -1235,6 +1238,8 @@ fn test_init_command() {
     cmd.arg("init")
         .arg("--output")
         .arg(&output_path)
+        .arg("--root")
+        .arg(dir_path)
         .assert()
         .success();
 

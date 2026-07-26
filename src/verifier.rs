@@ -1,5 +1,6 @@
 //! Filesystem verification for navigation guides
 
+use crate::entry_type::{classify_path, SupportedEntryKind};
 use crate::errors::{AppError, Result, SemanticError};
 use crate::path_codec::{
     contains_forbidden_control, has_windows_drive_prefix, render_os_component,
@@ -67,15 +68,11 @@ impl Verifier {
         }
 
         let item_path = parent_path.join(item.path());
-        // For symlink entries, validate containment against the symlink path itself rather than
-        // following the final target; this keeps verification scoped to guide-relative structure.
-        let follow_final_component = !matches!(item.item, FilesystemItem::Symlink { .. });
-        let resolved_path = self.resolve_for_containment(
-            &item_path,
-            follow_final_component,
-            item.line_number,
-            item.path(),
-        )?;
+        // The textual format never grants authority to follow its final
+        // component. Resolve only the parent for containment, then classify
+        // the final entry with non-following metadata below.
+        let resolved_path =
+            self.resolve_for_containment(&item_path, false, item.line_number, item.path())?;
 
         if !resolved_path.starts_with(canonical_root_path) {
             return Err(SemanticError::PathEscapesRoot {
@@ -87,8 +84,10 @@ impl Verifier {
             .into());
         }
 
-        // Check if the item exists
-        if !item_path.exists() {
+        // Preserve the legacy programmatic Symlink variant until its #53
+        // removal. Its existing dangling-link behavior is deliberately not
+        // part of textual file/directory classification.
+        if matches!(&item.item, FilesystemItem::Symlink { .. }) && !item_path.exists() {
             return Err(SemanticError::ItemNotFound {
                 line: item.line_number,
                 item_type: self.get_item_type_string(item),
@@ -101,19 +100,7 @@ impl Verifier {
         // Check if the item type matches
         match &item.item {
             FilesystemItem::Directory { children, .. } => {
-                if !item_path.is_dir() {
-                    return Err(SemanticError::TypeMismatch {
-                        line: item.line_number,
-                        expected: "directory".to_string(),
-                        found: if item_path.is_file() {
-                            "file".to_string()
-                        } else {
-                            "symlink".to_string()
-                        },
-                        path: item.path().to_string(),
-                    }
-                    .into());
-                }
+                self.require_textual_entry_kind(item, &item_path, SupportedEntryKind::Directory)?;
 
                 // Verify children recursively
                 let mut mentioned_names = std::collections::HashSet::new();
@@ -137,19 +124,7 @@ impl Verifier {
                 }
             }
             FilesystemItem::File { .. } => {
-                if !item_path.is_file() {
-                    return Err(SemanticError::TypeMismatch {
-                        line: item.line_number,
-                        expected: "file".to_string(),
-                        found: if item_path.is_dir() {
-                            "directory".to_string()
-                        } else {
-                            "symlink".to_string()
-                        },
-                        path: item.path().to_string(),
-                    }
-                    .into());
-                }
+                self.require_textual_entry_kind(item, &item_path, SupportedEntryKind::RegularFile)?;
             }
             FilesystemItem::Symlink { target, .. } => {
                 let metadata = match std::fs::symlink_metadata(&item_path) {
@@ -201,6 +176,53 @@ impl Verifier {
         }
 
         Ok(())
+    }
+
+    fn require_textual_entry_kind(
+        &self,
+        item: &NavigationGuideLine,
+        item_path: &Path,
+        expected: SupportedEntryKind,
+    ) -> Result<()> {
+        let classification = match classify_path(item_path) {
+            Ok(classification) => classification,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(SemanticError::ItemNotFound {
+                    line: item.line_number,
+                    item_type: self.get_item_type_string(item),
+                    path: item.path().to_string(),
+                    full_path: item_path.to_path_buf(),
+                }
+                .into());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Err(SemanticError::PermissionDenied {
+                    line: item.line_number,
+                    path: item.path().to_string(),
+                }
+                .into());
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        let found = match classification {
+            Ok(actual) if actual == expected => return Ok(()),
+            Ok(SupportedEntryKind::RegularFile) => "file".to_string(),
+            Ok(SupportedEntryKind::Directory) => "directory".to_string(),
+            Err(unsupported) => unsupported.to_string(),
+        };
+        let expected = match expected {
+            SupportedEntryKind::RegularFile => "file",
+            SupportedEntryKind::Directory => "directory",
+        };
+
+        Err(SemanticError::TypeMismatch {
+            line: item.line_number,
+            expected: expected.to_string(),
+            found,
+            path: item.path().to_string(),
+        }
+        .into())
     }
 
     /// Canonicalize root path once before verification
@@ -464,7 +486,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_verify_rejects_directory_symlink_traversal_outside_root() {
+    fn test_verify_rejects_final_directory_symlink_without_following_outside_root() {
         use std::os::unix::fs::symlink;
 
         let temp_dir = TempDir::new().unwrap();
@@ -502,14 +524,21 @@ mod tests {
         assert!(matches!(
             result,
             Err(crate::errors::AppError::Semantic(
-                SemanticError::PathEscapesRoot { .. }
-            ))
+                SemanticError::TypeMismatch {
+                    expected,
+                    found,
+                    path,
+                    ..
+                }
+            )) if expected == "directory"
+                && found == "symbolic link"
+                && path == "linked"
         ));
     }
 
     #[cfg(unix)]
     #[test]
-    fn test_verify_rejects_file_symlink_traversal_outside_root() {
+    fn test_verify_rejects_final_file_symlink_without_following_outside_root() {
         use std::os::unix::fs::symlink;
 
         let temp_dir = TempDir::new().unwrap();
@@ -538,8 +567,15 @@ mod tests {
         assert!(matches!(
             result,
             Err(crate::errors::AppError::Semantic(
-                SemanticError::PathEscapesRoot { .. }
-            ))
+                SemanticError::TypeMismatch {
+                    expected,
+                    found,
+                    path,
+                    ..
+                }
+            )) if expected == "file"
+                && found == "symbolic link"
+                && path == "linked.txt"
         ));
     }
 
@@ -610,7 +646,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_verify_allows_directory_symlink_traversal_within_root() {
+    fn test_verify_rejects_final_directory_symlink_within_root() {
         use std::os::unix::fs::symlink;
 
         let temp_dir = TempDir::new().unwrap();
@@ -645,7 +681,19 @@ mod tests {
         };
 
         let result = verifier.verify(&guide);
-        assert!(result.is_ok());
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Semantic(
+                SemanticError::TypeMismatch {
+                    expected,
+                    found,
+                    path,
+                    ..
+                }
+            )) if expected == "directory"
+                && found == "symbolic link"
+                && path == "alias"
+        ));
     }
 
     #[test]
