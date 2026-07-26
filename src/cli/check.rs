@@ -12,8 +12,12 @@ use std::path::{Path, PathBuf};
 #[derive(Args, Debug)]
 pub struct CheckArgs {
     /// Path to the navigation guide file
-    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_PATH")]
+    #[arg(short, long)]
     pub guide: Option<PathBuf>,
+
+    /// Resolved implicit filename from the environment or built-in default
+    #[arg(skip)]
+    pub(crate) implicit_guide_name: Option<String>,
 
     /// Fail when the guide is marked with ignore=true
     #[arg(long)]
@@ -54,7 +58,9 @@ impl CheckArgs {
                 (path.clone(), path, GuideAuthority::Explicit)
             }
             None => {
-                let name = super::implicit_guide_name().map_err(report_guide_input_error)?;
+                let name = self
+                    .implicit_guide_name
+                    .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
                 guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
                 (
                     current_dir.join(&name),

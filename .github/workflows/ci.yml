@@ -85,6 +85,8 @@ jobs:
       run: cargo test --release --locked issue_43 -- --nocapture
     - name: Run focused exclusion tests
       run: cargo test --locked issue_44 -- --nocapture
+    - name: Run focused environment-precedence tests
+      run: cargo test --locked issue_46 -- --nocapture
 
   third-party-licenses:
     name: Third-Party Licenses

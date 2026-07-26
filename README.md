@@ -101,6 +101,12 @@ When user-facing behavior changes, update user-facing docs in the same change. T
   `dump`, `init`, and recursive discovery now validate and use the same
   case-sensitive, platform-independent matcher. This corrects the nested
   traversal bug under #44.
+- **2026-07-26 — CLI options override environment defaults.** Unlike `0.1.4`,
+  environment-backed path, root, name, log, and execution settings no longer
+  participate in unrelated CLI requirements or conflicts. Resolution is
+  consistently CLI, then environment, then built-in default; genuine
+  CLI-vs-CLI conflicts remain usage errors. This corrects the precedence bug
+  under #46.
 
 ## Navigation Guide Format
 
@@ -398,6 +404,38 @@ If you're adding a navigation guide to your repository, I'd suggest:
 - run `agentic-navigation-guide verify` to check for errors
 - commit the file to your repository
 - update your CLAUDE.md (etc.) to include the guide using the `@` syntax
+
+### Environment Defaults
+
+Configuration uses one precedence rule: **CLI > environment > built-in**. A
+lower-precedence value is applied only when it is relevant and no
+higher-precedence value selected that setting.
+
+| Variable | Scope | CLI override | Built-in fallback |
+| --- | --- | --- | --- |
+| `AGENTIC_NAVIGATION_GUIDE_PATH` | `check` and non-recursive `verify` | `--guide` | No explicit path; use the implicit guide name |
+| `AGENTIC_NAVIGATION_GUIDE_ROOT` | `dump`, `init`, and all `verify` modes | `--root` | Current directory |
+| `AGENTIC_NAVIGATION_GUIDE_NAME` | Implicit `check`, implicit single `verify`, and recursive `verify` | `--guide` selects an explicit path for single-guide commands; `--guide-name` overrides the recursive name | `AGENTIC_NAVIGATION_GUIDE.md` |
+| `AGENTIC_NAVIGATION_GUIDE_LOG_MODE` | Global; `quiet`, `default`, or `verbose` | `--quiet`, `--verbose`, or `--log-level` | `default` |
+| `AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE` | Global; `default`, `post-tool-use`, `pre-commit-hook`, or `github-actions` | `--execution-mode` or an applicable hook/check flag | `default` |
+
+When both path and name environment variables are set, the explicit
+`AGENTIC_NAVIGATION_GUIDE_PATH` wins for `check` and single `verify`.
+Recursive verification ignores that path variable and resolves only its guide
+name. The path variable, like `--guide`, grants explicit guide-file authority;
+the name variable always remains one implicit filename beneath the applicable
+root.
+
+Irrelevant and shadowed environment values are not parsed. Environment-default
+resolution rejects an empty path/root, invalid single-component name, or
+invalid mode before command work begins. Those configuration diagnostics
+identify the variable and expected form without printing its value. Rejection
+at this pre-execution layer is a usage error with status 2, regardless of the
+requested execution mode. A nonempty path/root is preserved as an
+operating-system path; existence, access, and trust checks then follow the
+command's ordinary filesystem rules. Explicit CLI contradictions—such as
+`--quiet --verbose` or `verify --guide ... --recursive`—remain actionable usage
+errors.
 
 ### Exclusion Patterns
 

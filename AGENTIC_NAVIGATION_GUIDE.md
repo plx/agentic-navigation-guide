@@ -14,6 +14,7 @@
     - mod.rs
     - check.rs # check subcommand
     - dump.rs # dump subcommand
+    - environment.rs # private CLI-over-environment default resolution
     - generation_options.rs # bounded depth and indentation parsing
     - init.rs # init subcommand
     - output.rs # shared exclusive filesystem-output sink

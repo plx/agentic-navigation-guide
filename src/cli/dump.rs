@@ -34,7 +34,7 @@ pub struct DumpArgs {
     pub omit_xml_wrapper: bool,
 
     /// Readable root directory; empty or fully excluded generation fails
-    #[arg(short, long, env = "AGENTIC_NAVIGATION_GUIDE_ROOT")]
+    #[arg(short, long)]
     pub root: Option<PathBuf>,
 }
 

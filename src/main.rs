@@ -9,8 +9,12 @@ mod guide_input;
 use cli::{Cli, Command, CommandOutcome};
 
 fn main() {
-    // Parse CLI arguments
-    let cli = Cli::parse();
+    // Parse explicit CLI arguments before consulting lower-precedence
+    // environment defaults.
+    let mut cli = Cli::parse();
+    if let Err(error) = cli.apply_environment_defaults() {
+        error.exit();
+    }
 
     // Build config
     let mut config = cli.build_config();
