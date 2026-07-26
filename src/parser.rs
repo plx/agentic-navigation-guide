@@ -1,9 +1,7 @@
 //! Parser for navigation guide markdown files
 
 use crate::errors::{Result, SyntaxError};
-use crate::path_codec::{
-    contains_forbidden_control, has_windows_drive_prefix, render_utf8_component,
-};
+use crate::path_codec::{has_windows_drive_prefix, render_utf8_component};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use regex::Regex;
 use std::collections::HashSet;
@@ -591,23 +589,16 @@ impl Parser {
     }
 
     fn invalid_path_error(line: usize, path: &str) -> SyntaxError {
-        let path = if contains_forbidden_control(path) {
-            render_utf8_component(path)
-        } else {
-            path.to_string()
-        };
-        SyntaxError::InvalidPathFormat { line, path }
+        SyntaxError::InvalidPathFormat {
+            line,
+            path: render_utf8_component(path),
+        }
     }
 
     fn invalid_wildcard_error(line: usize, path: &str, message: impl Into<String>) -> SyntaxError {
-        let path = if contains_forbidden_control(path) {
-            render_utf8_component(path)
-        } else {
-            path.to_string()
-        };
         SyntaxError::InvalidWildcardSyntax {
             line,
-            path,
+            path: render_utf8_component(path),
             message: message.into(),
         }
     }
@@ -900,14 +891,9 @@ impl Parser {
             .split('/')
             .any(|component| matches!(component, "." | ".."))
         {
-            let path = if contains_forbidden_control(decoded) {
-                render_utf8_component(decoded)
-            } else {
-                decoded.to_string()
-            };
             return Err(SyntaxError::InvalidSpecialDirectory {
                 line: line_number,
-                path,
+                path: render_utf8_component(decoded),
             }
             .into());
         }

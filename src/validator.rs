@@ -94,11 +94,7 @@ impl Validator {
     /// Validate path structure without restricting character classes.
     fn validate_path_structure(&self, item: &NavigationGuideLine, at_root: bool) -> Result<()> {
         let path = item.path();
-        let diagnostic_path = if contains_forbidden_control(path) {
-            render_utf8_component(path)
-        } else {
-            path.to_string()
-        };
+        let diagnostic_path = render_utf8_component(path);
 
         // Check for empty path
         if path.is_empty() {
