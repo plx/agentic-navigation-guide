@@ -60,7 +60,7 @@ impl Validator {
                 if path.ends_with('/') {
                     return Err(SyntaxError::InvalidPathFormat {
                         line: item.line_number,
-                        path: path.clone(),
+                        path: render_utf8_component(path),
                     }
                     .into());
                 }
@@ -78,7 +78,7 @@ impl Validator {
                 if path.ends_with('/') {
                     return Err(SyntaxError::InvalidPathFormat {
                         line: item.line_number,
-                        path: path.clone(),
+                        path: render_utf8_component(path),
                     }
                     .into());
                 }
@@ -172,7 +172,7 @@ impl Validator {
             if !full_paths.insert(full_path.clone()) {
                 return Err(SyntaxError::InvalidPathFormat {
                     line: item.line_number,
-                    path: full_path,
+                    path: render_utf8_component(&full_path),
                 }
                 .into());
             }
