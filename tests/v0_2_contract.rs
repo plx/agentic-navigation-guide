@@ -1210,6 +1210,15 @@ fn issue_53_removed_symlink_model_is_absent_but_its_ledger_rows_remain() {
         "the removal must distinguish internal link rejection and retain both migration choices"
     );
 
+    let contributor_guide = include_str!("../CLAUDE.md");
+    assert!(
+        contributor_guide
+            .contains("`FilesystemItem`: Enum representing File, Directory, or Placeholder")
+            && !contributor_guide
+                .contains("`FilesystemItem`: Enum representing File, Directory, or Symlink"),
+        "active contributor guidance must list only the realizable filesystem-item variants"
+    );
+
     let contract = include_str!("../docs/v0.2-contract.md");
     let normalized_contract = contract.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(

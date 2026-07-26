@@ -184,6 +184,8 @@ process or machine contract, or remain pinned to immutable, unsupported
 The guide language has no link-inventory or target-matching form. Callers must
 not encode links as ordinary files or directories. Internal link/reparse
 classification remains rejection-only and is not a replacement public API.
+Active contributor guidance now lists only the realizable file, directory, and
+placeholder model variants.
 
 The normative contract preserves both historical rows while marking #53's
 disposition realized. #64 owns the complete published-to-`0.2.0` changelog;

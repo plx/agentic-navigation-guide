@@ -138,7 +138,7 @@ shared validation. CLI and recursive formatters must not pass guide content to
 
 ### Key Types
 
-- `FilesystemItem`: Enum representing File, Directory, or Symlink
+- `FilesystemItem`: Enum representing File, Directory, or Placeholder
 - `NavigationGuideLine`: Parsed line with indent level and filesystem item
 - `NavigationGuide`: Complete guide with items, optional prologue/epilogue, and ignore flag
   - The `ignore` field represents a distinct internal ignored outcome, not checked or verified success
