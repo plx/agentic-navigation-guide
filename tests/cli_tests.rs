@@ -283,14 +283,16 @@ impl Issue39Surface {
 enum Issue39Mode {
     Default,
     Quiet,
+    QuietGitHubActions,
     PostToolUse,
     PreCommit,
     GitHubActions,
 }
 
-const ISSUE39_MODES: [Issue39Mode; 5] = [
+const ISSUE39_MODES: [Issue39Mode; 6] = [
     Issue39Mode::Default,
     Issue39Mode::Quiet,
+    Issue39Mode::QuietGitHubActions,
     Issue39Mode::PostToolUse,
     Issue39Mode::PreCommit,
     Issue39Mode::GitHubActions,
@@ -302,6 +304,9 @@ impl Issue39Mode {
             Self::Default => {}
             Self::Quiet => {
                 command.arg("--quiet");
+            }
+            Self::QuietGitHubActions => {
+                command.arg("--quiet").arg("--github-actions-check");
             }
             Self::PostToolUse => {
                 command.arg("--post-tool-use-hook");
@@ -323,7 +328,7 @@ impl Issue39Mode {
     }
 
     fn is_quiet(self) -> bool {
-        matches!(self, Self::Quiet)
+        matches!(self, Self::Quiet | Self::QuietGitHubActions)
     }
 }
 
