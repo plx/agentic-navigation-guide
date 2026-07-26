@@ -1,7 +1,10 @@
 //! Filesystem verification for navigation guides
 
 use crate::errors::{AppError, Result, SemanticError};
-use crate::path_codec::{contains_forbidden_control, render_os_component, render_utf8_component};
+use crate::path_codec::{
+    contains_forbidden_control, has_windows_drive_prefix, render_os_component,
+    render_utf8_component,
+};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -37,7 +40,12 @@ impl Verifier {
         // Then verify each item against the filesystem
         for item in &guide.items {
             if item.is_placeholder() {
-                self.verify_placeholder_with_context(item, &self.root_path, &mentioned_names)?;
+                self.verify_placeholder_with_context(
+                    item,
+                    &self.root_path,
+                    &mentioned_names,
+                    true,
+                )?;
             } else {
                 self.verify_item(item, &self.root_path, &canonical_root_path)?;
             }
@@ -117,7 +125,12 @@ impl Verifier {
 
                 for child in children {
                     if child.is_placeholder() {
-                        self.verify_placeholder_with_context(child, &item_path, &mentioned_names)?;
+                        self.verify_placeholder_with_context(
+                            child,
+                            &item_path,
+                            &mentioned_names,
+                            false,
+                        )?;
                     } else {
                         self.verify_item(child, &item_path, canonical_root_path)?;
                     }
@@ -291,7 +304,12 @@ impl Verifier {
         // For root-level placeholders, we need to check that there's at least one item
         // in the parent directory that isn't mentioned in the guide
         let mentioned_names = std::collections::HashSet::new();
-        self.verify_placeholder_with_context(item, parent_path, &mentioned_names)
+        self.verify_placeholder_with_context(
+            item,
+            parent_path,
+            &mentioned_names,
+            parent_path == self.root_path,
+        )
     }
 
     /// Verify a placeholder with context of mentioned sibling items
@@ -300,6 +318,7 @@ impl Verifier {
         item: &NavigationGuideLine,
         parent_path: &Path,
         mentioned_names: &std::collections::HashSet<String>,
+        at_root: bool,
     ) -> Result<()> {
         // Check that the parent directory has at least one item not in mentioned_names
         let entries = match std::fs::read_dir(parent_path) {
@@ -337,6 +356,13 @@ impl Verifier {
             if contains_forbidden_control(name) {
                 return Err(AppError::Other(format!(
                     "line {}: unsupported control-bearing filesystem name {}",
+                    item.line_number,
+                    render_utf8_component(name)
+                )));
+            }
+            if at_root && (name.starts_with('\\') || has_windows_drive_prefix(name)) {
+                return Err(AppError::Other(format!(
+                    "line {}: unsupported rooted or drive-prefixed filesystem name {}",
                     item.line_number,
                     render_utf8_component(name)
                 )));
