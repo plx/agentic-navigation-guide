@@ -15,13 +15,27 @@ This crate provides a CLI tool to assist with both:
 
 The validation can be done in a stand-alone way, and also has special support for being used as a "post-tool-use-hook" by Claude Code.
 
+## Support Boundary
+
+The installed CLI is the sole supported v0.2 product. The v0.2 package will be
+binary-only and will not expose a supported Rust library facade. The current
+`0.1.4` library target is a legacy migration surface scheduled for removal at
+the `0.2.0` boundary; new Rust integrations should not depend on it. The
+complete decision, export disposition, and `0.2.x` compatibility policy are in
+the [normative contract](docs/v0.2-contract.md#supported-product-and-rust-api).
+Existing Rust consumers have no v0.2 in-process shim; they must migrate to the
+documented CLI process contract or remain pinned to unsupported `0.1.4` at
+their own risk. The docs.rs badge above still describes that legacy published
+library; #66 must remove or retarget it and set maintained documentation
+metadata before the binary-only release.
+
 ## Docs and Implementation Alignment Policy
 
 ### Source-of-Truth Precedence
 
 1. [`docs/v0.2-contract.md`](docs/v0.2-contract.md) is the normative target
    for the v0.2 guide language, filesystem representation, and
-   stable-filesystem trust boundary.
+   stable-filesystem trust and supported-product boundaries.
 2. Current implementation (`src/` plus tests) is authoritative for realized
    `0.1.4` runtime behavior while the contract's explicitly owned v0.2
    divergences are being implemented.
@@ -43,7 +57,11 @@ When user-facing behavior changes, update user-facing docs in the same change. T
 
 ### Known Intentional Divergences
 
-- None currently recorded. If one is introduced intentionally, add a dated bullet with rationale.
+- **2026-07-25 — Legacy library target remains during staged cleanup.** The
+  current source still builds a linkable library so #52–#54 can remove and
+  privatize the audited current-source surface in focused changes. The
+  immutable published `0.1.4` artifact is #64's separate migration baseline.
+  Neither library is part of the supported v0.2 product.
 
 ## Navigation Guide Format
 

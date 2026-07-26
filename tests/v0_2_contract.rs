@@ -2,10 +2,12 @@ use agentic_navigation_guide::types::Config;
 use agentic_navigation_guide::{
     Dumper, FilesystemItem, GuideLocation, Parser, Validator, Verifier,
 };
+use quote::ToTokens;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env::VarError;
 use std::fs;
 use std::process::Command;
+use syn::{Fields, FnArg, Item, ReturnType, UseTree, Visibility};
 use tempfile::TempDir;
 
 const ALLOWED_PENDING_OWNERS: &[u32] = &[37, 38, 39, 40, 41, 42, 43, 44, 50];
@@ -115,6 +117,7 @@ enum ExpectedOperationResult {
     CliIgnoredAllowedWithRecursiveFalseSuccess,
     CliIgnoredDenied,
     CliOptionUnknown,
+    NoSupportedLibraryFacade,
     LibraryOutcomes([LibraryIgnoredObservation; 2]),
     CapabilityRejected,
     CapabilityGeneratedPaths(&'static [&'static str]),
@@ -236,6 +239,73 @@ struct TrustCase {
     owner_issue: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ApiKind {
+    PackageTarget,
+    Module,
+    ReExport,
+    TypeAlias,
+    Struct,
+    Enum,
+    Variant,
+    Field,
+    Function,
+    Method,
+}
+
+impl ApiKind {
+    fn contract_text(self) -> &'static str {
+        match self {
+            Self::PackageTarget => "Package target",
+            Self::Module => "Module",
+            Self::ReExport => "Root re-export",
+            Self::TypeAlias => "Type alias",
+            Self::Struct => "Struct",
+            Self::Enum => "Enum",
+            Self::Variant => "Enum variant",
+            Self::Field => "Public field",
+            Self::Function => "Free function",
+            Self::Method => "Inherent method",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApiDisposition {
+    RemoveLibraryTarget,
+    MakeImplementationOnly,
+    RemoveIncorrectMethod,
+    RemoveUnsupportedLinkModel,
+}
+
+impl ApiDisposition {
+    fn contract_text(self) -> &'static str {
+        match self {
+            Self::RemoveLibraryTarget => "Remove the linkable library target",
+            Self::MakeImplementationOnly => "Make implementation-only",
+            Self::RemoveIncorrectMethod => "Remove the incorrect method",
+            Self::RemoveUnsupportedLinkModel => "Remove the unsupported link model",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ApiCase {
+    id: &'static str,
+    kind: ApiKind,
+    symbol: &'static str,
+    disposition: ApiDisposition,
+    owner_issue: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ApiTraitCase {
+    id: &'static str,
+    group: &'static str,
+    current_commitments: &'static str,
+    disposition: &'static str,
+}
+
 mod fixtures {
     use super::{ContractCase, ExpectedItem, ExpectedResult, ItemKind};
 
@@ -255,6 +325,12 @@ mod trust_fixtures {
     use super::{TrustCase, TrustOutcome, TrustSurface};
 
     include!("fixtures/v0_2_trust.rs");
+}
+
+mod api_fixtures {
+    use super::{ApiCase, ApiDisposition, ApiKind, ApiTraitCase};
+
+    include!("fixtures/v0_2_api.rs");
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -283,6 +359,7 @@ enum ObservedOperationResult {
     CliIgnoredAllowedWithRecursiveFalseSuccess,
     CliIgnoredDenied,
     CliOptionUnknown,
+    NoSupportedLibraryFacade,
     LibraryOutcomes([LibraryIgnoredObservation; 2]),
     CapabilityUnavailable,
     Identity { host_aliases: bool, verified: bool },
@@ -614,6 +691,76 @@ fn documentation_and_fixture_are_a_bijection() {
             case.id
         );
     }
+
+    let api_ids: BTreeSet<_> = api_fixtures::CASES.iter().map(|case| case.id).collect();
+    assert_eq!(
+        api_ids.len(),
+        api_fixtures::CASES.len(),
+        "API fixture IDs must be unique"
+    );
+
+    let documented_api_rows = document
+        .lines()
+        .filter(|line| line.starts_with("| `api-"))
+        .count();
+    assert_eq!(
+        documented_api_rows,
+        api_fixtures::CASES.len(),
+        "the normative document and API fixture must contain the same number of rows"
+    );
+
+    for case in api_fixtures::CASES {
+        let documented_row = format!(
+            "| `{}` | {} | `{}` | {} | #{} |",
+            case.id,
+            case.kind.contract_text(),
+            case.symbol,
+            case.disposition.contract_text(),
+            case.owner_issue
+        );
+        assert_eq!(
+            document
+                .lines()
+                .filter(|line| *line == documented_row)
+                .count(),
+            1,
+            "API fixture '{}' must have one exact documented row",
+            case.id
+        );
+    }
+
+    let trait_ids: BTreeSet<_> = api_fixtures::TRAIT_CASES
+        .iter()
+        .map(|case| case.id)
+        .collect();
+    assert_eq!(
+        trait_ids.len(),
+        api_fixtures::TRAIT_CASES.len(),
+        "trait commitment fixture IDs must be unique"
+    );
+    assert_eq!(
+        document
+            .lines()
+            .filter(|line| line.starts_with("| `trait-commitment-"))
+            .count(),
+        api_fixtures::TRAIT_CASES.len(),
+        "the normative document and trait commitment fixture must contain the same rows"
+    );
+    for case in api_fixtures::TRAIT_CASES {
+        let documented_row = format!(
+            "| `{}` | {} | {} | {} |",
+            case.id, case.group, case.current_commitments, case.disposition
+        );
+        assert_eq!(
+            document
+                .lines()
+                .filter(|line| *line == documented_row)
+                .count(),
+            1,
+            "trait commitment fixture '{}' must have one exact documented row",
+            case.id
+        );
+    }
 }
 
 #[test]
@@ -711,6 +858,548 @@ fn trust_rows_have_one_focused_owner_and_cover_every_surface() {
 }
 
 #[test]
+fn api_rows_inventory_the_complete_current_source_surface_and_one_fate_per_export() {
+    const EXPECTED_KIND_COUNTS: &[(ApiKind, usize)] = &[
+        (ApiKind::PackageTarget, 1),
+        (ApiKind::Module, 7),
+        (ApiKind::ReExport, 17),
+        (ApiKind::TypeAlias, 1),
+        (ApiKind::Struct, 10),
+        (ApiKind::Enum, 6),
+        (ApiKind::Variant, 39),
+        (ApiKind::Field, 19),
+        (ApiKind::Function, 7),
+        (ApiKind::Method, 25),
+    ];
+
+    assert_eq!(
+        api_fixtures::CASES.len(),
+        132,
+        "the audited current-source surface changed; update the explicit decision ledger"
+    );
+
+    let mut kind_counts = BTreeMap::new();
+    let mut owner_counts = BTreeMap::new();
+    let mut symbols = BTreeSet::new();
+
+    for case in api_fixtures::CASES {
+        assert!(
+            case.id.starts_with("api-"),
+            "API fixture '{}' must use the api- prefix",
+            case.id
+        );
+        assert!(
+            matches!(case.owner_issue, 52..=54),
+            "API fixture '{}' has unexpected owner #{}",
+            case.id,
+            case.owner_issue
+        );
+        let expected_owner = match case.disposition {
+            ApiDisposition::RemoveIncorrectMethod => 52,
+            ApiDisposition::RemoveUnsupportedLinkModel => 53,
+            ApiDisposition::RemoveLibraryTarget | ApiDisposition::MakeImplementationOnly => 54,
+        };
+        assert_eq!(
+            case.owner_issue, expected_owner,
+            "API fixture '{}' assigns {:?} to the wrong focused owner",
+            case.id, case.disposition
+        );
+        assert!(
+            symbols.insert((case.kind, case.symbol)),
+            "API fixture '{}' duplicates {:?} '{}'",
+            case.id,
+            case.kind,
+            case.symbol
+        );
+        *kind_counts.entry(case.kind).or_insert(0) += 1;
+        *owner_counts.entry(case.owner_issue).or_insert(0) += 1;
+    }
+
+    assert_eq!(
+        kind_counts,
+        EXPECTED_KIND_COUNTS.iter().copied().collect(),
+        "the current export inventory changed without an explicit #36 disposition"
+    );
+    assert_eq!(
+        owner_counts,
+        BTreeMap::from([(52, 1), (53, 2), (54, 129)]),
+        "every current export must have exactly one focused implementation owner"
+    );
+    assert_eq!(
+        api_fixtures::CASES
+            .iter()
+            .filter(|case| case.disposition == ApiDisposition::RemoveLibraryTarget)
+            .map(|case| case.id)
+            .collect::<Vec<_>>(),
+        vec!["api-target-library"],
+        "the binary-only decision must remove exactly the library package target"
+    );
+    assert_eq!(
+        api_fixtures::CASES
+            .iter()
+            .filter(|case| case.disposition == ApiDisposition::RemoveIncorrectMethod)
+            .map(|case| case.id)
+            .collect::<Vec<_>>(),
+        vec!["api-method-navigation-guide-get-full-path"],
+        "the known incorrect helper must remain assigned to #52"
+    );
+    assert_eq!(
+        api_fixtures::CASES
+            .iter()
+            .filter(|case| case.disposition == ApiDisposition::RemoveUnsupportedLinkModel)
+            .map(|case| case.id)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "api-variant-filesystem-item-symlink",
+            "api-variant-semantic-error-symlink-target-mismatch",
+        ]),
+        "the unsupported textual-link model must remain assigned to #53"
+    );
+}
+
+#[test]
+fn api_ledger_matches_current_rust_source_and_cargo_target() {
+    let expected: BTreeSet<_> = api_fixtures::CASES
+        .iter()
+        .filter(|case| case.kind != ApiKind::PackageTarget)
+        .map(|case| (case.kind, case.symbol.to_string()))
+        .collect();
+    let observed = collect_current_source_api();
+
+    assert_eq!(
+        observed, expected,
+        "the current-source Rust API changed without an exact #36 ledger update"
+    );
+
+    let output = Command::new(env!("CARGO"))
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run cargo metadata for the current package target snapshot");
+    assert!(
+        output.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let metadata = String::from_utf8(output.stdout).expect("UTF-8 cargo metadata");
+    assert_eq!(
+        metadata.matches("\"kind\":[\"lib\"]").count(),
+        1,
+        "the current-source decision ledger expects exactly one legacy library target"
+    );
+    assert!(
+        metadata.contains(
+            "\"kind\":[\"lib\"],\"crate_types\":[\"lib\"],\"name\":\"agentic_navigation_guide\""
+        ),
+        "the legacy library target name drifted from the decision ledger"
+    );
+    assert_eq!(
+        api_fixtures::CASES
+            .iter()
+            .filter(|case| case.kind == ApiKind::PackageTarget)
+            .map(|case| case.symbol)
+            .collect::<Vec<_>>(),
+        vec!["agentic_navigation_guide (lib)"],
+        "the Cargo target and package-target ledger row must stay aligned"
+    );
+
+    let mut expected_variant_order: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for case in api_fixtures::CASES
+        .iter()
+        .filter(|case| case.kind == ApiKind::Variant)
+    {
+        let (type_name, remainder) = case
+            .symbol
+            .split_once("::")
+            .expect("qualified variant ledger symbol");
+        let variant_name = remainder
+            .split(['(', ' ', '{', '='])
+            .next()
+            .expect("variant name");
+        let variant_identity = if let Some((_, discriminant)) = remainder.rsplit_once(" = ") {
+            format!(
+                "{variant_name}={}",
+                discriminant
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>()
+            )
+        } else {
+            variant_name.to_string()
+        };
+        expected_variant_order
+            .entry(type_name.to_string())
+            .or_default()
+            .push(variant_identity);
+    }
+    assert_eq!(
+        collect_current_variant_order(),
+        expected_variant_order,
+        "enum variant order or explicit discriminants changed without a #36 ledger update"
+    );
+}
+
+#[test]
+fn current_concrete_public_types_preserve_the_audited_auto_traits() {
+    fn assert_core_auto_traits<T: Send + Sync + Unpin>() {}
+
+    fn assert_unwind_auto_traits<
+        T: Send + Sync + Unpin + std::panic::UnwindSafe + std::panic::RefUnwindSafe,
+    >() {
+    }
+
+    assert_unwind_auto_traits::<agentic_navigation_guide::Dumper>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::errors::ErrorFormatter>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::Parser>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::GuideLocation>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::GuideVerificationResult>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::NavigationGuideLine>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::NavigationGuide>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::types::Config>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::Validator>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::Verifier>();
+    assert_core_auto_traits::<agentic_navigation_guide::AppError>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::SyntaxError>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::SemanticError>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::FilesystemItem>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::ExecutionMode>();
+    assert_unwind_auto_traits::<agentic_navigation_guide::LogLevel>();
+}
+
+fn collect_current_source_api() -> BTreeSet<(ApiKind, String)> {
+    const SOURCES: &[(&str, &str)] = &[
+        ("crate", include_str!("../src/lib.rs")),
+        ("dumper", include_str!("../src/dumper.rs")),
+        ("errors", include_str!("../src/errors.rs")),
+        ("parser", include_str!("../src/parser.rs")),
+        ("recursive", include_str!("../src/recursive.rs")),
+        ("types", include_str!("../src/types.rs")),
+        ("validator", include_str!("../src/validator.rs")),
+        ("verifier", include_str!("../src/verifier.rs")),
+    ];
+
+    let mut surface = BTreeSet::new();
+
+    for (module, source) in SOURCES {
+        let file = syn::parse_file(source).unwrap_or_else(|error| {
+            panic!("parse current Rust source for API inventory ({module}): {error}")
+        });
+
+        for item in file.items {
+            match item {
+                Item::Mod(item) if is_public(&item.vis) => {
+                    assert_eq!(*module, "crate", "unexpected nested public module");
+                    surface.insert((ApiKind::Module, item.ident.to_string()));
+                }
+                Item::Use(item) if is_public(&item.vis) => {
+                    assert_eq!(*module, "crate", "unexpected non-root public re-export");
+                    let mut exported = Vec::new();
+                    flatten_public_use(&item.tree, &mut exported);
+                    for name in exported {
+                        surface.insert((ApiKind::ReExport, format!("crate::{name}")));
+                    }
+                }
+                Item::Type(item) if is_public(&item.vis) => {
+                    let generics = render_generics(&item.generics);
+                    let target = render_type(&item.ty);
+                    surface.insert((
+                        ApiKind::TypeAlias,
+                        format!("{module}::{}{generics} = {target}", item.ident),
+                    ));
+                }
+                Item::Struct(item) if is_public(&item.vis) => {
+                    let type_name = item.ident.to_string();
+                    surface.insert((
+                        ApiKind::Struct,
+                        format!("{module}::{type_name}{}", render_generics(&item.generics)),
+                    ));
+                    collect_public_struct_fields(&mut surface, &type_name, &item.fields);
+                }
+                Item::Enum(item) if is_public(&item.vis) => {
+                    let type_name = item.ident.to_string();
+                    surface.insert((
+                        ApiKind::Enum,
+                        format!("{module}::{type_name}{}", render_generics(&item.generics)),
+                    ));
+                    for variant in item.variants {
+                        surface.insert((ApiKind::Variant, render_variant(&type_name, &variant)));
+                    }
+                }
+                Item::Fn(item) if is_public(&item.vis) => {
+                    surface.insert((ApiKind::Function, render_function(module, &item.sig)));
+                }
+                Item::Impl(item) if item.trait_.is_none() => {
+                    let type_name = inherent_impl_type_name(&item.self_ty);
+                    for impl_item in item.items {
+                        if let syn::ImplItem::Fn(function) = impl_item {
+                            if is_public(&function.vis) {
+                                surface.insert((
+                                    ApiKind::Method,
+                                    render_function(&type_name, &function.sig),
+                                ));
+                            }
+                        }
+                    }
+                }
+                Item::Const(item) if is_public(&item.vis) => {
+                    panic!("uninventoried public const '{}::{:?}'", module, item.ident)
+                }
+                Item::Static(item) if is_public(&item.vis) => {
+                    panic!("uninventoried public static '{}::{:?}'", module, item.ident)
+                }
+                Item::Trait(item) if is_public(&item.vis) => {
+                    panic!("uninventoried public trait '{}::{:?}'", module, item.ident)
+                }
+                Item::TraitAlias(item) if is_public(&item.vis) => {
+                    panic!(
+                        "uninventoried public trait alias '{}::{:?}'",
+                        module, item.ident
+                    )
+                }
+                Item::Union(item) if is_public(&item.vis) => {
+                    panic!("uninventoried public union '{}::{:?}'", module, item.ident)
+                }
+                _ => {}
+            }
+        }
+    }
+
+    surface
+}
+
+fn collect_current_variant_order() -> BTreeMap<String, Vec<String>> {
+    const ENUM_SOURCES: &[&str] = &[
+        include_str!("../src/errors.rs"),
+        include_str!("../src/types.rs"),
+    ];
+
+    let mut order = BTreeMap::new();
+    for source in ENUM_SOURCES {
+        let file = syn::parse_file(source).expect("parse enum source for order snapshot");
+        for item in file.items {
+            let Item::Enum(item) = item else {
+                continue;
+            };
+            if !is_public(&item.vis) {
+                continue;
+            }
+            let type_name = item.ident.to_string();
+            let variants = item
+                .variants
+                .iter()
+                .map(|variant| {
+                    let mut identity = variant.ident.to_string();
+                    if let Some((_, discriminant)) = &variant.discriminant {
+                        identity.push('=');
+                        identity.push_str(&compact_tokens(discriminant));
+                    }
+                    identity
+                })
+                .collect();
+            order.insert(type_name, variants);
+        }
+    }
+    order
+}
+
+fn is_public(visibility: &Visibility) -> bool {
+    matches!(visibility, Visibility::Public(_))
+}
+
+fn flatten_public_use(tree: &UseTree, exported: &mut Vec<String>) {
+    match tree {
+        UseTree::Path(path) => flatten_public_use(&path.tree, exported),
+        UseTree::Name(name) => exported.push(name.ident.to_string()),
+        UseTree::Rename(rename) => exported.push(rename.rename.to_string()),
+        UseTree::Group(group) => {
+            for item in &group.items {
+                flatten_public_use(item, exported);
+            }
+        }
+        UseTree::Glob(_) => panic!("glob re-exports are not allowed in the exact API ledger"),
+    }
+}
+
+fn render_generics(generics: &syn::Generics) -> String {
+    let parameters = if generics.params.is_empty() {
+        String::new()
+    } else {
+        let parameters = generics
+            .params
+            .iter()
+            .map(compact_tokens)
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("<{parameters}>")
+    };
+    format!("{parameters}{}", render_where_clause(generics))
+}
+
+fn render_generic_parameters(generics: &syn::Generics) -> String {
+    if generics.params.is_empty() {
+        String::new()
+    } else {
+        let parameters = generics
+            .params
+            .iter()
+            .map(compact_tokens)
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("<{parameters}>")
+    }
+}
+
+fn render_where_clause(generics: &syn::Generics) -> String {
+    generics
+        .where_clause
+        .as_ref()
+        .map(|clause| {
+            let clause = compact_tokens(clause);
+            let predicates = clause
+                .strip_prefix("where")
+                .expect("syn where-clause tokens start with where");
+            format!(" where {predicates}")
+        })
+        .unwrap_or_default()
+}
+
+fn render_type(ty: &syn::Type) -> String {
+    compact_tokens(ty)
+}
+
+fn compact_tokens(tokens: &impl ToTokens) -> String {
+    tokens
+        .to_token_stream()
+        .to_string()
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn collect_public_struct_fields(
+    surface: &mut BTreeSet<(ApiKind, String)>,
+    type_name: &str,
+    fields: &Fields,
+) {
+    for (index, field) in fields.iter().enumerate() {
+        if !is_public(&field.vis) {
+            continue;
+        }
+        let field_name = field
+            .ident
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| index.to_string());
+        surface.insert((
+            ApiKind::Field,
+            format!("{type_name}::{field_name}: {}", render_type(&field.ty)),
+        ));
+    }
+}
+
+fn render_variant(type_name: &str, variant: &syn::Variant) -> String {
+    let prefix = format!("{type_name}::{}", variant.ident);
+    let fields = match &variant.fields {
+        Fields::Unit => prefix,
+        Fields::Unnamed(fields) => {
+            let fields = fields
+                .unnamed
+                .iter()
+                .map(|field| render_type(&field.ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{prefix}({fields})")
+        }
+        Fields::Named(fields) => {
+            let fields = fields
+                .named
+                .iter()
+                .map(|field| {
+                    format!(
+                        "{}: {}",
+                        field.ident.as_ref().expect("named variant field"),
+                        render_type(&field.ty)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{prefix} {{ {fields} }}")
+        }
+    };
+    if let Some((_, discriminant)) = &variant.discriminant {
+        format!("{fields} = {}", compact_tokens(discriminant))
+    } else {
+        fields
+    }
+}
+
+fn render_function(namespace: &str, signature: &syn::Signature) -> String {
+    let mut arguments = signature
+        .inputs
+        .iter()
+        .map(|argument| match argument {
+            FnArg::Receiver(receiver) => {
+                if receiver.reference.is_some() {
+                    if receiver.mutability.is_some() {
+                        "&mut self".to_string()
+                    } else {
+                        "&self".to_string()
+                    }
+                } else {
+                    "self".to_string()
+                }
+            }
+            FnArg::Typed(argument) => format!(
+                "{}: {}",
+                compact_tokens(&argument.pat),
+                render_type(&argument.ty)
+            ),
+        })
+        .collect::<Vec<_>>();
+    if signature.variadic.is_some() {
+        arguments.push("...".to_string());
+    }
+    let arguments = arguments.join(", ");
+    let output = match &signature.output {
+        ReturnType::Default => String::new(),
+        ReturnType::Type(_, ty) => format!(" -> {}", render_type(ty)),
+    };
+    let mut modifiers = String::new();
+    if signature.constness.is_some() {
+        modifiers.push_str("const ");
+    }
+    if signature.asyncness.is_some() {
+        modifiers.push_str("async ");
+    }
+    if signature.unsafety.is_some() {
+        modifiers.push_str("unsafe ");
+    }
+    if let Some(abi) = &signature.abi {
+        modifiers.push_str(&format!("{} ", compact_tokens(abi)));
+    }
+    let generics = render_generic_parameters(&signature.generics);
+    let where_clause = render_where_clause(&signature.generics);
+
+    format!(
+        "{namespace}::{modifiers}{}{generics}({arguments}){output}{where_clause}",
+        signature.ident
+    )
+}
+
+fn inherent_impl_type_name(ty: &syn::Type) -> String {
+    let syn::Type::Path(path) = ty else {
+        panic!("unsupported inherent impl target in API inventory")
+    };
+    path.path
+        .segments
+        .last()
+        .expect("inherent impl type path")
+        .ident
+        .to_string()
+}
+
+#[test]
 fn comments_and_choice_comment_inheritance_are_executable() {
     let path_case = fixture("path-comment-escaped-hash");
     assert_eq!(
@@ -805,26 +1494,20 @@ fn conformance_request_rejects_unknown_owners() {
 }
 
 #[test]
-fn library_ignored_gate_requires_distinct_results_from_every_facade() {
-    let normative = ExpectedOperationResult::LibraryOutcomes([
-        LibraryIgnoredObservation::DistinctIgnored,
-        LibraryIgnoredObservation::DistinctIgnored,
-    ]);
+fn library_ignored_gate_requires_non_vacuous_absence_of_supported_facades() {
+    let normative = ExpectedOperationResult::NoSupportedLibraryFacade;
 
     assert_eq!(
         observe_single_library_ignored(Ok(())),
         LibraryIgnoredObservation::SuccessWithoutOutcome
     );
     assert!(matches_expected_operation(
-        &ObservedOperationResult::LibraryOutcomes([
-            LibraryIgnoredObservation::DistinctIgnored,
-            LibraryIgnoredObservation::DistinctIgnored,
-        ]),
+        &ObservedOperationResult::NoSupportedLibraryFacade,
         normative,
     ));
     assert!(!matches_expected_operation(
         &ObservedOperationResult::LibraryOutcomes([
-            LibraryIgnoredObservation::SuccessWithoutOutcome,
+            LibraryIgnoredObservation::DistinctIgnored,
             LibraryIgnoredObservation::DistinctIgnored,
         ]),
         normative,
@@ -873,6 +1556,10 @@ fn matches_expected_operation(
         )
         | (ObservedOperationResult::CliIgnoredDenied, ExpectedOperationResult::CliIgnoredDenied)
         | (ObservedOperationResult::CliOptionUnknown, ExpectedOperationResult::CliOptionUnknown)
+        | (
+            ObservedOperationResult::NoSupportedLibraryFacade,
+            ExpectedOperationResult::NoSupportedLibraryFacade,
+        )
         | (ObservedOperationResult::Rejected, ExpectedOperationResult::CapabilityRejected)
         | (ObservedOperationResult::Verified, ExpectedOperationResult::CapabilityVerified)
         | (
@@ -1100,9 +1787,10 @@ fn observe_ignored_library_matrix() -> ObservedOperationResult {
 fn observe_single_library_ignored(
     result: agentic_navigation_guide::Result<()>,
 ) -> LibraryIgnoredObservation {
-    // #36/#39 update this adapter when the selected single-guide facade grows
-    // a typed outcome. Inferring ignored from the input flag would let an
-    // indistinguishable Ok(()) falsely satisfy the public-API contract.
+    // This is a transitional observation of a legacy, unsupported facade.
+    // #39 replaces both legacy calls with the non-vacuous supported-facade
+    // inventory check; it does not grow a typed public facade or infer ignored
+    // from the input flag.
     match result {
         Ok(()) => LibraryIgnoredObservation::SuccessWithoutOutcome,
         Err(_) => LibraryIgnoredObservation::Rejected,
