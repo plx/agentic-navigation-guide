@@ -362,11 +362,18 @@ mod tests {
         }
 
         let dumper = Dumper::new(root);
-        let result = dumper.dump();
+        let diagnostic = dumper
+            .dump()
+            .expect_err("non-UTF-8 names must be rejected")
+            .to_string();
 
-        assert!(matches!(
-            result,
-            Err(crate::errors::AppError::NonUtf8Path { .. })
-        ));
+        assert!(
+            diagnostic.contains("\"\\x62\\x61\\x64\\x2D\\xFF\\x2D\\x6E\\x61\\x6D\\x65\""),
+            "diagnostic did not preserve every raw byte: {diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains('\u{fffd}'),
+            "diagnostic used a lossy replacement character: {diagnostic}"
+        );
     }
 }

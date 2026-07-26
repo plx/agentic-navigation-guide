@@ -1751,13 +1751,17 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
     for name in [
         "Foo[bar].txt",
         "comma,name.txt",
-        "quote\"name.txt",
         "report",
         "report#draft",
-        "...",
         "emoji-🧭.txt",
         "c1-\u{85}.txt",
     ] {
+        fs::write(root.join(name), "").unwrap_or_else(|error| panic!("create '{name}': {error}"));
+        expected.insert(name.to_string(), ItemKind::File);
+    }
+
+    #[cfg(unix)]
+    for name in ["quote\"name.txt", "..."] {
         fs::write(root.join(name), "").unwrap_or_else(|error| panic!("create '{name}': {error}"));
         expected.insert(name.to_string(), ItemKind::File);
     }
@@ -1807,10 +1811,13 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
     expected.insert("ordinary".to_string(), ItemKind::Directory);
     expected.insert("ordinary/nested.txt".to_string(), ItemKind::File);
 
-    fs::create_dir_all(root.join("ordinary/...")).expect("literal ellipsis directory");
-    fs::write(root.join("ordinary/.../child.txt"), "").expect("ellipsis-directory child");
-    expected.insert("ordinary/...".to_string(), ItemKind::Directory);
-    expected.insert("ordinary/.../child.txt".to_string(), ItemKind::File);
+    #[cfg(unix)]
+    {
+        fs::create_dir_all(root.join("ordinary/...")).expect("literal ellipsis directory");
+        fs::write(root.join("ordinary/.../child.txt"), "").expect("ellipsis-directory child");
+        expected.insert("ordinary/...".to_string(), ItemKind::Directory);
+        expected.insert("ordinary/.../child.txt".to_string(), ItemKind::File);
+    }
 
     fs::create_dir(root.join("dir#hash")).expect("syntax-sensitive directory");
     fs::write(root.join("dir#hash/child.txt"), "").expect("syntax-sensitive directory child");
@@ -1819,6 +1826,11 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
 
     #[cfg(unix)]
     {
+        fs::create_dir(root.join("quote\"dir")).expect("quote-bearing directory");
+        fs::write(root.join("quote\"dir/child.txt"), "").expect("quote-directory child");
+        expected.insert("quote\"dir".to_string(), ItemKind::Directory);
+        expected.insert("quote\"dir/child.txt".to_string(), ItemKind::File);
+
         fs::write(root.join("ordinary/C:notes"), "").expect("later drive-looking component");
         fs::write(root.join("ordinary/\\later"), "").expect("later backslash-leading component");
         expected.insert("ordinary/C:notes".to_string(), ItemKind::File);
@@ -1830,10 +1842,15 @@ fn issue_41_supported_filesystem_names_round_trip_canonically() {
         .expect("all supported names must serialize");
     assert!(source.contains("- \"Foo[bar].txt\"\n"), "{source}");
     assert!(source.contains("- \"comma,name.txt\"\n"), "{source}");
+    #[cfg(unix)]
     assert!(source.contains("- \"quote\\\"name.txt\"\n"), "{source}");
     assert!(source.contains("- \"report#draft\"\n"), "{source}");
+    #[cfg(unix)]
     assert!(source.contains("- \"...\"\n"), "{source}");
     assert!(source.contains("- \"dir#hash\"/\n"), "{source}");
+    #[cfg(unix)]
+    assert!(source.contains("- \"quote\\\"dir\"/\n"), "{source}");
+    #[cfg(unix)]
     assert!(source.contains("  - \"...\"/\n"), "{source}");
 
     let guide = Parser::new()
@@ -1973,6 +1990,58 @@ fn issue_41_control_name_diagnostics_use_exact_reversible_escapes() {
                 .chars()
                 .any(|ch| ch <= '\u{1f}' || ch == '\u{7f}'),
             "diagnostic emitted a raw control: {diagnostic:?}"
+        );
+    }
+}
+
+#[test]
+fn issue_41_parser_diagnostics_escape_rejected_controls() {
+    let temp = TempDir::new().expect("temporary issue-41 parser diagnostic fixture");
+    let guide_path = temp.path().join("guide.md");
+    for (path, rejected, expected) in [
+        ("tab\tname.txt", '\t', "\"tab\\tname.txt\""),
+        ("x[a\tb, c]y", '\t', "\"x[a\\tb, c]y\""),
+        (
+            "x[\"a\u{7f}b\", c]y",
+            '\u{7f}',
+            "\"x[\\\"a\\u{007F}b\\\", c]y\"",
+        ),
+        ("\"/bad\t\"", '\t', "\"/bad\\t\""),
+        ("\"foo//bad\t\"", '\t', "\"foo//bad\\t\""),
+        ("\"./bad\t\"", '\t', "\"./bad\\t\""),
+        ("\"C:/bad\t\"", '\t', "\"C:/bad\\t\""),
+    ] {
+        fs::write(
+            &guide_path,
+            format!("<agentic-navigation-guide>\n- {path}\n</agentic-navigation-guide>"),
+        )
+        .expect("write control-bearing guide");
+
+        let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+            .arg("check")
+            .arg("--guide")
+            .arg(&guide_path)
+            .output()
+            .expect("run check with rejected control-bearing path");
+        let mut diagnostics = output.stdout;
+        diagnostics.extend_from_slice(&output.stderr);
+
+        assert!(
+            !output.status.success(),
+            "check accepted a control-bearing path: {path:?}"
+        );
+        let diagnostics = String::from_utf8(diagnostics).expect("control-safe UTF-8 diagnostic");
+        assert!(
+            !diagnostics.contains(rejected),
+            "check emitted a raw rejected control for {path:?}: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.contains(expected),
+            "check did not reversibly escape {path:?}:\n{diagnostics}"
+        );
+        assert!(
+            !diagnostics.contains('\u{fffd}'),
+            "check used a lossy replacement character: {diagnostics}"
         );
     }
 }
