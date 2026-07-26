@@ -200,9 +200,9 @@ clean release-only target directory.
 The package-importing #52 and #53 consumer tests were retired. Their surviving
 positive-control premise is intentionally impossible once the package has no
 library target. Exact historical IDs, signatures, AST deletion checks,
-documentation, and runtime link rejection remain covered. #62 owns the final
-path-dependent packaged consumer that must fail specifically because the
-artifact has no library target.
+documentation, and zero-linkable-target metadata remain covered. #62 owns the
+final path-dependent packaged consumer and runtime rejection that must fail
+specifically because the artifact has no library target.
 
 The historical `trust-guide-direct-library-path` ID remains unchanged in the
 frozen trust ledger. It now binds to a binary-unit regression that exercises
@@ -314,7 +314,7 @@ GUIDE_FORMAT_REQUIRE_CONFORMANCE=all \
 | Release all-target/all-feature suite | Pass: 330 tests; 2 intentional benchmark ignores |
 | Host and Windows GNU all-target/all-feature checks | Pass |
 | Strict host and Windows GNU all-target/all-feature Clippy | Pass with warnings denied, including Clippy's configured Rust 1.70 compatibility lint |
-| `cargo package --locked` | Pass: verified 110-file binary package |
+| `cargo package --locked` | Pass: verified 109-file binary package |
 | Warning-denied binary/private rustdoc | Pass; generated docs state the no-library boundary |
 | CLI check and verification of `AGENTIC_NAVIGATION_GUIDE.md` | Pass |
 | `just test-production-readiness-selector` | Pass: 61 tests |
