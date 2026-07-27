@@ -72,8 +72,9 @@ not part of the published crate.
    divergences are being implemented.
 3. `README.md` is the concise user entry point and should match released
    behavior.
-4. `Specification.md` captures original intent and historical context. It is
-   not normative.
+4. The
+   [historical original specification](https://github.com/plx/agentic-navigation-guide/blob/main/docs/history/Specification.md)
+   preserves original intent and context. It is not normative.
 
 An unrecorded contradiction is a defect. The staged conformance ledger keeps
 known v0.2 differences explicit until their focused implementation issues
