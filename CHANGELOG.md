@@ -51,6 +51,11 @@ complete and the final candidate is revalidated.
   Git history under `docs/history/`, where an unmistakable dated banner and
   complete rule-disposition record prevent its superseded examples from being
   mistaken for current behavior.
+- The normative reference now includes a machine-checked complete command and
+  argument ledger, environment/default precedence, stable stream and status
+  classes, platform/MSRV and supported-version policy, resource limitations,
+  and the current absence of a private vulnerability-report route. CI lints
+  and link-checks the maintained contract and support documents.
 
 ### CLI and automation changes from `0.1.4`
 

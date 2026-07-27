@@ -233,7 +233,7 @@ jobs:
         echo "$ZIZMOR_SHA256  $archive" | sha256sum --check -
         tar -xzf "$archive" -C "$RUNNER_TEMP" zizmor
         echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-    - name: Install checksum-pinned README documentation tools
+    - name: Install checksum-pinned documentation tools
       env:
         LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
         LYCHEE_VERSION: 0.24.2
@@ -261,12 +261,14 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml
-    - name: Lint README Markdown
-      run: rumdl check --disable MD010,MD013,MD038 README.md
-    - name: Check README links
+    - name: Lint maintained Markdown
+      run: |
+        rumdl check --disable MD010,MD013,MD038 README.md
+        rumdl check --disable MD010,MD013,MD018,MD031,MD038 docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/history/README.md
+    - name: Check maintained documentation links
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: lychee --no-progress README.md .github/examples/readme-verify.yml
+      run: lychee --no-progress README.md .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/history/README.md
 
   issue-selector:
     name: Production-readiness issue selector

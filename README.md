@@ -12,9 +12,10 @@ filesystem.
 
 The README is the copy/paste entry point. The
 [normative v0.2 contract](docs/v0.2-contract.md) defines the complete guide
-format, CLI configuration and output, filesystem trust boundary, and supported
-product. The [release policy](docs/release-policy.md) defines version, Rust,
-dependency, and compatibility maintenance.
+format, CLI arguments/configuration/output, platform and toolchain support,
+filesystem trust boundary, security limitations, and supported product. The
+[release policy](docs/release-policy.md) defines version, Rust, dependency,
+and compatibility maintenance.
 
 ## Release status and support
 
@@ -226,11 +227,17 @@ Use these maintained references rather than copying detailed rules from this
 README:
 
 - [guide grammar and executable examples](docs/v0.2-contract.md#document-and-marker-grammar);
+- [complete CLI reference](docs/v0.2-contract.md#complete-cli-reference);
 - [process output and automation diagnostics](docs/v0.2-contract.md#process-output-and-automation-diagnostics);
 - [filesystem trust and containment](docs/v0.2-contract.md#filesystem-trust-and-containment);
+- [security and vulnerability-reporting limitations](docs/v0.2-contract.md#security-and-vulnerability-reporting);
 - [supported CLI-only product and compatibility](docs/v0.2-contract.md#supported-product-and-rust-api);
 - [release and Rust support policy](docs/release-policy.md); and
 - [complete prepared `0.2.0` changes](CHANGELOG.md#020---unreleased).
+
+No private vulnerability-report route is currently published. Until the
+dedicated `SECURITY.md` work lands, do not put exploit details, secrets,
+personal data, or embargoed findings in a public GitHub issue.
 
 ## Known Intentional Divergences
 
