@@ -27,6 +27,7 @@ Implementation commits:
 ```text
 9bf463784c8fbe335be96744e9113a9dc4ed975f
 006cb3752eccda3b3e91d4e2345e5de29e9191dd
+c12c3b9674ad44e3332934be85e7027d3831da46
 ```
 
 Base revision:
@@ -125,7 +126,9 @@ The exact locally validated toolchains are:
 
 Each lane ran the complete locked, all-targets, all-features test suite. The
 MSRV additionally ran check, Clippy, package verification, and an isolated
-locked install. CI carries the same exact supported pins; its beta job has
+locked install. Current stable also runs Clippy so new lints are visible at
+the supported endpoints. CI carries the same exact supported pins, does not
+cancel sibling supported lanes after one failure, and gives its beta job
 `continue-on-error: true`.
 
 The final full-suite counts per toolchain are:
@@ -159,6 +162,16 @@ removes superseded package versions and records the selected releases,
 including both Syn 2 and Syn 3 and the consolidated Windows target packages.
 The generated attribution contains the reviewed MIT and Unicode v3 texts.
 
+The lockfile also records the optional `defmt`, `defmt-macros`,
+`defmt-parser`, and `thiserror 2.0.19` feature closure of Jiff. Review with
+`cargo tree --locked -i` confirmed those packages are not in the activated
+build graph: Jiff has only its `alloc` and `std` features enabled, while its
+`defmt` dependency is optional behind the disabled `defmt` feature.
+`cargo-about` therefore excludes that inactive feature closure intentionally.
+The two active Syn majors are expected: Syn 2 serves the repository's direct
+test dependency and `thiserror 1`, while Syn 3 serves the Clap and Serde
+derive macros.
+
 Two consecutive generations produced the same SHA-256:
 
 ```text
@@ -173,7 +186,11 @@ The existing CI regeneration-and-diff gate remains in place.
 lockfile and immutable GitHub Actions references. Its labels were checked
 against the live repository. It contains no registries or credentials.
 Repository CI now defaults to read-only `contents` permission, and Dependabot
-has no workflow that can publish or merge a proposal.
+has no workflow that can publish or merge a proposal. Pinned actionlint
+`1.7.12` is now a standing hosted check. Review also consolidated the
+redundant standalone default-toolchain test and Clippy jobs into the exact
+support matrix: every supported lane tests fully, while the MSRV and current
+stable endpoints lint.
 
 The following final gates passed:
 
