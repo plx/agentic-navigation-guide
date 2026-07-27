@@ -117,20 +117,22 @@ The versioned implementation baseline is
 
 | Case | Median | p95 | Maximum RSS |
 | --- | ---: | ---: | ---: |
-| Flat 10k | 0.0080 s | 0.0081 s | 7.39 MiB |
-| Flat 20k | 0.0125 s | 0.0130 s | 12.08 MiB |
-| Flat 40k | 0.0207 s | 0.0208 s | 15.92 MiB |
-| Flat 100k | 0.0458 s | 0.0462 s | 36.48 MiB |
-| Deep valid, depth 256 | 0.0036 s | 0.0038 s | 36.48 MiB |
-| Deep invalid, depth 257 | 0.0031 s | 0.0035 s | 36.48 MiB |
-| 500 placeholder entries | 0.0098 s | 0.0103 s | 36.48 MiB |
-| 1,000 placeholder entries | 0.0167 s | 0.0171 s | 36.48 MiB |
-| 2,000 placeholder entries | 0.0310 s | 0.0318 s | 36.48 MiB |
-| 200 recursive roots | 0.0347 s | 0.0355 s | 36.48 MiB |
-| Repository self-verification | 0.0053 s | 0.0056 s | 36.48 MiB |
+| Flat 10k | 0.0109 s | 0.0112 s | 19.36 MiB |
+| Flat 20k | 0.0200 s | 0.0202 s | 19.36 MiB |
+| Flat 40k | 0.0391 s | 0.0399 s | 19.36 MiB |
+| Flat 100k | 0.0908 s | 0.0993 s | 32.84 MiB |
+| Deep valid, depth 256 | 0.0033 s | 0.0041 s | 32.84 MiB |
+| Deep invalid, depth 257 | 0.0020 s | 0.0020 s | 32.84 MiB |
+| 500 placeholder entries | 0.0096 s | 0.0097 s | 32.84 MiB |
+| 1,000 placeholder entries | 0.0179 s | 0.0184 s | 32.84 MiB |
+| 2,000 placeholder entries | 0.0352 s | 0.0365 s | 32.84 MiB |
+| 200 recursive roots | 0.0310 s | 0.0321 s | 32.84 MiB |
+| Repository self-verification | 0.0056 s | 0.0056 s | 32.84 MiB |
 
-Flat exact doublings scale by 1.56x and 1.65x. Placeholder exact doublings
-scale by 1.70x and 1.85x. Both remain below 2.5x and provide direct evidence
+This reference was captured by the first hosted Ubuntu run on ext4 with Rust
+1.97.1; the artifact records the exact kernel, binary hash, and raw values.
+Flat exact doublings scale by 1.84x and 1.96x. Placeholder exact doublings
+scale by 1.87x and 1.97x. Both remain below 2.5x and provide direct evidence
 that #37 and #50 removed the audited quadratic trends. The 100k and self-check
 absolute thresholds have wide margins.
 
