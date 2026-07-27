@@ -186,12 +186,12 @@ The completed change passed:
 - guide `check` and `verify` against the repository root;
 - 61 production-readiness selector regressions;
 - 14 release-identity checker regressions and the prepared identity check;
-- `cargo package --list --locked --offline --allow-dirty`: the reviewed
-  package remains exactly 33 paths;
-- `cargo package --locked --allow-dirty`: 661.1 KiB source and 151.6 KiB
+- clean-tree `cargo package --list --locked --offline`: the reviewed package
+  remains exactly 33 paths;
+- clean-tree `cargo package --locked`: 661.1 KiB source and 151.6 KiB
   compressed; and
-- `cargo publish --dry-run --locked --allow-dirty`: package verification
-  passed and upload was aborted as required by dry-run mode.
+- clean-tree `cargo publish --dry-run --locked`: package verification passed
+  and upload was aborted as required by dry-run mode.
 
 The first parallel full-suite attempt encountered the known macOS
 `Bad file descriptor` condition in the pre-existing
