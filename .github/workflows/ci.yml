@@ -107,6 +107,7 @@ jobs:
           --output "$archive"
         echo "$ZIZMOR_SHA256  $archive" | sha256sum --check -
         tar -xzf "$archive" -C "$RUNNER_TEMP" zizmor
+        echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
     - name: Lint GitHub Actions workflows
       run: actionlint .github/workflows/*.yml
     - name: Audit GitHub Actions workflows

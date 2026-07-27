@@ -272,6 +272,12 @@ fn workflow_lint_is_fail_closed_and_checksum_pins_both_tools() {
     assert!(lint.contains(
         "ZIZMOR_SHA256: aa1facd105f0d83fe5c55b1adcd9d7417de5d83aa27471f91dc0b66cf3803577"
     ));
+    assert_eq!(
+        lint.matches(r#"echo "$RUNNER_TEMP" >> "$GITHUB_PATH""#)
+            .count(),
+        2,
+        "each scanner installer must export its own executable directory"
+    );
     assert!(lint.contains("actionlint .github/workflows/*.yml"));
     assert!(lint.contains("GH_TOKEN: ${{ github.token }}"));
     assert!(lint.contains("zizmor --pedantic --no-ignores .github/workflows/"));
