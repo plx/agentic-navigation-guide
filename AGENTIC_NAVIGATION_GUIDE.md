@@ -67,9 +67,11 @@
 - CHANGELOG.md # Complete prepared 0.2.0 changes and published-0.1.4 migration
 - LICENSING.md # Fact-only historical license clarification and yank decision
 - README.md
+- SECURITY.md # Supported versions, private vulnerability reporting, trust boundary, and disclosure policy
 - docs/ # Maintained user and contract documentation
   - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
   - release-policy.md # Version/tag identity and compatibility baseline rules
+  - security-response-runbook.md # Private intake, triage, embargoed fix, release, and disclosure procedure
   - maintainer-continuity.md # Time-bounded sole-maintainer exception, authority, and recovery policy
   - repository-protections.md # Required checks, release-tag rules, protected environment, and audit procedure
   - history/ # Clearly non-normative retained design records
@@ -78,6 +80,7 @@
 - release/
   - identity.toml # Machine-readable prepared version and pinned baseline evidence
   - maintainer-continuity.toml # Machine-readable public owner, missing-control, and exception-expiry record
+  - security-response.toml # Machine-readable private-route owner and harmless hosted-test status
 - benchmarks/
   - issue-59-baseline.json # Versioned fixed-fixture release performance reference
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
@@ -132,6 +135,7 @@
   - issue_64_release_identity.rs # Published API and exact package/install identity proof
   - issue_68_normative_source.rs # Sole normative claimant, historical rule ledger, links, and contradiction proof
   - issue_71_maintainer_continuity.rs # Single-maintainer exception, candid control status, and policy-alignment regressions
+  - issue_69_security_policy.rs # Private report route, support, threat-model, response, and CI policy proof
   - issue_55_platform_conformance.rs # Three-platform full-suite, capability, skip, and release-dependency policy
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
@@ -153,6 +157,7 @@
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - 2026-07-27-issue-68-specification-disposition.md # Historical specification and PR #21 disposition evidence
   - 2026-07-27-issue-71-maintainer-continuity.md # Approved sole-maintainer exception and missing-control disposition
+  - 2026-07-27-issue-69-security-policy.md # Private route, claim mapping, tabletop, and residual-risk evidence
   - 2026-07-27-issue-65-repository-protections.json # Non-sensitive admin-visible hosted-control attestation
   - 2026-07-27-issue-65-repository-protections.md # Required-check, tag, environment, and rejection-probe evidence
   - 2026-07-27-issue-47-output-contract.md # Broken-pipe, quiet-mode, and GitHub diagnostic evidence

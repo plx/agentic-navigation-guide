@@ -27,7 +27,7 @@ const EXPECTED_RECORD: &[(&str, &str)] = &[
     ("recovery_drill_status", "not-run-no-backup"),
     (
         "security_report_route_status",
-        "not-present-owned-by-issue-69",
+        "github-private-vulnerability-reporting-enabled",
     ),
     ("homebrew_tap_status", "not-present"),
     ("publication_after_expiry", "blocked-without-new-decision"),

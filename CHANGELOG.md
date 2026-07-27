@@ -32,11 +32,16 @@ complete and the final candidate is revalidated.
 - The exact release inputs and future baseline rule are machine-readable in
   [`release/identity.toml`](release/identity.toml) and explained in the
   [release identity and compatibility policy](docs/release-policy.md).
-- The source crate now uses a root-anchored 33-path package allowlist. It ships
+- The source crate now uses a root-anchored 35-path package allowlist. It ships
   only normalized Cargo metadata and lockfile, production Rust sources,
   maintained user/contract documentation, and intentional license, notice,
   and attribution files; repository workflows, site sources, agent material,
   audits, remediations, and internal test fixtures are excluded.
+- GitHub private vulnerability reporting is enabled and the packaged
+  `SECURITY.md` defines supported versions, a real private route,
+  best-effort response targets, coordinated disclosure, the bounded v0.2
+  threat model, and the sole-maintainer stop condition. A public response
+  runbook covers private intake through patched release and follow-up.
 - Linux, macOS, and Windows now run the same complete locked behavioral suite
   in debug and release modes. Strict host-applicable trust oracles reject
   missing link, reparse, permission, identity, path, confidentiality, and
@@ -61,8 +66,8 @@ complete and the final candidate is revalidated.
 - The normative reference now includes a machine-checked complete command and
   argument ledger, environment/default precedence, stable stream and status
   classes, platform/MSRV and supported-version policy, resource limitations,
-  and the current absence of a private vulnerability-report route. CI lints
-  and link-checks the maintained contract and support documents.
+  and the private vulnerability-report boundary. CI lints and link-checks the
+  maintained contract and support documents.
 
 ### CLI and automation changes from `0.1.4`
 

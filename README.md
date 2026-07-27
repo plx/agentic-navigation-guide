@@ -232,12 +232,14 @@ README:
 - [filesystem trust and containment](docs/v0.2-contract.md#filesystem-trust-and-containment);
 - [security and vulnerability-reporting limitations](docs/v0.2-contract.md#security-and-vulnerability-reporting);
 - [supported CLI-only product and compatibility](docs/v0.2-contract.md#supported-product-and-rust-api);
-- [release and Rust support policy](docs/release-policy.md); and
+- [release and Rust support policy](docs/release-policy.md);
+- [security policy and private reporting route](SECURITY.md); and
 - [complete prepared `0.2.0` changes](CHANGELOG.md#020---unreleased).
 
-No private vulnerability-report route is currently published. Until the
-dedicated `SECURITY.md` work lands, do not put exploit details, secrets,
-personal data, or embargoed findings in a public GitHub issue.
+Report suspected vulnerabilities through the
+[security policy](SECURITY.md) and its GitHub private vulnerability-reporting
+route. Do not put exploit details, secrets, personal data, or embargoed
+findings in a public GitHub issue.
 
 ## Known Intentional Divergences
 

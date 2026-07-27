@@ -292,6 +292,8 @@ fn workflow_lint_is_fail_closed_and_checksum_pins_every_tool() {
         "zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml"
     ));
     assert!(lint.contains("rumdl check --disable MD010,MD013,MD038 README.md"));
-    assert!(lint.contains("lychee --no-progress README.md .github/examples/readme-verify.yml"));
+    assert!(lint.contains("rumdl check SECURITY.md docs/security-response-runbook.md"));
+    assert!(lint
+        .contains("lychee --no-progress README.md SECURITY.md .github/examples/readme-verify.yml"));
     assert!(!lint.contains("continue-on-error"));
 }
