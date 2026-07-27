@@ -232,6 +232,53 @@ README:
 - [release and Rust support policy](docs/release-policy.md); and
 - [complete prepared `0.2.0` changes](CHANGELOG.md#020---unreleased).
 
+## Known Intentional Divergences
+
+This is the concise dated index of deliberate v0.2 breaks from published
+`0.1.4`. The [changelog](CHANGELOG.md#migration-from-014) and
+[normative contract](docs/v0.2-contract.md) retain the complete behavior and
+migration details.
+
+- **2026-07-26 — The package is CLI-only.** The Rust library and in-process
+  facade were removed so v0.2 has one supported product and process contract.
+- **2026-07-26 — `NavigationGuide::get_full_path` has no replacement.** Its
+  detached-line input lacked parent context, so retaining a similarly named
+  helper would preserve ambiguous behavior.
+- **2026-07-26 — The programmatic symlink model has no replacement.**
+  `FilesystemItem::Symlink` and `SemanticError::SymlinkTargetMismatch` were
+  removed because the guide language has no supported link-target model.
+- **2026-07-25 — File output is create-only.** `dump --output` and `init
+  --output` refuse existing destinations so scripts and races cannot silently
+  replace a file; there is no force mode.
+- **2026-07-25 — Empty recursive verification fails closed.** A zero-guide
+  search is an error because it usually means a wrong root, exclusion, or
+  deleted guide; only an explicitly optional search may use `--allow-empty`.
+- **2026-07-25 — Guide files are opened fail closed.** Final guide-file links
+  and reparse entries are rejected so an untrusted checkout cannot redirect
+  reads or source diagnostics.
+- **2026-07-25 — Ignored guide bodies are opaque.** A valid `ignore=true`
+  envelope reports a distinct ignored outcome because an opt-out is neither
+  checked nor verified success.
+- **2026-07-26 — Unsupported entry types fail closed.** Links, reparse entries,
+  FIFOs, sockets, devices, and unknown entries are rejected so they cannot be
+  emitted or verified as regular files.
+- **2026-07-26 — Invalid, empty, and unbounded generation inputs are rejected.**
+  Generation now fails before delivery and bounds `--indent` and `--depth` so
+  bad inputs cannot flatten, wrap, panic, or allocate pathologically.
+- **2026-07-26 — Exclusions use one depth-aware glob dialect.** Generation and
+  recursive discovery share a case-sensitive, platform-independent matcher so
+  nested paths cannot escape inconsistent rules.
+- **2026-07-26 — CLI options override environment defaults.** Resolution is
+  consistently CLI, then environment, then built-in so unrelated environment
+  values do not create false requirements or conflicts.
+- **2026-07-26 — Verification uses exact enumerated filesystem identities.**
+  Host filesystem case or Unicode aliases do not satisfy differently spelled
+  guide entries, preventing ambiguous matches and repeated scans.
+- **2026-07-26 — Containment assumes a stable filesystem tree.** Verification
+  anchors once, rejects links below the anchor, and detects observed identity
+  changes because it promises stable-tree consistency rather than a sandbox
+  against hostile concurrent replacement.
+
 ## Documentation history
 
 Draft PR #21 proposed useful cleanup alongside stale and conflicting removals.

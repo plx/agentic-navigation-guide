@@ -150,6 +150,7 @@ fn issue_66_readme_is_a_concise_versioned_entry_point() {
         "docs/v0.2-contract.md",
         "docs/release-policy.md",
         "docs/maintainer-continuity.md",
+        "## Known Intentional Divergences",
         "PR #21",
         "audits/2026-07-27-issue-68-specification-disposition.md",
     ] {

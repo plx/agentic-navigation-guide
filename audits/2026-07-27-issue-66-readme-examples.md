@@ -60,6 +60,9 @@ The README now:
 - links the complete grammar, configuration, output, trust, supported-product,
   release, and migration contracts instead of retaining the former exhaustive
   and unstable duplicate;
+- retains a concise dated-and-rationalized `Known Intentional Divergences`
+  index required by the repository documentation policy, while the complete
+  behavior stays in the contract and changelog;
 - removes the stale docs.rs target, stray emphasis, early-preview language,
   and roadmap; and
 - records how useful cleanup from draft PR #21 was incorporated while the
