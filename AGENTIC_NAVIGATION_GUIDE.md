@@ -115,7 +115,7 @@
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
 - LICENSE-APACHE
-- justfile # Repository task aliases, including production-readiness work selection
+- justfile # Repository task aliases, including work selection and contributor-template checks
 - scripts/
   - check_coverage.py # Fail-closed overall and critical-module branch-aware coverage policy
   - check_mutation_report.py # Reviewed blocker-mutation completeness and survivor gate

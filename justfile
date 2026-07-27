@@ -26,6 +26,11 @@ audit-github-protections *args:
 test-github-protections:
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_audit_github_protections.py -v
 
+# Run the contributor-template checker and its fail-closed regressions.
+test-contributor-templates:
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_contributor_templates.py -v
+    python3 scripts/check_contributor_templates.py
+
 # Run fail-closed coverage, mutation-report, and performance policy regressions.
 test-quality-gates:
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_coverage.py tests/test_check_mutation_report.py tests/test_performance_baseline.py -v

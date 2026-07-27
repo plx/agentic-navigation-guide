@@ -19,6 +19,14 @@ fn issue_70_contributor_guide_is_complete_and_uses_real_pinned_commands() {
     let guide = repository_file("CONTRIBUTING.md");
     let normalized = normalized_whitespace(&guide);
     let ci = repository_file(".github/workflows/ci.yml");
+    let justfile = repository_file("justfile");
+    let workflow_lint = ci
+        .split_once("  workflow-lint:\n")
+        .expect("CI must contain the workflow-lint job")
+        .1
+        .split_once("\n  issue-selector:\n")
+        .expect("workflow-lint must precede the issue-selector job")
+        .0;
     let workflow_sources = format!(
         "{ci}\n{}",
         repository_file(".github/workflows/verify-guide.yml")
@@ -59,6 +67,7 @@ fn issue_70_contributor_guide_is_complete_and_uses_real_pinned_commands() {
         "just test-release-identity",
         "just test-github-protections",
         "just test-quality-gates",
+        "just test-contributor-templates",
         "cargo test --locked parser_robustness_tests:: -- --nocapture",
         "No fuzz target or corpus exists",
         "Issue #56 remains deferred",
@@ -84,7 +93,6 @@ fn issue_70_contributor_guide_is_complete_and_uses_real_pinned_commands() {
         ("Rust `1.85.0`", "rust: \"1.85.0\""),
         ("Rust `1.96.1`", "rust: \"1.96.1\""),
         ("Rust `1.97.1`", "rust: \"1.97.1\""),
-        ("Python `3.12`", "python-version: \"3.12\""),
         ("`just 1.51.0`", "tool: just@1.51.0"),
         ("`cargo-llvm-cov 0.8.7`", "tool: cargo-llvm-cov@0.8.7"),
         ("`cargo-mutants 27.1.0`", "tool: cargo-mutants@27.1.0"),
@@ -103,6 +111,17 @@ fn issue_70_contributor_guide_is_complete_and_uses_real_pinned_commands() {
             "CI omits contributor-guide pin source {workflow_pin:?}"
         );
     }
+    assert!(guide.contains("Python `3.12`"));
+    assert!(workflow_lint.contains("python-version: \"3.12\""));
+    assert!(workflow_lint.contains("tool: just@1.51.0"));
+    assert!(workflow_lint.contains("just test-contributor-templates"));
+    assert!(justfile.contains("test-contributor-templates:"));
+    assert!(
+        justfile.contains(
+            "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_contributor_templates.py -v"
+        )
+    );
+    assert!(justfile.contains("python3 scripts/check_contributor_templates.py"));
 
     for command in [
         "cargo check --locked --all-targets --all-features",
@@ -203,13 +222,15 @@ fn issue_70_templates_capture_required_issue_and_pull_request_evidence() {
 #[test]
 fn issue_70_ci_docs_and_audit_keep_the_contributor_contract_current() {
     let ci = repository_file(".github/workflows/ci.yml");
+    let justfile = repository_file("justfile");
     let readme = repository_file("README.md");
     let changelog = repository_file("CHANGELOG.md");
     let navigation = repository_file("AGENTIC_NAVIGATION_GUIDE.md");
     let audit = repository_file("audits/2026-07-27-issue-70-contributor-workflow.md");
 
-    assert!(ci.contains("python3 scripts/check_contributor_templates.py"));
-    assert!(ci.contains("tests/test_check_contributor_templates.py -v"));
+    assert!(ci.contains("just test-contributor-templates"));
+    assert!(justfile.contains("python3 scripts/check_contributor_templates.py"));
+    assert!(justfile.contains("tests/test_check_contributor_templates.py -v"));
     assert!(
         ci.contains("rumdl check --disable MD013 CONTRIBUTING.md .github/pull_request_template.md")
     );

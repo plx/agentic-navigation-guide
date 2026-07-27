@@ -212,6 +212,9 @@ jobs:
     - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
       with:
         python-version: "3.12"
+    - uses: taiki-e/install-action@c070f87102a1c75b3183910f391c1cb887fe13c8  # v2.68.5
+      with:
+        tool: just@1.51.0
     - name: Install checksum-pinned actionlint 1.7.12
       env:
         ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
@@ -271,8 +274,7 @@ jobs:
     - name: Validate contributor guidance and templates
       run: |
         python3 -m py_compile scripts/check_contributor_templates.py
-        PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_contributor_templates.py -v
-        python3 scripts/check_contributor_templates.py
+        just test-contributor-templates
     - name: Lint maintained Markdown
       run: |
         rumdl check --disable MD010,MD013,MD038 README.md

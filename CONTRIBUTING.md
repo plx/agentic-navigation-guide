@@ -175,8 +175,7 @@ just test-production-readiness-selector
 just test-release-identity
 just test-github-protections
 just test-quality-gates
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_contributor_templates.py -v
-python3 scripts/check_contributor_templates.py
+just test-contributor-templates
 ```
 
 For maintained Markdown or GitHub workflow changes, install the exact pinned

@@ -120,9 +120,24 @@ content will be left open.
 ## Representative-ticket cold read
 
 The contributor guide was read as the only process reference alongside a
-representative issue-scoped remediation ticket. The cold-read record is
-completed after the final guide text and automated review are available.
-Known prerequisites that must remain discoverable without oral context are:
+representative issue-scoped remediation ticket. The hosted automated cold
+review on
+[PR #137](https://github.com/plx/agentic-navigation-guide/pull/137#issuecomment-5095796945)
+reported no security or correctness concern and found two useful
+instruction/proof gaps:
+
+- the template checker needed a discoverable versioned `just` entry point; and
+- the Rust contract needed to bind Python `3.12` to the `workflow-lint` job
+  rather than accepting the same pin elsewhere in CI.
+
+Both findings were corrected. The checker now runs through
+`just test-contributor-templates` locally and in CI, and the Rust contract
+extracts and checks the exact owning workflow job. The review's Markdown-rule
+note required no weakening: the new documents pass with MD010 and MD038 still
+enabled.
+
+The cold reader confirmed that these prerequisites remain discoverable without
+oral context:
 
 - the sole normative contract and concise README roles;
 - exact MSRV/stable/tool pins and locked commands;
