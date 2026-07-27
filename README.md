@@ -33,6 +33,26 @@ The docs.rs badge above still describes the published `0.1.4` artifact; #66
 owns removing or retargeting it and setting maintained documentation metadata
 before release.
 
+### Rust and installation support
+
+Rust `1.85.0` is the minimum supported toolchain for the complete CLI,
+including locked dependency resolution, tests, packaging, and installation.
+CI also tests the current and immediately previous stable Rust releases; beta
+is an informational compatibility signal. The detailed maintenance policy and
+exact pinned toolchains are in the [release policy](docs/release-policy.md).
+
+`0.2.0` is prepared but not published. Until publication, install only from a
+trusted source checkout with `cargo install --path . --locked`. After `0.2.0`
+is published, its reproducible crates.io install selects both the exact
+version and committed dependency graph:
+
+```sh
+cargo install agentic-navigation-guide --version 0.2.0 --locked
+```
+
+Omitting `--locked` asks Cargo to resolve a new dependency graph and is outside
+the reproducible installation policy.
+
 ## Docs and Implementation Alignment Policy
 
 ### Source-of-Truth Precedence
@@ -654,7 +674,12 @@ disable it. Omit that flag only when ignored guides are intentionally allowed.
 
 ## GitHub Actions Integration
 
-To use the tool as a CI check in GitHub Actions, add a job to your workflow:
+The crates.io example below targets the eventual `0.2.0` release and becomes
+runnable only after that version is published. Before publication, validate
+the prepared CLI from a trusted source checkout with
+`cargo install --path . --locked`.
+
+After publication, add this exact-version job to use the tool as a CI check:
 
 ```yaml
 verify-navigation-guide:
@@ -664,7 +689,7 @@ verify-navigation-guide:
     - uses: actions/checkout@v4
     - uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Install agentic-navigation-guide
-      run: cargo install agentic-navigation-guide
+      run: cargo install agentic-navigation-guide --version 0.2.0 --locked
     - name: Verify installation
       run: agentic-navigation-guide --version
     - name: Verify navigation guide

@@ -26,6 +26,51 @@ The check validates an input; it does not create a tag, crate, GitHub Release,
 or other publication. The trusted publishing workflow owned by issue #63 must
 pass its real tag ref to this checker before any release action.
 
+## Rust and dependency support
+
+Rust `1.85.0` is the minimum supported toolchain for the complete product:
+locked dependency resolution, all targets and features, the full test suite,
+Clippy, packaging, and installation of the CLI. `Cargo.toml` declares that
+floor as `rust-version = "1.85"` and `.clippy.toml` carries the matching
+`1.85.0` value. Raising either value is a support-policy change that requires
+an intentional pull request, aligned declarations, a refreshed lockfile, and
+the same complete validation on the new floor.
+
+The supported stable CI lines are Rust `1.97.1` (current stable) and Rust `1.96.1`
+(the immediately previous stable line's latest patch). These exact pins are
+updated intentionally when Rust publishes a new stable release. Beta is
+informational: its CI job may reveal future incompatibility, but it does not
+block an otherwise supported release.
+
+`0.2.0` is prepared but not published, so the crates.io command below is not
+available yet. After publication, the release-install command names both the
+prepared version and graph:
+
+```sh
+cargo install agentic-navigation-guide --version 0.2.0 --locked
+```
+
+Before publication, trusted source checkouts use
+`cargo install --path . --locked`. After publication, the exact `--version`
+prevents a newer compatible release from being selected, while `--locked`
+requires the dependency versions reviewed in `Cargo.lock`. An install that
+omits either control requests a different candidate or a freshly resolved
+graph and is not the reproducible release path.
+
+Project-local Cargo configuration uses
+`incompatible-rust-versions = "fallback"` so intentional dependency
+resolution prefers releases compatible with the declared Rust floor. The
+lockfile is refreshed deliberately, then the MSRV check, tests, Clippy,
+package, locked install, `cargo audit`, and third-party license generation are
+rerun. Current stable and stable-minus-one run the complete locked test suite;
+beta supplies the non-blocking forward signal.
+
+Dependabot opens review-only pull requests each week for Cargo and GitHub
+Actions dependencies. It receives no registry or release credentials and cannot
+publish or merge its proposals. A maintainer must review the changed graph and
+immutable action SHAs, run the same compatibility, security, and license gates,
+and merge intentionally.
+
 ## `0.2.0` historical Rust baseline
 
 The immutable published `0.1.4` crate is the Rust migration baseline for

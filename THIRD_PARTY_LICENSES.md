@@ -25,16 +25,12 @@ required to appear under both).
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [windows-sys 0.59.0](https://github.com/microsoft/windows-rs)
 - [windows-sys 0.60.2](https://github.com/microsoft/windows-rs)
-- [windows-targets 0.52.6](https://github.com/microsoft/windows-rs)
-- [windows-targets 0.53.3](https://github.com/microsoft/windows-rs)
-- [windows_aarch64_msvc 0.52.6](https://github.com/microsoft/windows-rs)
-- [windows_aarch64_msvc 0.53.0](https://github.com/microsoft/windows-rs)
-- [windows_x86_64_gnu 0.52.6](https://github.com/microsoft/windows-rs)
-- [windows_x86_64_gnu 0.53.0](https://github.com/microsoft/windows-rs)
-- [windows_x86_64_msvc 0.52.6](https://github.com/microsoft/windows-rs)
-- [windows_x86_64_msvc 0.53.0](https://github.com/microsoft/windows-rs)
+- [windows-sys 0.61.2](https://github.com/microsoft/windows-rs)
+- [windows-targets 0.53.5](https://github.com/microsoft/windows-rs)
+- [windows_aarch64_msvc 0.53.1](https://github.com/microsoft/windows-rs)
+- [windows_x86_64_gnu 0.53.1](https://github.com/microsoft/windows-rs)
+- [windows_x86_64_msvc 0.53.1](https://github.com/microsoft/windows-rs)
 
 ```
     MIT License
@@ -64,47 +60,13 @@ Used by:
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [log 0.4.27](https://github.com/rust-lang/log)
-- [regex-automata 0.4.9](https://github.com/rust-lang/regex/tree/master/regex-automata)
-- [regex-syntax 0.8.5](https://github.com/rust-lang/regex/tree/master/regex-syntax)
-- [regex 1.11.1](https://github.com/rust-lang/regex)
+- [log 0.4.33](https://github.com/rust-lang/log)
+- [regex-automata 0.4.16](https://github.com/rust-lang/regex)
+- [regex-syntax 0.8.11](https://github.com/rust-lang/regex)
+- [regex 1.13.1](https://github.com/rust-lang/regex)
 
 ```
 Copyright (c) 2014 The Rust Project Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-```
-
-### MIT License (SPDX `MIT`)
-
-Used by:
-- [libc 0.2.174](https://github.com/rust-lang/libc)
-
-```
-Copyright (c) 2014-2020 The Rust Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -203,20 +165,20 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [anstream 0.6.19](https://github.com/rust-cli/anstyle.git)
-- [anstyle-parse 0.2.7](https://github.com/rust-cli/anstyle.git)
-- [anstyle-query 1.1.3](https://github.com/rust-cli/anstyle.git)
-- [anstyle-wincon 3.0.9](https://github.com/rust-cli/anstyle.git)
-- [anstyle 1.0.11](https://github.com/rust-cli/anstyle.git)
-- [clap 4.5.42](https://github.com/clap-rs/clap)
-- [clap_builder 4.5.42](https://github.com/clap-rs/clap)
-- [clap_derive 4.5.41](https://github.com/clap-rs/clap)
-- [clap_lex 0.7.5](https://github.com/clap-rs/clap)
-- [colorchoice 1.0.4](https://github.com/rust-cli/anstyle.git)
-- [env_filter 0.1.3](https://github.com/rust-cli/env_logger)
-- [env_logger 0.11.8](https://github.com/rust-cli/env_logger)
-- [is_terminal_polyfill 1.70.1](https://github.com/polyfill-rs/is_terminal_polyfill)
-- [once_cell_polyfill 1.70.1](https://github.com/polyfill-rs/once_cell_polyfill)
+- [anstream 1.0.0](https://github.com/rust-cli/anstyle.git)
+- [anstyle-parse 1.0.0](https://github.com/rust-cli/anstyle.git)
+- [anstyle-query 1.1.5](https://github.com/rust-cli/anstyle.git)
+- [anstyle-wincon 3.0.11](https://github.com/rust-cli/anstyle.git)
+- [anstyle 1.0.14](https://github.com/rust-cli/anstyle.git)
+- [clap 4.6.4](https://github.com/clap-rs/clap)
+- [clap_builder 4.6.2](https://github.com/clap-rs/clap)
+- [clap_derive 4.6.4](https://github.com/clap-rs/clap)
+- [clap_lex 1.1.0](https://github.com/clap-rs/clap)
+- [colorchoice 1.0.5](https://github.com/rust-cli/anstyle.git)
+- [env_filter 2.0.0](https://github.com/rust-cli/env_logger)
+- [env_logger 0.11.11](https://github.com/rust-cli/env_logger)
+- [is_terminal_polyfill 1.70.2](https://github.com/polyfill-rs/is_terminal_polyfill)
+- [once_cell_polyfill 1.70.2](https://github.com/polyfill-rs/once_cell_polyfill)
 
 ```
 Copyright (c) Individual contributors
@@ -244,14 +206,77 @@ SOFTWARE.
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [proc-macro2 1.0.95](https://github.com/dtolnay/proc-macro2)
-- [quote 1.0.40](https://github.com/dtolnay/quote)
-- [serde 1.0.219](https://github.com/serde-rs/serde)
-- [serde_derive 1.0.219](https://github.com/serde-rs/serde)
-- [syn 2.0.104](https://github.com/dtolnay/syn)
+- [libc 0.2.189](https://github.com/rust-lang/libc)
+
+```
+Copyright (c) The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+```
+
+### MIT License (SPDX `MIT`)
+
+Used by:
+- [windows-link 0.2.1](https://github.com/microsoft/windows-rs)
+
+```
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+```
+
+### MIT License (SPDX `MIT`)
+
+Used by:
+- [proc-macro2 1.0.107](https://github.com/dtolnay/proc-macro2)
+- [quote 1.0.47](https://github.com/dtolnay/quote)
+- [serde 1.0.229](https://github.com/serde-rs/serde)
+- [serde_core 1.0.229](https://github.com/serde-rs/serde)
+- [serde_derive 1.0.229](https://github.com/serde-rs/serde)
+- [syn 2.0.119](https://github.com/dtolnay/syn)
+- [syn 3.0.3](https://github.com/dtolnay/syn)
 - [thiserror-impl 1.0.69](https://github.com/dtolnay/thiserror)
 - [thiserror 1.0.69](https://github.com/dtolnay/thiserror)
-- [unicode-ident 1.0.18](https://github.com/dtolnay/unicode-ident)
+- [unicode-ident 1.0.24](https://github.com/dtolnay/unicode-ident)
 
 ```
 Permission is hereby granted, free of charge, to any
@@ -283,10 +308,11 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [aho-corasick 1.1.3](https://github.com/BurntSushi/aho-corasick)
-- [globset 0.4.16](https://github.com/BurntSushi/ripgrep/tree/master/crates/globset)
-- [jiff 0.2.15](https://github.com/BurntSushi/jiff)
-- [memchr 2.7.5](https://github.com/BurntSushi/memchr)
+- [aho-corasick 1.1.4](https://github.com/BurntSushi/aho-corasick)
+- [globset 0.4.19](https://github.com/BurntSushi/ripgrep/tree/master/crates/globset)
+- [jiff-core 0.1.0](https://github.com/BurntSushi/jiff)
+- [jiff 0.2.35](https://github.com/BurntSushi/jiff)
+- [memchr 2.8.3](https://github.com/BurntSushi/memchr)
 - [walkdir 2.5.0](https://github.com/BurntSushi/walkdir)
 
 ```
@@ -350,7 +376,7 @@ SOFTWARE.
 
 Used by:
 - [same-file 1.0.6](https://github.com/BurntSushi/same-file)
-- [winapi-util 0.1.9](https://github.com/BurntSushi/winapi-util)
+- [winapi-util 0.1.11](https://github.com/BurntSushi/winapi-util)
 
 ```
 The MIT License (MIT)
@@ -380,7 +406,7 @@ THE SOFTWARE.
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [bstr 1.12.0](https://github.com/BurntSushi/bstr)
+- [bstr 1.13.0](https://github.com/BurntSushi/bstr)
 
 ```
 The MIT License (MIT)
@@ -410,7 +436,7 @@ THE SOFTWARE.
 ### Unicode License v3 (SPDX `Unicode-3.0`)
 
 Used by:
-- [unicode-ident 1.0.18](https://github.com/dtolnay/unicode-ident)
+- [unicode-ident 1.0.24](https://github.com/dtolnay/unicode-ident)
 
 ```
 UNICODE LICENSE V3

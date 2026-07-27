@@ -2,6 +2,7 @@
 name = "agentic-navigation-guide"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.85"
 authors = ["plx <plxgithub@gmail.com>"]
 description = "A CLI tool for verifying hand-written navigation guides against filesystem structure"
 license = "MIT OR Apache-2.0"

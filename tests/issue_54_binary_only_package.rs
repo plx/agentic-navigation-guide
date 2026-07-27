@@ -64,8 +64,7 @@ fn public_visibility_failures(label: &str, source_root: &Path) -> Vec<String> {
 
     for entry in WalkDir::new(source_root) {
         let entry = entry.expect("walk Rust source tree");
-        if !entry.file_type().is_file() || entry.path().extension().map_or(true, |ext| ext != "rs")
-        {
+        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|ext| ext != "rs") {
             continue;
         }
 

@@ -539,8 +539,7 @@ fn validate_regular_handle(file: &File) -> io::Result<()> {
     if file.metadata()?.file_type().is_file() {
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
+        Err(io::Error::other(
             "the opened guide handle is not a regular file",
         ))
     }
@@ -626,8 +625,7 @@ fn windows_handle_information(file: &File) -> io::Result<(FileIdentity, u32, u32
             let file_index =
                 (u64::from(legacy.nFileIndexHigh) << 32) | u64::from(legacy.nFileIndexLow);
             if file_index == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     "the filesystem supplied no reliable guide identity",
                 ));
             }
@@ -693,8 +691,7 @@ fn validate_regular_handle(file: &File) -> io::Result<()> {
         || attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) != 0
         || !file.metadata()?.is_file()
     {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "the opened guide handle is not a regular non-reparse disk file",
         ));
     }

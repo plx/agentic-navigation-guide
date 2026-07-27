@@ -161,8 +161,7 @@ fn windows_reparse_tag(path: &Path) -> io::Result<u32> {
     // SAFETY: the successful API call initialized the complete structure.
     let information = unsafe { information.assume_init() };
     if information.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "filesystem entry changed while its reparse tag was inspected",
         ));
     }
