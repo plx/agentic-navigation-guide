@@ -1707,15 +1707,6 @@ mod tests {
             } else {
                 b"second contender".as_slice()
             };
-            let loser = if first_result.is_ok() {
-                &second_result
-            } else {
-                &first_result
-            };
-            assert!(
-                loser.is_err(),
-                "race {iteration} loser unexpectedly succeeded: {loser:?}"
-            );
             assert_eq!(fs::read(output).unwrap(), expected);
         }
     }

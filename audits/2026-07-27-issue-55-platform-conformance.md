@@ -43,10 +43,12 @@ allowed only `Existing` or `Unsafe` as the loser's typed error. The normative
 overwrite; it does not prescribe the loser's diagnostic variant when another
 I/O stage fails.
 
-The retained regression therefore asserts that the loser is an error and
-still compares the final bytes with the unique winner. It does not accept two
-winners, zero winners, replacement, or unexpected content. No product error
-mapping or runtime behavior changed.
+The retained regression asserts exactly one success and compares the final
+bytes with that unique winner. The former loser-variant assertion was
+redundant with exactly-one success and imposed an outcome the contract does
+not require. The regression does not accept two winners, zero winners,
+replacement, or unexpected content. No product error mapping or runtime
+behavior changed.
 
 ## Binding matrix
 
@@ -71,6 +73,11 @@ The first two commands compile and execute every test target and feature from
 the committed lockfile. The third deliberately repeats the exact guide,
 output, and containment trust oracles so their capability results cannot be
 buried among ordinary suite output.
+
+The existing focused invocations remain after these binding commands to keep
+per-issue failure attribution visible in the Actions interface. They reuse
+the compiled target artifacts; only the complete commands above define
+platform coverage.
 
 ## Capability and skip audit
 
@@ -135,6 +142,16 @@ rejection assertions. The external target remains alive, and the later
 external-output case runs against a clean input root. No production path,
 parser input, trust classification, or expected output changed.
 
+The next [hosted matrix run][second-matrix-run] passed that reparse regression
+and exposed a separate [Windows-only test failure][second-windows-job].
+`issue_47_recursive_github_error_has_discovery_path_and_line` hard-coded `/`
+in its expected root-relative diagnostic, while the product consistently
+renders the logical `Path` with the host-native separator and emitted `\` on
+Windows. The test now builds its expected location with
+`std::path::MAIN_SEPARATOR`. The diagnostic remains root-relative, includes
+the Unicode path and exact line, and discloses no resolved external target.
+Again, no production behavior changed.
+
 ## Hosted evidence
 
 The pull request must retain:
@@ -160,3 +177,5 @@ checker, not a sandbox or access-control boundary.
 
 [first-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161
 [first-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161/job/90011882496
+[second-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396
+[second-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396/job/90013172856
