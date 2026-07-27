@@ -1,27 +1,18 @@
-use assert_cmd::Command;
+#[path = "support/assert_cli.rs"]
+mod test_cli;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::time::Duration;
 use tempfile::TempDir;
+use test_cli::{assert_cli_command, HermeticAssertCommand, GUIDE_ENVIRONMENT_VARIABLES};
 
-const ENVIRONMENT_VARIABLES: &[&str] = &[
-    "AGENTIC_NAVIGATION_GUIDE_PATH",
-    "AGENTIC_NAVIGATION_GUIDE_ROOT",
-    "AGENTIC_NAVIGATION_GUIDE_NAME",
-    "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
-    "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-];
+const ENVIRONMENT_VARIABLES: &[&str] = GUIDE_ENVIRONMENT_VARIABLES;
 const DEFAULT_GUIDE_NAME: &str = "AGENTIC_NAVIGATION_GUIDE.md";
 const VALID_GUIDE: &str = "<agentic-navigation-guide>\n- present.txt\n</agentic-navigation-guide>";
 
-fn isolated_command() -> Command {
-    let mut command = Command::cargo_bin("agentic-navigation-guide").expect("test binary");
-    command.timeout(Duration::from_secs(5));
-    for variable in ENVIRONMENT_VARIABLES {
-        command.env_remove(variable);
-    }
-    command
+fn isolated_command() -> HermeticAssertCommand {
+    assert_cli_command()
 }
 
 fn write_guide(directory: &Path, name: &str) -> PathBuf {

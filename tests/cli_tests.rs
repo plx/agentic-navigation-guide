@@ -1,80 +1,23 @@
+#[path = "support/assert_cli.rs"]
+mod test_cli;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::time::Duration;
 use tempfile::TempDir;
+use test_cli::{assert_cli_command, HermeticAssertCommand};
 
-const GUIDE_ENVIRONMENT_VARIABLES: &[&str] = &[
-    "AGENTIC_NAVIGATION_GUIDE_PATH",
-    "AGENTIC_NAVIGATION_GUIDE_ROOT",
-    "AGENTIC_NAVIGATION_GUIDE_NAME",
-    "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
-    "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-];
-
-fn get_command() -> Command {
-    Command::cargo_bin("agentic-navigation-guide").unwrap()
+fn get_command() -> HermeticAssertCommand {
+    assert_cli_command()
 }
 
 const GUIDE_SOURCE_SENTINEL: &str = "ISSUE49_SECRET_7f4a2d909b6c";
 const ISSUE39_OPAQUE_BODY_SENTINEL: &str = "ISSUE39_OPAQUE_SECRET_0c6248a7";
 
-fn isolated_command() -> Command {
-    let mut command = get_command();
-    command.timeout(Duration::from_secs(5));
-    for variable in GUIDE_ENVIRONMENT_VARIABLES {
-        command.env_remove(variable);
-    }
-    command
-}
-
-#[test]
-fn issue_58_cli_test_command_is_hermetic_and_cleans_its_default_root() {
-    let command = get_command();
-    let mut failures = Vec::new();
-    let isolated_root = match command.get_current_dir() {
-        Some(root) => {
-            if root == Path::new(env!("CARGO_MANIFEST_DIR")) {
-                failures.push("CLI test command still uses the repository checkout".to_string());
-            }
-            if !root.is_dir() {
-                failures.push(format!(
-                    "CLI test command root does not exist: {}",
-                    root.display()
-                ));
-            }
-            Some(root.to_path_buf())
-        }
-        None => {
-            failures.push("CLI test command inherits the process current directory".to_string());
-            None
-        }
-    };
-
-    for variable in GUIDE_ENVIRONMENT_VARIABLES {
-        let removed = command
-            .get_envs()
-            .any(|(name, value)| name == OsStr::new(variable) && value.is_none());
-        if !removed {
-            failures.push(format!(
-                "CLI test command inherits configuration variable {variable}"
-            ));
-        }
-    }
-
-    drop(command);
-    if let Some(root) = isolated_root {
-        if root.exists() {
-            failures.push(format!(
-                "CLI test command did not clean its default root: {}",
-                root.display()
-            ));
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+fn isolated_command() -> HermeticAssertCommand {
+    get_command()
 }
 
 #[test]

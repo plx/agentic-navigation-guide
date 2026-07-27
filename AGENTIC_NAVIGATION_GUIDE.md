@@ -94,6 +94,9 @@
   - check_release_identity.py # Fail-closed version/tag/changelog/baseline checker
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
 - tests/
+  - support/
+    - assert_cli.rs # Hermetic assert_cmd wrapper with owned default root and cleared guide environment
+    - process_cli.rs # Hermetic raw-process wrapper with owned default root and cleared guide environment
   - fixtures/
     - v0_1_4_published_api.tsv # Canonical immutable published API migration baseline
     - v0_2_contract.rs # Machine-readable v0.2 grammar conformance ledger
@@ -110,6 +113,7 @@
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
   - issue_66_readme_examples.rs # Cross-platform README, package lifecycle, and immutable-CI smoke contract
+  - issue_58_test_hermeticity.rs # Subprocess isolation, transient owner, and empty-facade acceptance contract
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
@@ -126,6 +130,7 @@
   - 2026-07-27-issue-101-parent-explicit-guide.md # Ordered parent reduction, shared-opener, redaction, and platform evidence
   - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof
   - 2026-07-27-issue-66-readme-examples.md # Concise onboarding, package lifecycle, and immutable-CI evidence
+  - 2026-07-27-issue-58-hermetic-tests.md # Owned test roots, child-only environment, and binary-boundary evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure

@@ -1,24 +1,16 @@
+#[path = "support/process_cli.rs"]
+mod test_cli;
+
 use std::fs;
 use std::path::Path;
 #[cfg(unix)]
 use std::process::Stdio;
 use std::process::{Command, Output};
 use tempfile::TempDir;
+use test_cli::{process_cli_command, HermeticProcessCommand};
 
-const ENVIRONMENT_VARIABLES: &[&str] = &[
-    "AGENTIC_NAVIGATION_GUIDE_PATH",
-    "AGENTIC_NAVIGATION_GUIDE_ROOT",
-    "AGENTIC_NAVIGATION_GUIDE_NAME",
-    "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
-    "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-];
-
-fn isolated_command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"));
-    for variable in ENVIRONMENT_VARIABLES {
-        command.env_remove(variable);
-    }
-    command
+fn isolated_command() -> HermeticProcessCommand {
+    process_cli_command()
 }
 
 fn combined_output(output: &Output) -> String {
