@@ -5,7 +5,7 @@ pub(crate) mod dump;
 mod environment;
 mod generation_options;
 pub(crate) mod init;
-mod output;
+pub(crate) mod output;
 pub(crate) mod verify;
 
 use crate::errors::{AppError, Result};
@@ -62,7 +62,7 @@ pub(crate) fn finish_ignored_policy(
     }
 
     let message = denied_ignored_message(ignored_count);
-    eprintln!("{message}");
+    output::stderr_line(&message)?;
     Err(AppError::Other(message).reported())
 }
 
@@ -76,11 +76,11 @@ pub(crate) fn finish_ignored_policy(
     after_help = ENVIRONMENT_HELP
 )]
 pub(crate) struct Cli {
-    /// Enable verbose output
+    /// Include verbose informational output; diagnostics remain source-free
     #[arg(short, long, global = true, conflicts_with_all = ["quiet", "log_level"])]
     pub(crate) verbose: bool,
 
-    /// Enable quiet output (minimal messages)
+    /// Suppress ordinary chatter; primary dump output and errors remain visible
     #[arg(short, long, global = true, conflicts_with_all = ["verbose", "log_level"])]
     pub(crate) quiet: bool,
 

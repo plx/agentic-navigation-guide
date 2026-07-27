@@ -80,7 +80,9 @@ fn main() {
         Err(e) => {
             if !e.is_reported() {
                 let formatted = ErrorFormatter::format_with_context(e.root_cause(), None);
-                eprintln!("{formatted}");
+                // Preserve the command's status even when stderr itself is
+                // unavailable; reporting must never introduce a Rust panic.
+                let _ = cli::output::stderr_line(&formatted);
             }
             let exit_code = cli::get_exit_code(&config, true);
             std::process::exit(exit_code);

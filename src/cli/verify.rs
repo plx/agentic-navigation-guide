@@ -1,7 +1,8 @@
 //! Verify subcommand implementation
 
-use crate::errors::{AppError, ErrorFormatter, Result};
-use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
+use super::output::{self, GuideCommand};
+use crate::errors::{AppError, Result};
+use crate::guide_input::{self, GuideAnchor, GuideAuthority};
 use crate::parser::Parser;
 use crate::recursive::{self, GuideLocation, GuideVerificationResult};
 use crate::types::{Config, ExecutionMode, LogLevel};
@@ -102,13 +103,13 @@ impl RecursiveDiscovery {
 fn finish_empty_discovery(error: NoGuidesFound, allow_empty: bool, config: &Config) -> Result<()> {
     if allow_empty {
         if config.log_level != LogLevel::Quiet {
-            println!("--allow-empty accepted: zero navigation guides were verified");
-            println!("  {}", error.aggregate);
+            output::stdout_line("--allow-empty accepted: zero navigation guides were verified")?;
+            output::stdout_line(&format!("  {}", error.aggregate))?;
         }
         Ok(())
     } else {
-        eprintln!("{error}");
-        eprintln!("  {}", error.aggregate);
+        output::stderr_line(&error.to_string())?;
+        output::stderr_line(&format!("  {}", error.aggregate))?;
         Err(AppError::Other(error.to_string()).reported())
     }
 }
@@ -156,7 +157,7 @@ pub(crate) struct VerifyArgs {
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "github_actions_check"])]
     pub(crate) pre_commit_hook: bool,
 
-    /// Running as GitHub Actions check
+    /// Emit GitHub diagnostics on stderr as path:line: typed reason
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "pre_commit_hook"])]
     pub(crate) github_actions_check: bool,
 }
@@ -185,14 +186,16 @@ impl VerifyArgs {
         let root_path = self.root.unwrap_or_else(|| current_dir.clone());
         let (guide_path, logical_path, authority) = match self.guide {
             Some(path) => {
-                guide_input::validate_explicit_path(&path).map_err(report_guide_input_error)?;
+                guide_input::validate_explicit_path(&path)
+                    .map_err(|error| AppError::Other(error.to_string()))?;
                 (path.clone(), path, GuideAuthority::Explicit)
             }
             None => {
                 let name = self
                     .implicit_guide_name
                     .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
-                guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
+                guide_input::validate_implicit_name(&name)
+                    .map_err(|error| AppError::Other(error.to_string()))?;
                 (
                     root_path.join(&name),
                     PathBuf::from(name),
@@ -200,11 +203,17 @@ impl VerifyArgs {
                 )
             }
         };
-        let anchor = GuideAnchor::new(&root_path).map_err(report_guide_input_error)?;
+        let anchor =
+            GuideAnchor::new(&root_path).map_err(|error| AppError::Other(error.to_string()))?;
 
         // Store control-safe caller-facing spellings for hook diagnostics.
         config.original_guide_path = Some(guide_input::render_path(&logical_path));
         config.original_root_path = Some(guide_input::render_path(&root_path));
+        let display_guide_path = config
+            .original_guide_path
+            .as_deref()
+            .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
+        let display_root_path = config.original_root_path.as_deref().unwrap_or("./");
 
         log::debug!(
             "Verifying navigation guide: {} against root: {}",
@@ -214,23 +223,20 @@ impl VerifyArgs {
 
         let content = anchor
             .read(&guide_path, &logical_path, authority)
-            .map_err(report_guide_input_error)?;
+            .map_err(|error| AppError::Other(error.to_string()))?;
 
         // Parse the guide
         let parser = Parser::new();
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                if config.execution_mode == ExecutionMode::PostToolUse {
-                    let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config);
-                    eprintln!("{formatted}");
-                } else if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &guide_path, config);
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, None);
-                    eprintln!("{formatted}");
-                }
+                output::report_guide_error(
+                    &e,
+                    GuideCommand::Verify,
+                    config,
+                    display_guide_path,
+                    Some(display_root_path),
+                )?;
                 return Err(e.reported());
             }
         };
@@ -246,12 +252,14 @@ impl VerifyArgs {
             if config.log_level != LogLevel::Quiet {
                 match config.execution_mode {
                     ExecutionMode::GitHubActions => {
-                        eprintln!(
+                        output::stderr_line(&format!(
                             "⚠️  Skipping verification: guide at {display_path} has ignore=true"
-                        );
+                        ))?;
                     }
                     _ => {
-                        eprintln!("Warning: Skipping verification of {display_path} (marked with ignore=true)");
+                        output::stderr_line(&format!(
+                            "Warning: Skipping verification of {display_path} (marked with ignore=true)"
+                        ))?;
                     }
                 }
 
@@ -262,9 +270,9 @@ impl VerifyArgs {
                     .map(|n| n == "AGENTIC_NAVIGATION_GUIDE.md")
                     .unwrap_or(false)
                 {
-                    eprintln!(
-                        "Note: Standalone guide file is marked with ignore=true. This may be intentional for examples."
-                    );
+                    output::stderr_line(
+                        "Note: Standalone guide file is marked with ignore=true. This may be intentional for examples.",
+                    )?;
                 }
             }
 
@@ -274,16 +282,13 @@ impl VerifyArgs {
         // First validate syntax
         let validator = Validator::new();
         if let Err(e) = validator.validate_syntax(&guide) {
-            if config.execution_mode == ExecutionMode::PostToolUse {
-                let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config);
-                eprintln!("{formatted}");
-            } else if config.execution_mode == ExecutionMode::GitHubActions {
-                let formatted = format_github_actions_error(&e, &guide_path, config);
-                eprintln!("{formatted}");
-            } else {
-                let formatted = ErrorFormatter::format_with_context(&e, None);
-                eprintln!("{formatted}");
-            }
+            output::report_guide_error(
+                &e,
+                GuideCommand::Verify,
+                config,
+                display_guide_path,
+                Some(display_root_path),
+            )?;
             return Err(e.reported());
         }
 
@@ -294,26 +299,25 @@ impl VerifyArgs {
                 if config.log_level != LogLevel::Quiet {
                     match config.execution_mode {
                         ExecutionMode::GitHubActions => {
-                            println!("✓ Navigation guide verified");
+                            output::stdout_line("✓ Navigation guide verified")?;
                         }
                         _ => {
-                            println!("✓ Navigation guide is valid and matches filesystem");
+                            output::stdout_line(
+                                "✓ Navigation guide is valid and matches filesystem",
+                            )?;
                         }
                     }
                 }
                 super::finish_ignored_policy(0, self.deny_ignored)
             }
             Err(e) => {
-                if config.execution_mode == ExecutionMode::PostToolUse {
-                    let formatted = format_post_tool_use_error(&e, &guide_path, &root_path, config);
-                    eprintln!("{formatted}");
-                } else if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &guide_path, config);
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, None);
-                    eprintln!("{formatted}");
-                }
+                output::report_guide_error(
+                    &e,
+                    GuideCommand::Verify,
+                    config,
+                    display_guide_path,
+                    Some(display_root_path),
+                )?;
                 Err(e.reported())
             }
         }
@@ -353,14 +357,14 @@ impl VerifyArgs {
         if config.log_level != LogLevel::Quiet {
             match config.execution_mode {
                 ExecutionMode::GitHubActions => {
-                    println!("Found {} navigation guide(s)", guides.len());
+                    output::stdout_line(&format!("Found {} navigation guide(s)", guides.len()))?;
                 }
                 _ => {
-                    println!(
+                    output::stdout_line(&format!(
                         "Found {} navigation guide(s) to verify in {}",
                         guides.len(),
                         guide_input::render_path(&search_root)
-                    );
+                    ))?;
                 }
             }
         }
@@ -370,20 +374,20 @@ impl VerifyArgs {
         let aggregate = RecursiveAggregate::from_results(&results);
 
         // Display results and determine exit status
-        let all_passed = recursive::display_results(&results, config);
+        let all_passed = recursive::display_results(&results, config)?;
 
         if self.deny_ignored && aggregate.ignored != 0 {
             // Quiet suppresses ordinary success chatter, not the aggregate
             // attached to a policy failure.
             if config.log_level == LogLevel::Quiet {
-                eprintln!("  {aggregate}");
+                output::stderr_line(&format!("  {aggregate}"))?;
             }
             if !all_passed {
                 let message = format!(
                     "Some guides failed verification, and {}",
                     super::denied_ignored_message(aggregate.ignored)
                 );
-                eprintln!("{message}");
+                output::stderr_line(&message)?;
                 return Err(AppError::Other(message).reported());
             }
             return super::finish_ignored_policy(aggregate.ignored, true);
@@ -395,86 +399,4 @@ impl VerifyArgs {
             super::finish_ignored_policy(aggregate.ignored, self.deny_ignored)
         }
     }
-}
-
-/// Format errors specifically for post-tool-use hook mode
-fn format_post_tool_use_error(
-    error: &crate::errors::AppError,
-    _guide_path: &Path,
-    _root_path: &Path,
-    config: &Config,
-) -> String {
-    use crate::errors::AppError;
-
-    // Get display paths - use original if available, otherwise use defaults
-    let display_guide_path = config
-        .original_guide_path
-        .as_deref()
-        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
-
-    let display_root_path = config.original_root_path.as_deref().unwrap_or("./");
-
-    match error {
-        AppError::Syntax(_) => {
-            let error_detail = ErrorFormatter::format_with_context(error, None);
-
-            format!(
-                "The agentic navigation guide at {display_guide_path} has a syntax error:\n\n{error_detail}"
-            )
-        }
-        AppError::Semantic(semantic_error) => {
-            // For semantic errors, just use the error message without line context
-            let error_detail = semantic_error.to_string();
-
-            format!(
-                "The agentic navigation guide has become out-of-date vis-a-vis the current state of the file system.\n\n\
-                - guide: {display_guide_path}\n\
-                - root: {display_root_path}\n\
-                - details:\n  - {error_detail}"
-            )
-        }
-        _ => ErrorFormatter::format_with_context(error, None),
-    }
-}
-
-/// Format errors specifically for GitHub Actions mode
-fn format_github_actions_error(
-    error: &crate::errors::AppError,
-    _guide_path: &Path,
-    config: &Config,
-) -> String {
-    use crate::errors::AppError;
-
-    let display_guide_path = config
-        .original_guide_path
-        .as_deref()
-        .unwrap_or("AGENTIC_NAVIGATION_GUIDE.md");
-
-    let mut output = String::new();
-
-    // Error header with emoji
-    output.push_str("❌ Navigation guide verification failed\n\n");
-
-    // Get line number from error
-    let line_num = match error {
-        AppError::Syntax(e) => e.line_number(),
-        AppError::Semantic(e) => Some(e.line_number()),
-        _ => None,
-    };
-
-    // Format error with file:line if available
-    if let Some(line_num) = line_num {
-        output.push_str(&format!("{display_guide_path}:{line_num}: "));
-        output.push_str(&error.to_string());
-        output.push('\n');
-    } else {
-        output.push_str(&format!("{display_guide_path}: {error}\n"));
-    }
-
-    output
-}
-
-fn report_guide_input_error(error: GuideInputError) -> AppError {
-    eprintln!("{error}");
-    AppError::Other(error.to_string()).reported()
 }

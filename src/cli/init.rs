@@ -3,7 +3,7 @@
 use super::output;
 use crate::dumper::Dumper;
 use crate::errors::Result;
-use crate::types::Config;
+use crate::types::{Config, LogLevel};
 use clap::Args;
 use std::path::PathBuf;
 
@@ -43,7 +43,7 @@ pub(crate) struct InitArgs {
 
 impl InitArgs {
     /// Execute the init command
-    pub(crate) fn execute(self, _config: &Config) -> Result<()> {
+    pub(crate) fn execute(self, config: &Config) -> Result<()> {
         let Self {
             output: output_path,
             depth,
@@ -91,7 +91,12 @@ Note: This guide was automatically generated and may need manual adjustments.
             Ok(full_output.into_bytes())
         })?;
 
-        println!("Navigation guide created at: {}", output_path.display());
+        if config.log_level != LogLevel::Quiet {
+            output::stdout_line(&format!(
+                "Navigation guide created at: {}",
+                output_path.display()
+            ))?;
+        }
         Ok(())
     }
 }

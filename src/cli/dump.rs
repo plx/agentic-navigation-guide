@@ -5,7 +5,6 @@ use crate::dumper::Dumper;
 use crate::errors::Result;
 use crate::types::Config;
 use clap::Args;
-use std::io::Write;
 use std::path::PathBuf;
 
 use super::generation_options::{parse_depth, parse_indent};
@@ -77,8 +76,7 @@ impl DumpArgs {
             })?;
         } else {
             let generated = generate()?;
-            print!("{generated}");
-            std::io::stdout().flush()?;
+            output::stdout(&generated)?;
         }
 
         Ok(())

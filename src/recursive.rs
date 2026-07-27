@@ -1,6 +1,7 @@
 //! Recursive navigation guide discovery and verification
 
-use crate::errors::{AppError, ErrorFormatter, Result};
+use crate::cli::output::{self, GuideCommand, GuideDiagnostic};
+use crate::errors::{AppError, Result};
 use crate::exclusion::ExclusionMatcher;
 use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use crate::parser::Parser;
@@ -20,6 +21,8 @@ pub(crate) struct GuideLocation {
     pub(crate) guide_path: PathBuf,
     /// Root directory for verification (parent of guide file)
     pub(crate) root_path: PathBuf,
+    /// Search-root-relative path retained for safe, stable diagnostics.
+    pub(crate) logical_path: PathBuf,
 }
 
 /// Result of verifying a single guide
@@ -32,8 +35,8 @@ pub(crate) struct GuideVerificationResult {
     /// An ignored result also sets this shared transport field, but is excluded
     /// from verified-success counts by `ignored`.
     pub(crate) success: bool,
-    /// Error message if verification failed
-    pub(crate) error: Option<String>,
+    /// Source-free structured diagnostic if verification failed.
+    pub(crate) error: Option<GuideDiagnostic>,
     /// Whether the guide produced the distinct ignored outcome.
     pub(crate) ignored: bool,
 }
@@ -176,6 +179,7 @@ where
                 guides.push(GuideLocation {
                     guide_path: path,
                     root_path,
+                    logical_path: relative_path,
                 });
                 continue;
             }
@@ -243,14 +247,13 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
         Ok(anchor) => anchor,
         Err(error) => return failed_guide_input(location, error),
     };
-    let logical_path = location
-        .guide_path
-        .strip_prefix(&location.root_path)
-        .unwrap_or(&location.guide_path);
-
     // Revalidate and open without following the final entry. This protects
     // both normal discovery and manually constructed internal GuideLocations.
-    let content = match anchor.read(&location.guide_path, logical_path, GuideAuthority::Implicit) {
+    let content = match anchor.read(
+        &location.guide_path,
+        &location.logical_path,
+        GuideAuthority::Implicit,
+    ) {
         Ok(content) => content,
         Err(error) => return failed_guide_input(location, error),
     };
@@ -260,11 +263,10 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
     let guide = match parser.parse(&content) {
         Ok(guide) => guide,
         Err(e) => {
-            let formatted = ErrorFormatter::format_with_context(&e, None);
             return GuideVerificationResult {
                 location: location.clone(),
                 success: false,
-                error: Some(formatted),
+                error: Some(GuideDiagnostic::from_error(&e)),
                 ignored: false,
             };
         }
@@ -283,11 +285,10 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
     // Validate syntax
     let validator = Validator::new();
     if let Err(e) = validator.validate_syntax(&guide) {
-        let formatted = ErrorFormatter::format_with_context(&e, None);
         return GuideVerificationResult {
             location: location.clone(),
             success: false,
-            error: Some(formatted),
+            error: Some(GuideDiagnostic::from_error(&e)),
             ignored: false,
         };
     }
@@ -301,15 +302,12 @@ fn verify_single_guide(location: &GuideLocation, _config: &Config) -> GuideVerif
             error: None,
             ignored: false,
         },
-        Err(e) => {
-            let formatted = ErrorFormatter::format_with_context(&e, None);
-            GuideVerificationResult {
-                location: location.clone(),
-                success: false,
-                error: Some(formatted),
-                ignored: false,
-            }
-        }
+        Err(e) => GuideVerificationResult {
+            location: location.clone(),
+            success: false,
+            error: Some(GuideDiagnostic::from_error(&e)),
+            ignored: false,
+        },
     }
 }
 
@@ -317,7 +315,7 @@ fn failed_guide_input(location: &GuideLocation, error: GuideInputError) -> Guide
     GuideVerificationResult {
         location: location.clone(),
         success: false,
-        error: Some(error.to_string()),
+        error: Some(GuideDiagnostic::from_message(error.to_string())),
         ignored: false,
     }
 }
@@ -327,7 +325,10 @@ fn map_guide_input_error(error: GuideInputError) -> AppError {
 }
 
 /// Format and display verification results
-pub(crate) fn display_results(results: &[GuideVerificationResult], config: &Config) -> bool {
+pub(crate) fn display_results(
+    results: &[GuideVerificationResult],
+    config: &Config,
+) -> Result<bool> {
     let aggregate = VerificationAggregate::from_results(results);
 
     // Keep the shared internal renderer from treating an empty slice as
@@ -335,22 +336,22 @@ pub(crate) fn display_results(results: &[GuideVerificationResult], config: &Conf
     // it can include the selected root, guide name, and explicit remedy.
     if aggregate.absent != 0 {
         if config.log_level != LogLevel::Quiet {
-            eprintln!("zero navigation guides were verified");
-            eprintln!("  {aggregate}");
+            output::stderr_line("zero navigation guides were verified")?;
+            output::stderr_line(&format!("  {aggregate}"))?;
         }
-        return false;
+        return Ok(false);
     }
 
     // Display individual results based on execution mode
     match config.execution_mode {
         ExecutionMode::GitHubActions => {
-            display_github_actions_results(results, config);
+            display_github_actions_results(results, config)?;
         }
         ExecutionMode::PostToolUse => {
-            display_post_tool_use_results(results, config);
+            display_post_tool_use_results(results, config)?;
         }
         _ => {
-            display_default_results(results, config);
+            display_default_results(results, config)?;
         }
     }
 
@@ -360,104 +361,137 @@ pub(crate) fn display_results(results: &[GuideVerificationResult], config: &Conf
             ExecutionMode::GitHubActions => {
                 if aggregate.failed == 0 {
                     if aggregate.ignored == 0 {
-                        println!("✓ All navigation guides verified ({aggregate})");
+                        output::stdout_line(&format!(
+                            "✓ All navigation guides verified ({aggregate})"
+                        ))?;
                     } else {
-                        println!("Navigation guide verification complete ({aggregate})");
+                        output::stdout_line(&format!(
+                            "Navigation guide verification complete ({aggregate})"
+                        ))?;
                     }
                 } else {
-                    eprintln!("❌ Navigation guide verification failed: {aggregate}");
+                    output::stderr_line(&format!(
+                        "❌ Navigation guide verification failed: {aggregate}"
+                    ))?;
                 }
             }
             _ => {
                 if aggregate.failed == 0 {
                     if aggregate.ignored == 0 {
-                        println!("✓ All navigation guides are valid and match filesystem");
+                        output::stdout_line(
+                            "✓ All navigation guides are valid and match filesystem",
+                        )?;
                     } else if aggregate.passed == 0 {
-                        println!(
-                            "No navigation guides were verified; ignored guides were discovered"
-                        );
+                        output::stdout_line(
+                            "No navigation guides were verified; ignored guides were discovered",
+                        )?;
                     } else {
-                        println!(
-                            "Navigation guide verification complete; active guides passed and ignored guides were skipped"
-                        );
+                        output::stdout_line(
+                            "Navigation guide verification complete; active guides passed and ignored guides were skipped",
+                        )?;
                     }
-                    println!("  {aggregate}");
+                    output::stdout_line(&format!("  {aggregate}"))?;
                 } else {
-                    eprintln!("✗ Some navigation guides failed verification");
-                    eprintln!("  {aggregate}");
+                    output::stderr_line("✗ Some navigation guides failed verification")?;
+                    output::stderr_line(&format!("  {aggregate}"))?;
                 }
             }
         }
     }
 
-    aggregate.failed == 0
+    Ok(aggregate.failed == 0)
 }
 
 /// Display results for GitHub Actions mode
-fn display_github_actions_results(results: &[GuideVerificationResult], config: &Config) {
+fn display_github_actions_results(
+    results: &[GuideVerificationResult],
+    config: &Config,
+) -> Result<()> {
     for result in results {
         let guide_path = render_location(&result.location);
         if result.ignored {
             if config.log_level != LogLevel::Quiet {
-                eprintln!("⚠️  Skipping verification: guide at {guide_path} has ignore=true");
+                output::stderr_line(&format!(
+                    "⚠️  Skipping verification: guide at {guide_path} has ignore=true"
+                ))?;
             }
         } else if result.success {
             if config.log_level != LogLevel::Quiet {
-                println!("✓ {guide_path}: verified");
+                output::stdout_line(&format!("✓ {guide_path}: verified"))?;
             }
         } else if let Some(error) = &result.error {
-            eprintln!("❌ {guide_path}:");
-            eprintln!("{error}");
+            let root_path = render_root(&result.location);
+            output::stderr_line(&error.render(
+                GuideCommand::Verify,
+                config,
+                &guide_path,
+                Some(&root_path),
+            ))?;
         }
     }
+    Ok(())
 }
 
 /// Display results for post-tool-use mode
-fn display_post_tool_use_results(results: &[GuideVerificationResult], config: &Config) {
+fn display_post_tool_use_results(
+    results: &[GuideVerificationResult],
+    config: &Config,
+) -> Result<()> {
     for result in results {
         let guide_path = render_location(&result.location);
         if result.ignored {
             if config.log_level != LogLevel::Quiet {
-                eprintln!(
+                output::stderr_line(&format!(
                     "Warning: Skipping verification of {guide_path} (marked with ignore=true)"
-                );
+                ))?;
             }
         } else if !result.success {
             if let Some(error) = &result.error {
-                eprintln!("The agentic navigation guide at {guide_path} has errors:\n\n{error}");
+                let root_path = render_root(&result.location);
+                output::stderr_line(&error.render(
+                    GuideCommand::Verify,
+                    config,
+                    &guide_path,
+                    Some(&root_path),
+                ))?;
             }
         }
     }
+    Ok(())
 }
 
 /// Display results for default mode
-fn display_default_results(results: &[GuideVerificationResult], config: &Config) {
+fn display_default_results(results: &[GuideVerificationResult], config: &Config) -> Result<()> {
     for result in results {
         let guide_path = render_location(&result.location);
         if result.ignored {
             if config.log_level != LogLevel::Quiet {
-                eprintln!(
+                output::stderr_line(&format!(
                     "Warning: Skipping verification of {guide_path} (marked with ignore=true)"
-                );
+                ))?;
             }
         } else if result.success {
             if config.log_level == LogLevel::Verbose {
-                println!("✓ {guide_path}: valid");
+                output::stdout_line(&format!("✓ {guide_path}: valid"))?;
             }
         } else if let Some(error) = &result.error {
-            eprintln!("✗ {guide_path}:");
-            eprintln!("{error}");
-            eprintln!();
+            output::stderr_line(&format!("✗ {guide_path}:"))?;
+            output::stderr_line(error.reason())?;
+            output::stderr_line("")?;
         }
     }
+    Ok(())
 }
 
 fn render_location(location: &GuideLocation) -> String {
-    let logical_path = location
-        .guide_path
-        .strip_prefix(&location.root_path)
-        .unwrap_or(&location.guide_path);
-    guide_input::render_path(logical_path)
+    guide_input::render_path(&location.logical_path)
+}
+
+fn render_root(location: &GuideLocation) -> String {
+    match location.logical_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => guide_input::render_path(parent),
+        _ => "./".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -517,7 +551,7 @@ mod tests {
                 absent: 1,
             }
         );
-        assert!(!display_results(&[], &config));
+        assert!(!display_results(&[], &config).expect("render empty result"));
     }
 
     #[test]
@@ -659,12 +693,13 @@ mod tests {
             &[GuideLocation {
                 guide_path: link,
                 root_path: root,
+                logical_path: PathBuf::from("AGENTIC_NAVIGATION_GUIDE.md"),
             }],
             &Config::default(),
         )
         .expect("internal verification result");
         let result = results.first().expect("one internal verification result");
-        let error = result.error.as_deref().unwrap_or_default();
+        let error = result.error.as_ref().map_or("", GuideDiagnostic::reason);
 
         assert!(!result.success);
         assert!(error.contains("unsafe guide path"), "{error}");
@@ -690,11 +725,15 @@ mod tests {
             &[GuideLocation {
                 guide_path: stream,
                 root_path: missing_root,
+                logical_path: PathBuf::from("base.txt:secret"),
             }],
             &Config::default(),
         )
         .expect("internal Windows verification result");
-        let error = results[0].error.as_deref().unwrap_or_default();
+        let error = results[0]
+            .error
+            .as_ref()
+            .map_or("", GuideDiagnostic::reason);
         assert!(
             !results[0].success
                 && error.contains("invalid explicit guide path")

@@ -1,12 +1,13 @@
 //! Check subcommand implementation
 
-use crate::errors::{AppError, ErrorFormatter, Result};
-use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
+use super::output::{self, GuideCommand};
+use crate::errors::{AppError, Result};
+use crate::guide_input::{self, GuideAnchor, GuideAuthority};
 use crate::parser::Parser;
 use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
 use clap::Args;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Arguments for the check subcommand
 #[derive(Args, Debug)]
@@ -31,7 +32,7 @@ pub(crate) struct CheckArgs {
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "github_actions_check"])]
     pub(crate) pre_commit_hook: bool,
 
-    /// Running as GitHub Actions check
+    /// Emit GitHub diagnostics on stderr as path:line: typed reason
     #[arg(long, conflicts_with_all = ["execution_mode", "post_tool_use_hook", "pre_commit_hook"])]
     pub(crate) github_actions_check: bool,
 }
@@ -54,14 +55,16 @@ impl CheckArgs {
         let current_dir = std::env::current_dir()?;
         let (guide_path, logical_path, authority) = match self.guide {
             Some(path) => {
-                guide_input::validate_explicit_path(&path).map_err(report_guide_input_error)?;
+                guide_input::validate_explicit_path(&path)
+                    .map_err(|error| AppError::Other(error.to_string()))?;
                 (path.clone(), path, GuideAuthority::Explicit)
             }
             None => {
                 let name = self
                     .implicit_guide_name
                     .unwrap_or_else(|| super::environment::DEFAULT_GUIDE_NAME.to_string());
-                guide_input::validate_implicit_name(&name).map_err(report_guide_input_error)?;
+                guide_input::validate_implicit_name(&name)
+                    .map_err(|error| AppError::Other(error.to_string()))?;
                 (
                     current_dir.join(&name),
                     PathBuf::from(name),
@@ -69,29 +72,22 @@ impl CheckArgs {
                 )
             }
         };
-        let anchor = GuideAnchor::new(&current_dir).map_err(report_guide_input_error)?;
+        let anchor =
+            GuideAnchor::new(&current_dir).map_err(|error| AppError::Other(error.to_string()))?;
+        let display_path = guide_input::render_path(&logical_path);
 
-        log::debug!(
-            "Checking navigation guide: {}",
-            guide_input::render_path(&logical_path)
-        );
+        log::debug!("Checking navigation guide: {display_path}");
 
         let content = anchor
             .read(&guide_path, &logical_path, authority)
-            .map_err(report_guide_input_error)?;
+            .map_err(|error| AppError::Other(error.to_string()))?;
 
         // Parse the guide
         let parser = Parser::new();
         let guide = match parser.parse(&content) {
             Ok(guide) => guide,
             Err(e) => {
-                if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &logical_path);
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, None);
-                    eprintln!("{formatted}");
-                }
+                output::report_guide_error(&e, GuideCommand::Check, config, &display_path, None)?;
                 return Err(e.reported());
             }
         };
@@ -104,12 +100,14 @@ impl CheckArgs {
             if config.log_level != LogLevel::Quiet {
                 match config.execution_mode {
                     ExecutionMode::GitHubActions => {
-                        eprintln!(
+                        output::stderr_line(&format!(
                             "⚠️  Skipping syntax check: guide at {display_path} has ignore=true"
-                        );
+                        ))?;
                     }
                     _ => {
-                        eprintln!("Warning: Skipping syntax check of {display_path} (marked with ignore=true)");
+                        output::stderr_line(&format!(
+                            "Warning: Skipping syntax check of {display_path} (marked with ignore=true)"
+                        ))?;
                     }
                 }
 
@@ -120,9 +118,9 @@ impl CheckArgs {
                     .map(|n| n == "AGENTIC_NAVIGATION_GUIDE.md")
                     .unwrap_or(false)
                 {
-                    eprintln!(
-                        "Note: Standalone guide file is marked with ignore=true. This may be intentional for examples."
-                    );
+                    output::stderr_line(
+                        "Note: Standalone guide file is marked with ignore=true. This may be intentional for examples.",
+                    )?;
                 }
             }
 
@@ -136,59 +134,19 @@ impl CheckArgs {
                 if config.log_level != LogLevel::Quiet {
                     match config.execution_mode {
                         ExecutionMode::GitHubActions => {
-                            println!("✓ Syntax valid");
+                            output::stdout_line("✓ Syntax valid")?;
                         }
                         _ => {
-                            println!("✓ Navigation guide syntax is valid");
+                            output::stdout_line("✓ Navigation guide syntax is valid")?;
                         }
                     }
                 }
                 super::finish_ignored_policy(0, self.deny_ignored)
             }
             Err(e) => {
-                if config.execution_mode == ExecutionMode::GitHubActions {
-                    let formatted = format_github_actions_error(&e, &logical_path);
-                    eprintln!("{formatted}");
-                } else {
-                    let formatted = ErrorFormatter::format_with_context(&e, None);
-                    eprintln!("{formatted}");
-                }
+                output::report_guide_error(&e, GuideCommand::Check, config, &display_path, None)?;
                 Err(e.reported())
             }
         }
     }
-}
-
-/// Format errors specifically for GitHub Actions mode
-fn format_github_actions_error(error: &crate::errors::AppError, logical_path: &Path) -> String {
-    use crate::errors::AppError;
-
-    let mut output = String::new();
-
-    // Error header with emoji
-    output.push_str("❌ Navigation guide syntax check failed\n\n");
-
-    // Get line number from error
-    let line_num = match error {
-        AppError::Syntax(e) => e.line_number(),
-        AppError::Semantic(e) => Some(e.line_number()),
-        _ => None,
-    };
-
-    // Format error with file:line if available
-    let guide_path = guide_input::render_path(logical_path);
-    if let Some(line_num) = line_num {
-        output.push_str(&format!("{guide_path}:{line_num}: "));
-        output.push_str(&error.to_string());
-        output.push('\n');
-    } else {
-        output.push_str(&format!("{guide_path}: {error}\n"));
-    }
-
-    output
-}
-
-fn report_guide_input_error(error: GuideInputError) -> AppError {
-    eprintln!("{error}");
-    AppError::Other(error.to_string()).reported()
 }
