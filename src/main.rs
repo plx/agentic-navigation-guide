@@ -40,6 +40,8 @@ mod exclusion_semantics_tests;
 #[cfg(test)]
 mod filesystem_identity_snapshot_tests;
 #[cfg(test)]
+mod parser_robustness_tests;
+#[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod v0_2_contract_tests;

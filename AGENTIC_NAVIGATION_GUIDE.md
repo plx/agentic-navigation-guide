@@ -4,6 +4,7 @@
   - containment_guarantee_tests.rs # Binary-unit containment contract tests
   - exclusion_semantics_tests.rs # Binary-unit exclusion contract tests
   - filesystem_identity_snapshot_tests.rs # Binary-unit identity contract tests
+  - parser_robustness_tests.rs # Deterministic bounded parser input-matrix tests
   - test_support.rs # Profile-aware CLI subprocess support for binary-unit tests
   - v0_2_contract_tests.rs # Binary-unit contract ledger and documentation-sync tests
   - types.rs # Core data types
@@ -98,6 +99,7 @@
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
   - 2026-07-26-issue-30-supported-rust-api-gate.md # Rust API/SemVer gate proof
+  - 2026-07-26-issue-57-parser-robustness.md # Deterministic bounded parser input-matrix evidence
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
