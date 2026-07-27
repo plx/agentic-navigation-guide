@@ -1,14 +1,20 @@
 # Agentic Navigation Guide
 
-> **Historical, non-normative design notes.** The normative v0.2 guide
-> language and filesystem-representation target is
-> [`docs/v0.2-contract.md`](docs/v0.2-contract.md). Issue
-> [#68](https://github.com/plx/agentic-navigation-guide/issues/68) owns the
-> complete rule-by-rule classification and final disposition of this file.
+<!-- historical-v0.2-specification -->
 
-This document records original design intent. For currently released behavior,
-use `README.md` and the implementation; for the approved v0.2 target, use the
-normative contract linked above.
+> **Historical design record — non-normative (retired 2026-07-27).**
+>
+> This document preserves original design intent first committed on
+> 2025-07-29. Do not use this document to determine current behavior,
+> compatibility, or support. The sole current specification is the
+> [`docs/v0.2-contract.md`](../v0.2-contract.md) normative v0.2 contract.
+> Every substantive rule below is reconciled in the
+> [classification and disposition record](../../audits/2026-07-27-issue-68-specification-disposition.md).
+> Historical statements and examples intentionally remain in their original
+> sections even where the current contract rejects or supersedes them.
+
+This document records original design intent. It is retained as recoverable
+rationale and prior art, not maintained product documentation.
 
 ## Background: The Problem
 

@@ -37,6 +37,11 @@ complete and the final candidate is revalidated.
   maintained user/contract documentation, and intentional license, notice,
   and attribution files; repository workflows, site sources, agent material,
   audits, remediations, and internal test fixtures are excluded.
+- `docs/v0.2-contract.md` is mechanically enforced as the sole normative v0.2
+  specification. The original root `Specification.md` is preserved with its
+  Git history under `docs/history/`, where an unmistakable dated banner and
+  complete rule-disposition record prevent its superseded examples from being
+  mistaken for current behavior.
 
 ### CLI and automation changes from `0.1.4`
 

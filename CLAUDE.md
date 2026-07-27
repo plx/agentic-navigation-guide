@@ -29,7 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Implementation plus tests define realized unreleased source behavior while
   explicitly owned v0.2 conformance rows remain pending.
 - `README.md` is the concise released-behavior entry point.
-- `Specification.md` is non-normative original intent/history.
+- `docs/history/Specification.md` is non-normative original intent/history.
 - If user-facing behavior changes, update `README.md` in the same change.
 - If divergence is intentional, record it in `README.md` under "Known Intentional Divergences" with date and rationale.
 

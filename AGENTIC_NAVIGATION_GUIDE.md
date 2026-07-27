@@ -70,9 +70,11 @@
 - docs/ # Maintained user and contract documentation
   - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
   - release-policy.md # Version/tag identity and compatibility baseline rules
+  - history/ # Clearly non-normative retained design records
+    - README.md # Historical-document status and authority index
+    - Specification.md # Original specification (docs/history/Specification.md), retained as non-normative evidence
 - release/
   - identity.toml # Machine-readable prepared version and pinned baseline evidence
-- Specification.md # original project specification document
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
 - about.hbs # handlebars template for THIRD_PARTY_LICENSES.md
 - .cargo/
@@ -99,6 +101,7 @@
   - issue_61_workflow_security_policy.rs # Immutable, least-privilege, bounded workflow policy regression
   - issue_62_package_boundary.rs # Exact source-package allowlist, installed-CLI smoke, and binary-only consumer proof
   - issue_64_release_identity.rs # Published API and exact package/install identity proof
+  - issue_68_normative_source.rs # Sole normative claimant, historical rule ledger, links, and contradiction proof
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
@@ -109,6 +112,7 @@
   - 2026-07-26-issue-61-workflow-hardening.md # Immutable Actions, least-privilege token, and bounded-execution evidence
   - 2026-07-26-issue-62-package-boundary.md # Reviewed manifest, packaged CLI smoke, and negative-consumer evidence
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
+  - 2026-07-27-issue-68-specification-disposition.md # Historical specification and PR #21 disposition evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
