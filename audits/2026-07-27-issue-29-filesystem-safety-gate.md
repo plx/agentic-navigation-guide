@@ -210,7 +210,9 @@ GUIDE_FORMAT_REQUIRE_CONFORMANCE=all \
   'v0_2_contract_tests::' -- --nocapture
 cargo test --locked --test cli_tests
 cargo test --locked --test issue_101_parent_explicit_guide
-cargo test --locked issue_49 -- --nocapture
+cargo test --locked --test cli_tests \
+  test_guide_trust_evidence_is_an_exact_set_for_issue_49 \
+  -- --exact --nocapture
 cargo test --locked issue_50 -- --nocapture
 cargo test --release --locked issue_50 -- --nocapture
 cargo test --locked issue_51 -- --nocapture
