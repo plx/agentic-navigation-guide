@@ -417,8 +417,9 @@ fn issue_66_ci_example_is_exact_parseable_and_immutable() {
         "RUMDL_VERSION: 0.2.43",
         "RUMDL_SHA256: 01e0dd2d89c07d244c5c93243f7faf2986d2abec68a7cec458e38c25988fbabc",
         "rumdl check --disable MD010,MD013,MD038 README.md",
+        "rumdl check --disable MD013 CONTRIBUTING.md .github/pull_request_template.md",
         "rumdl check SECURITY.md docs/security-response-runbook.md",
-        "lychee --no-progress README.md SECURITY.md .github/examples/readme-verify.yml",
+        "lychee --no-progress README.md CONTRIBUTING.md SECURITY.md .github/pull_request_template.md",
     ] {
         assert!(
             ci.contains(required),

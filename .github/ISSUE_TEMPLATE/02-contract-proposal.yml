@@ -1,0 +1,58 @@
+name: "Contract proposal"
+description: "Propose a reviewed change to the CLI, guide format, compatibility, or trust boundary."
+title: "[Contract]: "
+labels:
+  - "needs-decision"
+  - "domain: compatibility"
+body:
+  - type: "markdown"
+    attributes:
+      value: "Proposals do not change the normative contract until an issue-scoped pull request is reviewed and merged. Do not include private vulnerability details."
+  - type: "textarea"
+    id: "current-contract"
+    attributes:
+      label: "Current contract and evidence"
+      description: "Link the maintained contract text, fixture row, test, or documented absence that governs today."
+      placeholder: "Current rule, evidence ID, and owning issue"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "proposed-contract"
+    attributes:
+      label: "Proposed contract"
+      description: "State one exact new supported or rejected behavior and its success or failure semantics."
+      placeholder: "Normative wording plus an executable example"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "compatibility"
+    attributes:
+      label: "Compatibility and alternatives"
+      description: "Identify migration, versioning, stream, status, package, and rejected-alternative consequences."
+      placeholder: "Compatible, breaking, or unavailable with rationale"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "platforms"
+    attributes:
+      label: "Platform and trust-boundary impact"
+      description: "Cover Linux, macOS, Windows, filesystem capability differences, and stable-tree limitations."
+      placeholder: "Exact platform matrix and unavailable capabilities"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "security"
+    attributes:
+      label: "Security and resource impact"
+      description: "Describe trust anchors, diagnostics, containment limits, resource bounds, and private-reporting needs without exploit details."
+      placeholder: "No change, or an explicit bounded impact"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "dependencies"
+    attributes:
+      label: "Issue graph and implementation dependencies"
+      description: "List native `blocked by` and sub-issue relationships, related decisions, and the one intended implementation issue."
+      placeholder: "Blocked by #N; sub-issues; related but intentionally separate work"
+    validations:
+      required: true

@@ -1,0 +1,77 @@
+name: "Bug report"
+description: "Report reproducible incorrect CLI or guide-validation behavior."
+title: "[Bug]: "
+labels:
+  - "bug"
+body:
+  - type: "markdown"
+    attributes:
+      value: "Do not put vulnerability details, secrets, personal data, or private paths here. Use https://github.com/plx/agentic-navigation-guide/security/advisories/new for a private security report."
+  - type: "input"
+    id: "version"
+    attributes:
+      label: "Version or source commit"
+      description: "Give the installed version or exact source commit and installation method."
+      placeholder: "0.2.0, commit SHA, or trusted source checkout"
+    validations:
+      required: true
+  - type: "dropdown"
+    id: "platform"
+    attributes:
+      label: "Platform"
+      description: "Select the operating-system scope and name relevant filesystem details below."
+      options:
+        - "Linux"
+        - "macOS"
+        - "Windows"
+        - "Multiple or other"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "observed"
+    attributes:
+      label: "Observed behavior"
+      description: "Describe the actual status, stdout, stderr, and filesystem result with sensitive values removed."
+      placeholder: "Command shape, exit status, bounded diagnostic, and resulting state"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "expected"
+    attributes:
+      label: "Expected behavior"
+      description: "Describe the documented behavior or contract row that should apply."
+      placeholder: "Link the maintained contract section when possible"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "reproduction"
+    attributes:
+      label: "Minimal deterministic reproduction"
+      description: "Provide fixed synthetic files and commands that do not touch global Cargo, git, home-directory, or private state."
+      placeholder: "Smallest clean temporary-workspace reproducer"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "regression"
+    attributes:
+      label: "Proposed red-before-fix regression"
+      description: "Name the smallest deterministic test that should fail for this reason before a fix."
+      placeholder: "Test file, test name, expected nonzero status, and failure reason"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "compatibility"
+    attributes:
+      label: "Compatibility and documentation impact"
+      description: "State affected versions, platforms, CLI or guide contracts, documentation, dependencies, and license attribution."
+      placeholder: "None, or an explicit impact list"
+    validations:
+      required: true
+  - type: "textarea"
+    id: "security"
+    attributes:
+      label: "Security assessment"
+      description: "Say whether this is an ordinary public bug. Move suspected vulnerabilities to the private route above before adding details."
+      placeholder: "Ordinary bug with no security impact, or moved to private reporting"
+    validations:
+      required: true

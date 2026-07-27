@@ -209,6 +209,12 @@ jobs:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
         persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - uses: taiki-e/install-action@c070f87102a1c75b3183910f391c1cb887fe13c8  # v2.77.6
+      with:
+        tool: just@1.51.0
     - name: Install checksum-pinned actionlint 1.7.12
       env:
         ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
@@ -265,15 +271,20 @@ jobs:
       run: >-
         PYTHONDONTWRITEBYTECODE=1 python3 -m unittest
         tests/test_audit_github_protections.py -v
+    - name: Validate contributor guidance and templates
+      run: |
+        python3 -m py_compile scripts/check_contributor_templates.py
+        just test-contributor-templates
     - name: Lint maintained Markdown
       run: |
         rumdl check --disable MD010,MD013,MD038 README.md
+        rumdl check --disable MD013 CONTRIBUTING.md .github/pull_request_template.md
         rumdl check SECURITY.md docs/security-response-runbook.md
         rumdl check --disable MD010,MD013,MD018,MD031,MD038 docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
     - name: Check maintained documentation links
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: lychee --no-progress README.md SECURITY.md .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/security-response-runbook.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
+      run: lychee --no-progress README.md CONTRIBUTING.md SECURITY.md .github/pull_request_template.md .github/ISSUE_TEMPLATE/*.yml .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/security-response-runbook.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
 
   issue-selector:
     name: Production-readiness issue selector

@@ -233,6 +233,7 @@ README:
 - [security and vulnerability-reporting limitations](docs/v0.2-contract.md#security-and-vulnerability-reporting);
 - [supported CLI-only product and compatibility](docs/v0.2-contract.md#supported-product-and-rust-api);
 - [release and Rust support policy](docs/release-policy.md);
+- [contribution guide](CONTRIBUTING.md);
 - [security policy and private reporting route](SECURITY.md); and
 - [complete prepared `0.2.0` changes](CHANGELOG.md#020---unreleased).
 

@@ -67,6 +67,7 @@
 - CHANGELOG.md # Complete prepared 0.2.0 changes and published-0.1.4 migration
 - LICENSING.md # Fact-only historical license clarification and yank decision
 - README.md
+- CONTRIBUTING.md # One-issue workflow, deterministic red-before evidence, test rules, validation, and triage
 - SECURITY.md # Supported versions, private vulnerability reporting, trust boundary, and disclosure policy
 - docs/ # Maintained user and contract documentation
   - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
@@ -89,6 +90,11 @@
   - config.toml # project-local aliases and rust-version-aware dependency resolution
 - .github/
   - dependabot.yml # Weekly review-only Cargo and GitHub Actions update proposals
+  - ISSUE_TEMPLATE/
+    - 01-bug.yml # Structured public bug report without sensitive vulnerability details
+    - 02-contract-proposal.yml # Structured CLI, guide, compatibility, and trust-boundary proposal
+    - config.yml # No blank public issues; private vulnerability-report contact route
+  - pull_request_template.md # One-issue evidence, validation, impacts, graph, and closing-directive prompts
   - examples/
     - readme-verify.yml # Actionlint-checked immutable README workflow example
   - repository-protections/
@@ -109,11 +115,12 @@
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
 - LICENSE-APACHE
-- justfile # Repository task aliases, including production-readiness work selection
+- justfile # Repository task aliases, including work selection and contributor-template checks
 - scripts/
   - check_coverage.py # Fail-closed overall and critical-module branch-aware coverage policy
   - check_mutation_report.py # Reviewed blocker-mutation completeness and survivor gate
   - check_release_identity.py # Fail-closed version/tag/changelog/baseline checker
+  - check_contributor_templates.py # Strict contributor-guide, issue-form, chooser, and PR-template contract
   - audit_github_protections.py # Live ruleset, tag, environment, and secret-name policy audit
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
   - run_performance_baseline.py # Fixed-fixture release timing and resource regression harness
@@ -136,6 +143,7 @@
   - issue_68_normative_source.rs # Sole normative claimant, historical rule ledger, links, and contradiction proof
   - issue_71_maintainer_continuity.rs # Single-maintainer exception, candid control status, and policy-alignment regressions
   - issue_69_security_policy.rs # Private report route, support, threat-model, response, and CI policy proof
+  - issue_70_contributor_workflow.rs # Setup, issue graph, red-before, templates, validation, and triage proof
   - issue_55_platform_conformance.rs # Three-platform full-suite, capability, skip, and release-dependency policy
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
@@ -144,6 +152,7 @@
   - test_check_coverage.py # Coverage report floor and missing-instrumentation regressions
   - test_check_mutation_report.py # Mutation report completeness and survivor regressions
   - test_check_release_identity.py # Release-identity checker mutation regressions
+  - test_check_contributor_templates.py # Constrained YAML, required-heading, route, and fail-closed regressions
   - test_audit_github_protections.py # Offline GitHub-control comparison and pagination regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
   - test_performance_baseline.py # Performance matrix, scaling, metadata, and reference regressions
@@ -158,6 +167,7 @@
   - 2026-07-27-issue-68-specification-disposition.md # Historical specification and PR #21 disposition evidence
   - 2026-07-27-issue-71-maintainer-continuity.md # Approved sole-maintainer exception and missing-control disposition
   - 2026-07-27-issue-69-security-policy.md # Private route, claim mapping, tabletop, and residual-risk evidence
+  - 2026-07-27-issue-70-contributor-workflow.md # Red-before, clean-checkout, rendered-template, and cold-read evidence
   - 2026-07-27-issue-65-repository-protections.json # Non-sensitive admin-visible hosted-control attestation
   - 2026-07-27-issue-65-repository-protections.md # Required-check, tag, environment, and rejection-probe evidence
   - 2026-07-27-issue-47-output-contract.md # Broken-pipe, quiet-mode, and GitHub diagnostic evidence
