@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+#[cfg(unix)]
+use std::process::Stdio;
+use std::process::{Command, Output};
 use tempfile::TempDir;
 
 const ENVIRONMENT_VARIABLES: &[&str] = &[
