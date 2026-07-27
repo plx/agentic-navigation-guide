@@ -14,19 +14,35 @@ fn normalized_whitespace(source: &str) -> String {
     source.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn workflow_job(source: &str, job: &str, next_job: &str) -> String {
+    let normalized = source.replace("\r\n", "\n");
+    normalized
+        .split_once(&format!("  {job}:\n"))
+        .unwrap_or_else(|| panic!("CI must contain the {job} job"))
+        .1
+        .split_once(&format!("\n  {next_job}:\n"))
+        .unwrap_or_else(|| panic!("{job} must precede the {next_job} job"))
+        .0
+        .to_owned()
+}
+
 #[test]
 fn issue_70_contributor_guide_is_complete_and_uses_real_pinned_commands() {
     let guide = repository_file("CONTRIBUTING.md");
     let normalized = normalized_whitespace(&guide);
     let ci = repository_file(".github/workflows/ci.yml");
     let justfile = repository_file("justfile");
-    let workflow_lint = ci
-        .split_once("  workflow-lint:\n")
-        .expect("CI must contain the workflow-lint job")
-        .1
-        .split_once("\n  issue-selector:\n")
-        .expect("workflow-lint must precede the issue-selector job")
-        .0;
+    let workflow_lint = workflow_job(&ci, "workflow-lint", "issue-selector");
+    let canonical_ci = ci.replace("\r\n", "\n");
+    assert_eq!(
+        workflow_lint,
+        workflow_job(
+            &canonical_ci.replace('\n', "\r\n"),
+            "workflow-lint",
+            "issue-selector"
+        ),
+        "workflow-job checks must be invariant across Git LF and CRLF checkouts"
+    );
     let workflow_sources = format!(
         "{ci}\n{}",
         repository_file(".github/workflows/verify-guide.yml")

@@ -136,6 +136,12 @@ extracts and checks the exact owning workflow job. The review's Markdown-rule
 note required no weakening: the new documents pass with MD010 and MD038 still
 enabled.
 
+The first hosted Windows run then exposed that the new workflow-job extractor
+assumed an LF checkout. The test now normalizes Git's LF and CRLF forms before
+extracting the owning job and explicitly asserts that both representations
+produce identical evidence. This was a test-proof portability defect; the
+issue forms and contributor guidance were unchanged.
+
 The cold reader confirmed that these prerequisites remain discoverable without
 oral context:
 
