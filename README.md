@@ -53,6 +53,13 @@ cargo install agentic-navigation-guide --version 0.2.0 --locked
 Omitting `--locked` asks Cargo to resolve a new dependency graph and is outside
 the reproducible installation policy.
 
+The prepared source crate has an explicit, root-anchored package allowlist.
+It contains the production CLI sources, locked Cargo metadata, maintained
+README/changelog/contract/release documentation, and the reviewed license,
+NOTICE, and third-party attribution files. Repository workflows, site sources,
+agent/context material, audits, remediations, and internal test fixtures are
+not part of the published crate.
+
 ## Docs and Implementation Alignment Policy
 
 ### Source-of-Truth Precedence

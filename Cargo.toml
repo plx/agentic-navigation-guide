@@ -10,7 +10,33 @@ repository = "https://github.com/plx/agentic-navigation-guide"
 keywords = ["cli", "filesystem", "validation", "documentation"]
 categories = ["command-line-utilities", "development-tools"]
 publish = ["crates-io"]
-exclude = [".context/**"]
+# Root-anchored source-package boundary; #62 asserts the exact expanded list.
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/LICENSING.md",
+    "/NOTICE",
+    "/README.md",
+    "/THIRD_PARTY_LICENSES.md",
+    "/docs/release-policy.md",
+    "/docs/v0.2-contract.md",
+    "/src/main.rs",
+    "/src/cli/*.rs",
+    "/src/dumper.rs",
+    "/src/entry_type.rs",
+    "/src/errors.rs",
+    "/src/exclusion.rs",
+    "/src/guide_input.rs",
+    "/src/parser.rs",
+    "/src/path_codec.rs",
+    "/src/recursive.rs",
+    "/src/types.rs",
+    "/src/validator.rs",
+    "/src/verifier.rs",
+]
 
 [[bin]]
 name = "agentic-navigation-guide"

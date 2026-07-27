@@ -22,6 +22,7 @@ fn issue_60_declares_one_enforced_rust_floor() {
     let clippy = repository_file(".clippy.toml");
     let cargo_config = repository_file(".cargo/config.toml");
     let ci = repository_file(".github/workflows/ci.yml");
+    let normalized_ci = normalized_whitespace(&ci);
 
     assert!(
         manifest.contains(&format!("rust-version = \"{MSRV}\"")),
@@ -43,10 +44,10 @@ fn issue_60_declares_one_enforced_rust_floor() {
         "cargo test --locked --all-targets --all-features".to_owned(),
         "cargo clippy --locked --all-targets --all-features -- -D warnings".to_owned(),
         "cargo package --locked".to_owned(),
-        "cargo install --path . --locked".to_owned(),
+        "cargo install --path target/package/agentic-navigation-guide-0.2.0 --locked".to_owned(),
     ] {
         assert!(
-            ci.contains(&required),
+            normalized_ci.contains(&required),
             "CI must enforce the complete MSRV contract: missing `{required}`"
         );
     }
