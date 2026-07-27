@@ -18,6 +18,14 @@ check-release-identity tag="v0.2.0":
 test-release-identity:
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_release_identity.py -v
 
+# Compare live repository protections with the reviewed issue #65 payloads.
+audit-github-protections *args:
+    PYTHONDONTWRITEBYTECODE=1 python3 scripts/audit_github_protections.py {{ args }}
+
+# Run the offline repository-protection audit regressions.
+test-github-protections:
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_audit_github_protections.py -v
+
 # Run fail-closed coverage, mutation-report, and performance policy regressions.
 test-quality-gates:
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_coverage.py tests/test_check_mutation_report.py tests/test_performance_baseline.py -v

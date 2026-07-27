@@ -1,0 +1,21 @@
+{
+  "update": {
+    "wait_timer": 0,
+    "prevent_self_review": false,
+    "can_admins_bypass": false,
+    "reviewers": [
+      {
+        "type": "User",
+        "id": 65440
+      }
+    ],
+    "deployment_branch_policy": {
+      "protected_branches": false,
+      "custom_branch_policies": true
+    }
+  },
+  "expected_response": {
+    "name": "release",
+    "can_admins_bypass": false
+  }
+}

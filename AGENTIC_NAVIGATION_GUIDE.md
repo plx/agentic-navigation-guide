@@ -71,6 +71,7 @@
   - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
   - release-policy.md # Version/tag identity and compatibility baseline rules
   - maintainer-continuity.md # Time-bounded sole-maintainer exception, authority, and recovery policy
+  - repository-protections.md # Required checks, release-tag rules, protected environment, and audit procedure
   - history/ # Clearly non-normative retained design records
     - README.md # Historical-document status and authority index
     - Specification.md # Original specification (docs/history/Specification.md), retained as non-normative evidence
@@ -87,6 +88,20 @@
   - dependabot.yml # Weekly review-only Cargo and GitHub Actions update proposals
   - examples/
     - readme-verify.yml # Actionlint-checked immutable README workflow example
+  - repository-protections/
+    - main-ruleset.json # Reviewed default-branch ruleset payload
+    - release-tag-creation-ruleset.json # Sole-owner v* tag creation payload
+    - release-tag-immutability-ruleset.json # No-bypass v* tag immutability payload
+    - release-environment.json # Tag-scoped sole-maintainer environment policy
+    - release-environment-tag-policy.json # Exact v* deployment tag selector
+  - workflows/
+    - ci.yml # Cross-platform, release-quality, and stable required-CI aggregate
+    - claude.yml # Trusted-maintainer interactive Claude workflow
+    - claude-code-review.yml # Internal pull-request review workflow
+    - repository-protection-audit.yml # Weekly public GitHub-control drift audit
+    - site-check.yml # Pull-request site validation
+    - site-publish.yml # GitHub Pages publication
+    - verify-guide.yml # Navigation-guide consistency check
 - THIRD_PARTY_LICENSES.md # generated bundled-dependency attributions (CI-gated)
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
@@ -96,6 +111,7 @@
   - check_coverage.py # Fail-closed overall and critical-module branch-aware coverage policy
   - check_mutation_report.py # Reviewed blocker-mutation completeness and survivor gate
   - check_release_identity.py # Fail-closed version/tag/changelog/baseline checker
+  - audit_github_protections.py # Live ruleset, tag, environment, and secret-name policy audit
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
   - run_performance_baseline.py # Fixed-fixture release timing and resource regression harness
 - tests/
@@ -124,6 +140,7 @@
   - test_check_coverage.py # Coverage report floor and missing-instrumentation regressions
   - test_check_mutation_report.py # Mutation report completeness and survivor regressions
   - test_check_release_identity.py # Release-identity checker mutation regressions
+  - test_audit_github_protections.py # Offline GitHub-control comparison and pagination regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
   - test_performance_baseline.py # Performance matrix, scaling, metadata, and reference regressions
 - audits/ # Production-readiness records
@@ -136,6 +153,8 @@
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - 2026-07-27-issue-68-specification-disposition.md # Historical specification and PR #21 disposition evidence
   - 2026-07-27-issue-71-maintainer-continuity.md # Approved sole-maintainer exception and missing-control disposition
+  - 2026-07-27-issue-65-repository-protections.json # Non-sensitive admin-visible hosted-control attestation
+  - 2026-07-27-issue-65-repository-protections.md # Required-check, tag, environment, and rejection-probe evidence
   - 2026-07-27-issue-47-output-contract.md # Broken-pipe, quiet-mode, and GitHub diagnostic evidence
   - 2026-07-27-issue-101-parent-explicit-guide.md # Ordered parent reduction, shared-opener, redaction, and platform evidence
   - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof

@@ -1,0 +1,68 @@
+{
+  "checked_at": "2026-07-27T16:57:25.028083+00:00",
+  "failures": [],
+  "mode": "admin-visible",
+  "observed": {
+    "environment": {
+      "can_admins_bypass": false,
+      "deployment_branch_policy": {
+        "custom_branch_policies": true,
+        "protected_branches": false
+      },
+      "deployment_policies": [
+        {
+          "name": "v*",
+          "type": "tag"
+        }
+      ],
+      "id": 18830062205,
+      "name": "release",
+      "prevent_self_review": false,
+      "reviewer_ids": [
+        65440
+      ]
+    },
+    "publication_like_repository_secret_count": 0,
+    "release_environment_secret_count": 0,
+    "rulesets": {
+      "main": {
+        "bypass_actors_visible": true,
+        "enforcement": "active",
+        "id": 9303605,
+        "name": "Main",
+        "rule_types": [
+          "deletion",
+          "non_fast_forward",
+          "pull_request",
+          "required_status_checks"
+        ],
+        "target": "branch"
+      },
+      "tag_creation": {
+        "bypass_actors_visible": true,
+        "enforcement": "active",
+        "id": 19838514,
+        "name": "Release tag creation authority",
+        "rule_types": [
+          "creation"
+        ],
+        "target": "tag"
+      },
+      "tag_immutability": {
+        "bypass_actors_visible": true,
+        "enforcement": "active",
+        "id": 19838515,
+        "name": "Immutable release tags",
+        "rule_types": [
+          "deletion",
+          "non_fast_forward"
+        ],
+        "target": "tag"
+      }
+    }
+  },
+  "ok": true,
+  "repository": "plx/agentic-navigation-guide",
+  "schema_version": 1,
+  "warnings": []
+}

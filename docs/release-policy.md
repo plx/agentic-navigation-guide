@@ -35,11 +35,14 @@ authority; there is no tested independent recovery path or human approval
 redundancy. The exception expires on 2026-10-31.
 
 This limitation does not weaken the release identity, package, audit,
-provenance, Trusted Publishing, or protected-environment gates. Issue #63 must
-use short-lived crates.io identity, and issue #65 must establish the strongest
-operable controls for the personal repository. Publication after the expiry
-date is blocked without a verified backup or a new explicit maintainer
-decision.
+provenance, Trusted Publishing, or protected-environment gates. Issue #65
+established the strongest operable controls for the personal repository:
+pull-request-only `main` changes, current required CI, immutable release tags,
+and a tag-scoped owner-approved `release` environment. The absence of an
+independent pull-request or deployment approver remains residual risk. Issue
+#63 must use short-lived crates.io identity scoped to that environment.
+Publication after the expiry date is blocked without a verified backup or a
+new explicit maintainer decision.
 
 ## Rust and dependency support
 
