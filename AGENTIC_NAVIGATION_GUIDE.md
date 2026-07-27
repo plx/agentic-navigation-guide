@@ -168,6 +168,7 @@
   - 2026-07-27-issue-102-windows-device-ledger.md # Windows namespace pre-access oracle and real-platform precedence evidence
   - 2026-07-27-issue-29-filesystem-safety-gate.md # Verification, discovery, and filesystem-safety component-gate proof
   - 2026-07-27-issue-55-platform-conformance.md # Full-suite platform matrix, capability audit, and red-gate evidence
+  - 2026-07-27-issue-63-release-pipeline.md # Hosted release DAG, artifact, reproducibility, and fail-closed evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure

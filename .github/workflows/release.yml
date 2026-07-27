@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  # Temporary issue-#63 hosted rehearsal trigger; remove after PR evidence.
-  pull_request:
-    branches: [main]
   push:
     tags:
     - "v*"
@@ -25,7 +22,7 @@ on:
         - package-smoke
 
 env:
-  CANDIDATE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_tag || github.event_name == 'pull_request' && 'v0.2.0' || github.ref_name }}
+  CANDIDATE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_tag || github.ref_name }}
   CARGO_TERM_COLOR: always
   SOURCE_REF: ${{ github.ref }}
 
@@ -47,8 +44,7 @@ jobs:
     permissions:
       contents: read
     env:
-      # Temporary hosted proof for issue #63; remove with the PR trigger.
-      FAILURE_INJECTION: ${{ github.event_name == 'pull_request' && 'package-smoke' || inputs.failure_injection || 'none' }}
+      FAILURE_INJECTION: ${{ inputs.failure_injection || 'none' }}
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
@@ -239,8 +235,7 @@ jobs:
     permissions:
       contents: read
     env:
-      # Temporary hosted proof for issue #63; remove with the PR trigger.
-      FAILURE_INJECTION: ${{ github.event_name == 'pull_request' && 'package-smoke' || inputs.failure_injection || 'none' }}
+      FAILURE_INJECTION: ${{ inputs.failure_injection || 'none' }}
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:

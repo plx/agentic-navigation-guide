@@ -106,6 +106,11 @@ exactly
 registered, the absence of a short-lived publication credential fails closed.
 No long-lived token is installed.
 
+GitHub's repository-level immutable-release setting was enabled and verified
+through the repository API on 2026-07-27. It applies to future releases and
+does not require a GitHub organization. The issue #63 workflow independently
+checks the created release's API state before it requests crates.io identity.
+
 ## Inspection and recurring audit
 
 Anyone can reproduce the public portion of the check:

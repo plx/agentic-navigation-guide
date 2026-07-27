@@ -104,10 +104,12 @@ or environment publication secret is used.
 
 The crates.io Trusted Publisher must be registered with exactly `plx`,
 `agentic-navigation-guide`, `release.yml`, and `release`. GitHub's repository
-setting **Enable release immutability** must also be enabled for future
-releases. Until both hosted settings are verified, the source mechanism is
-ready for rehearsal but real publication remains blocked: OIDC exchange or
-the post-release immutability assertion fails before `cargo publish`.
+setting **Enable release immutability** was enabled and verified through the
+repository API on 2026-07-27; this is a repository-level control and does not
+require a GitHub organization. The exact crates.io Trusted Publisher remains
+unconfigured. Until it is registered and verified, the source mechanism is
+ready for rehearsal but real publication remains blocked because the OIDC
+exchange fails before `cargo publish`.
 
 ## Non-publishing rehearsal
 
