@@ -188,7 +188,7 @@ The completed change passed:
 - 14 release-identity checker regressions and the prepared identity check;
 - clean-tree `cargo package --list --locked --offline`: the reviewed package
   remains exactly 33 paths;
-- clean-tree `cargo package --locked`: 661.1 KiB source and 151.6 KiB
+- clean-tree `cargo package --locked`: 661.0 KiB source and 151.6 KiB
   compressed; and
 - clean-tree `cargo publish --dry-run --locked`: package verification passed
   and upload was aborted as required by dry-run mode.
