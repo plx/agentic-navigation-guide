@@ -1,12 +1,176 @@
-//! Shared, exclusive filesystem output for `init` and `dump --output`.
+//! Shared process-stream and exclusive filesystem output.
+//!
+//! Process messages use fallible locked handles. A closed stdout consumer is
+//! normal pipeline termination; stderr and other stdout failures remain
+//! command failures. Guide diagnostics retain typed location information
+//! without accepting raw guide source.
 
-use crate::errors::{AppError, Result as AppResult};
+use crate::errors::{AppError, ErrorFormatter, Result as AppResult};
+use crate::types::{Config, ExecutionMode};
 use std::env;
 use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GuideCommand {
+    Check,
+    Verify,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuideDiagnosticKind {
+    Syntax,
+    Semantic,
+    Other,
+}
+
+/// A source-free diagnostic retained across single and recursive operations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GuideDiagnostic {
+    kind: GuideDiagnosticKind,
+    line: Option<usize>,
+    reason: String,
+}
+
+impl GuideDiagnostic {
+    pub(crate) fn from_error(error: &AppError) -> Self {
+        let root = error.root_cause();
+        let (kind, line) = match root {
+            AppError::Syntax(error) => (GuideDiagnosticKind::Syntax, error.line_number()),
+            AppError::Semantic(error) => (GuideDiagnosticKind::Semantic, Some(error.line_number())),
+            _ => (GuideDiagnosticKind::Other, None),
+        };
+        Self {
+            kind,
+            line,
+            reason: ErrorFormatter::format_with_context(root, None),
+        }
+    }
+
+    pub(crate) fn from_message(reason: String) -> Self {
+        Self {
+            kind: GuideDiagnosticKind::Other,
+            line: None,
+            reason,
+        }
+    }
+
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    fn typed_reason(&self) -> String {
+        match self.kind {
+            GuideDiagnosticKind::Syntax => format!("syntax error: {}", self.reason),
+            GuideDiagnosticKind::Semantic => format!("semantic error: {}", self.reason),
+            GuideDiagnosticKind::Other => self.reason.clone(),
+        }
+    }
+
+    pub(crate) fn render(
+        &self,
+        command: GuideCommand,
+        config: &Config,
+        guide_path: &str,
+        root_path: Option<&str>,
+    ) -> String {
+        match (command, config.execution_mode) {
+            (GuideCommand::Verify, ExecutionMode::PostToolUse) => {
+                self.render_verify_post_tool_use(guide_path, root_path)
+            }
+            (_, ExecutionMode::GitHubActions) => self.render_github_actions(command, guide_path),
+            _ => self.reason.clone(),
+        }
+    }
+
+    fn render_verify_post_tool_use(&self, guide_path: &str, root_path: Option<&str>) -> String {
+        match self.kind {
+            GuideDiagnosticKind::Syntax => format!(
+                "The agentic navigation guide at {guide_path} has a syntax error:\n\n{}",
+                self.reason
+            ),
+            GuideDiagnosticKind::Semantic => format!(
+                "The agentic navigation guide has become out-of-date vis-a-vis the current state of the file system.\n\n\
+                 - guide: {guide_path}\n\
+                 - root: {}\n\
+                 - details:\n  - {}",
+                root_path.unwrap_or("./"),
+                self.reason
+            ),
+            GuideDiagnosticKind::Other => self.reason.clone(),
+        }
+    }
+
+    fn render_github_actions(&self, command: GuideCommand, guide_path: &str) -> String {
+        let header = match command {
+            GuideCommand::Check => "❌ Navigation guide syntax check failed",
+            GuideCommand::Verify => "❌ Navigation guide verification failed",
+        };
+        let location = self.line.map_or_else(
+            || format!("{guide_path}:"),
+            |line| format!("{guide_path}:{line}:"),
+        );
+        format!("{header}\n\n{location} {}", self.typed_reason())
+    }
+}
+
+/// Write primary or informational stdout without panicking.
+///
+/// BrokenPipe is success because the downstream consumer deliberately ended
+/// the Unix-style pipeline. Other write and flush failures remain errors.
+pub(crate) fn stdout(text: &str) -> AppResult<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    write_stdout_part(&mut handle, text.as_bytes())?;
+    flush_stdout(&mut handle)
+}
+
+pub(crate) fn stdout_line(text: &str) -> AppResult<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    write_stdout_part(&mut handle, text.as_bytes())?;
+    write_stdout_part(&mut handle, b"\n")?;
+    flush_stdout(&mut handle)
+}
+
+pub(crate) fn stderr_line(text: &str) -> AppResult<()> {
+    let stderr = io::stderr();
+    let mut handle = stderr.lock();
+    handle.write_all(text.as_bytes())?;
+    handle.write_all(b"\n")?;
+    handle.flush()?;
+    Ok(())
+}
+
+pub(crate) fn report_guide_error(
+    error: &AppError,
+    command: GuideCommand,
+    config: &Config,
+    guide_path: &str,
+    root_path: Option<&str>,
+) -> AppResult<()> {
+    let diagnostic = GuideDiagnostic::from_error(error);
+    stderr_line(&diagnostic.render(command, config, guide_path, root_path))
+}
+
+fn write_stdout_part(handle: &mut impl Write, bytes: &[u8]) -> AppResult<()> {
+    match handle.write_all(bytes) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn flush_stdout(handle: &mut impl Write) -> AppResult<()> {
+    match handle.flush() {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
 
 /// A destination that has passed the output-specific authority and safety
 /// checks. Generation happens after this plan is prepared but before the

@@ -521,6 +521,21 @@ If you're adding a navigation guide to your repository, I'd suggest:
 - commit the file to your repository
 - update your CLAUDE.md (etc.) to include the guide using the `@` syntax
 
+### Output, quiet mode, and exit status
+
+`dump` without `--output` writes primary guide data to stdout, including with
+`--quiet`. Ordinary success and progress messages use stdout; diagnostics,
+errors, and configured logs use stderr. Quiet mode suppresses ordinary
+chatter, but it never suppresses errors or changes exit status.
+
+On Unix, piping stdout to a consumer that closes early is normal: the command
+does not panic or exit 101 merely because delivery encountered `BrokenPipe`.
+As with any stream, the consumer may have received only a prefix.
+
+Successful commands exit `0`. Runtime and policy failures exit `2` in
+post-tool-use mode and `1` in default, pre-commit, and GitHub Actions modes.
+Usage and selected-environment configuration errors exit `2`.
+
 ### Environment Defaults
 
 Configuration uses one precedence rule: **CLI > environment > built-in**. A
@@ -722,9 +737,16 @@ verify-navigation-guide:
 
 The `--github-actions-check` flag provides:
 - Concise output on success ("✓ Navigation guide verified")
-- Detailed error messages with file:line references
+- Detailed errors on stderr with a separate
+  `safe-logical-guide-path:line: typed reason` field
 - Exit code 1 on failure (standard for CI checks)
 - Visual indicators (emoji) for quick scanning
+
+Single-guide and recursive failures use the same field syntax. Recursive paths
+are relative to the selected search root, so nested guides remain
+unambiguous; spaces and Unicode are preserved. Human headers and summaries are
+separate lines, and no mode prints raw guide source lines or resolved external
+targets.
 
 The examples also pass `--deny-ignored` because they are required gates.
 Execution mode alone does not forbid ignored guides.

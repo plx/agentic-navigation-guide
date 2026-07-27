@@ -100,6 +100,14 @@ complete and the final candidate is revalidated.
 - No tested nonzero command path exits silently. Default, hook, and GitHub
   Actions modes emit deterministic diagnostics while retaining their
   documented exit-code behavior.
+- Process output is fallible and centralized. On Unix, a closed stdout
+  consumer is normal pipeline termination rather than a Rust panic or exit
+  101; quiet mode suppresses ordinary success chatter while retaining primary
+  `dump` data and required errors.
+- Single-guide and recursive GitHub Actions failures share a source-free,
+  control-safe `path:line: typed reason` field on stderr. Recursive locations
+  retain their search-root-relative nested path, including spaces and Unicode,
+  while human decoration remains on separate lines.
 - Ordinary and allowed-ignored success exits `0`. A genuine zero discovery
   accepted by `--allow-empty` also exits `0`, prints its zero aggregate unless
   quiet, and is silent when quiet. Runtime and policy failures exit `2` in

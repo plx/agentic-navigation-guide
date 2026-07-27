@@ -104,6 +104,21 @@ fn issue_47_quiet_init_creates_without_ordinary_output() {
         "quiet init emitted ordinary chatter:\n{}",
         combined_output(&output)
     );
+
+    let dump = isolated_command()
+        .arg("--quiet")
+        .arg("dump")
+        .arg("--root")
+        .arg(&root)
+        .output()
+        .expect("run quiet primary dump");
+    assert!(
+        dump.status.success()
+            && String::from_utf8_lossy(&dump.stdout).contains("present file Ω.txt")
+            && dump.stderr.is_empty(),
+        "quiet mode suppressed primary dump data or emitted chatter:\n{}",
+        combined_output(&dump)
+    );
 }
 
 #[test]
