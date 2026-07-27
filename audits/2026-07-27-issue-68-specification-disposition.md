@@ -54,6 +54,10 @@ issue-mandated dispositions have these meanings:
 - **Unresolved:** issue #67 owns the complete CLI option/output contract; this
   issue does not silently settle it.
 
+The repository test parses this table as six exact columns and recognizes
+backtick-quoted fixture IDs in the evidence column. Keep that shape when
+editing a disposition.
+
 <!-- issue-68-classification:start -->
 
 | ID | Historical rule | Disposition | Current authority or replacement | Executable fixture or evidence | Rationale and traceability |

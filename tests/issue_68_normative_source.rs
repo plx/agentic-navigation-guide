@@ -60,9 +60,44 @@ fn normalized_path(path: &Path) -> String {
         .join("/")
 }
 
+fn markdown_outside_fences(source: &str) -> String {
+    let mut output = String::new();
+    let mut open_fence: Option<(u8, usize)> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        let bytes = trimmed.as_bytes();
+        let marker = bytes.first().copied();
+        let marker_length = marker.map_or(0, |marker| {
+            bytes.iter().take_while(|byte| **byte == marker).count()
+        });
+
+        if let Some((open_marker, open_length)) = open_fence {
+            let is_close = marker == Some(open_marker)
+                && marker_length >= open_length
+                && trimmed[marker_length..].trim().is_empty();
+            if is_close {
+                open_fence = None;
+            }
+            continue;
+        }
+
+        if marker.is_some_and(|marker| marker == b'`' || marker == b'~') && marker_length >= 3 {
+            open_fence = Some((marker.expect("fence marker"), marker_length));
+            continue;
+        }
+
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    output
+}
+
 fn assert_local_markdown_links_resolve(path: &str) {
     let source_path = repository_root().join(path);
     let source = repository_file(path);
+    let source = markdown_outside_fences(&source);
     let link_pattern =
         Regex::new(r#"\[[^\]]+\]\((?P<target>[^)]+)\)"#).expect("valid Markdown link regex");
 
