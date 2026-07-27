@@ -54,7 +54,7 @@ input was used.
 | --- | --- | --- | --- |
 | A101-001 | Implemented | The exact `check` and `verify` reproduction rejects before reading the outside guide. | `issue_101_parent_path_rejects_in_anchor_links_on_every_explicit_surface` exercises both commands and rejects target/sentinel disclosure. |
 | A101-002 | Implemented | No missing safe tail becomes external authority by default. | `CandidateClass` separates `ProvenInAnchor`, `ProvenExternal`, and `ParentContaining`; the former `safe_tail` fallback is absent. |
-| A101-003 | Platform-gated | Parent-containing symlink and junction/reparse variants reject on each claimed platform. | The same integration matrix uses Unix symlinks and a real Windows `mklink /J` junction. The required `Build (windows-latest)` PR job must pass before merge. |
+| A101-003 | Verified | Parent-containing symlink and junction/reparse variants reject on each claimed platform. | The same integration matrix uses Unix symlinks and a real Windows `mklink /J` junction. The hosted [`Build (windows-latest)` job](https://github.com/plx/agentic-navigation-guide/actions/runs/30260078628/job/89957645879) passed. |
 | A101-004 | Verified | Real-directory reduction and genuine explicit-external paths remain supported. | Positive controls cover `padding/../real/guide.md`, relative external regular files, and the existing stable external link-ancestor authority. |
 | A101-005 | Verified | Root aliases and unresolved root spellings retain parent-order guarantees. | The focused matrix covers a caller-selected root alias and `child-alias/..`; #51's exact containment suite remains green. |
 | A101-006 | Verified | Diagnostics retain configured spelling and redact resolved targets/content. | Every negative subprocess and the direct shared-opener regression assert the logical components and reject the target path and sentinel. |
@@ -97,6 +97,6 @@ All local validation used fixed, reviewable cases:
 - the exact-package install/smoke boundary test passed; and
 - `cargo package --locked --list` remained at exactly 33 files.
 
-The real Windows junction case remains required hosted evidence. A passing
-`Build (windows-latest)` PR job is required before the platform criterion can
-be marked verified and before the change can merge.
+The real Windows junction case passed in the hosted `Build (windows-latest)`
+PR job linked in the acceptance mapping. Capability absence would have failed
+the test rather than skipping it.
