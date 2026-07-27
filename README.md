@@ -41,16 +41,17 @@ CI also tests the current and immediately previous stable Rust releases; beta
 is an informational compatibility signal. The detailed maintenance policy and
 exact pinned toolchains are in the [release policy](docs/release-policy.md).
 
-For a reproducible install of the prepared release, select both its exact
+`0.2.0` is prepared but not published. Until publication, install only from a
+trusted source checkout with `cargo install --path . --locked`. After `0.2.0`
+is published, its reproducible crates.io install selects both the exact
 version and committed dependency graph:
 
 ```sh
 cargo install agentic-navigation-guide --version 0.2.0 --locked
 ```
 
-For a source checkout, use `cargo install --path . --locked`. Omitting
-`--locked` asks Cargo to resolve a new dependency graph and is outside the
-reproducible installation policy.
+Omitting `--locked` asks Cargo to resolve a new dependency graph and is outside
+the reproducible installation policy.
 
 ## Docs and Implementation Alignment Policy
 
@@ -673,7 +674,12 @@ disable it. Omit that flag only when ignored guides are intentionally allowed.
 
 ## GitHub Actions Integration
 
-To use the tool as a CI check in GitHub Actions, add a job to your workflow:
+The crates.io example below targets the eventual `0.2.0` release and becomes
+runnable only after that version is published. Before publication, validate
+the prepared CLI from a trusted source checkout with
+`cargo install --path . --locked`.
+
+After publication, add this exact-version job to use the tool as a CI check:
 
 ```yaml
 verify-navigation-guide:

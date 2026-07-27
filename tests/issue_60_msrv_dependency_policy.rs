@@ -87,11 +87,30 @@ fn issue_60_documents_locked_exact_install_and_review_only_updates() {
     let readme = repository_file("README.md");
     let policy = normalized_whitespace(&repository_file("docs/release-policy.md"));
     let dependabot = repository_file(".github/dependabot.yml");
+    let site_index = repository_file("site/src/content/docs/docs/index.mdx");
+    let site_ci = repository_file("site/src/content/docs/docs/ci.mdx");
 
     assert!(
         readme.contains("cargo install agentic-navigation-guide --version 0.2.0 --locked"),
         "README must show a reproducible exact-version install"
     );
+    for (surface, contents) in [
+        ("README", normalized_whitespace(&readme)),
+        ("release policy", policy.clone()),
+        ("site index", normalized_whitespace(&site_index)),
+        ("site CI guide", normalized_whitespace(&site_ci)),
+    ] {
+        assert!(
+            contents.contains("`0.2.0` is prepared but not published"),
+            "{surface} must not present the prepared install as available today"
+        );
+    }
+    for (surface, contents) in [("site index", site_index), ("site CI guide", site_ci)] {
+        assert!(
+            contents.contains("cargo install agentic-navigation-guide --version 0.2.0 --locked"),
+            "{surface} must use the exact reviewed release graph"
+        );
+    }
     assert!(
         policy.contains("Rust `1.85.0` is the minimum supported toolchain")
             && policy.contains("`--locked`")

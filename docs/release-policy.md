@@ -42,13 +42,16 @@ updated intentionally when Rust publishes a new stable release. Beta is
 informational: its CI job may reveal future incompatibility, but it does not
 block an otherwise supported release.
 
-The release-install command names both the prepared version and graph:
+`0.2.0` is prepared but not published, so the crates.io command below is not
+available yet. After publication, the release-install command names both the
+prepared version and graph:
 
 ```sh
 cargo install agentic-navigation-guide --version 0.2.0 --locked
 ```
 
-Source checkouts use `cargo install --path . --locked`. The exact `--version`
+Before publication, trusted source checkouts use
+`cargo install --path . --locked`. After publication, the exact `--version`
 prevents a newer compatible release from being selected, while `--locked`
 requires the dependency versions reviewed in `Cargo.lock`. An install that
 omits either control requests a different candidate or a freshly resolved
