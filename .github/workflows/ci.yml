@@ -152,6 +152,7 @@ jobs:
         tool: cargo-mutants@27.1.0
     - name: Run the deterministic reviewed mutation set
       run: |
+        mkdir -p target/issue-59-mutants
         cargo mutants \
           --file src/parser.rs \
           --file src/dumper.rs \
