@@ -1,9 +1,14 @@
 use regex::Regex;
+#[path = "support/process_cli.rs"]
+mod test_cli;
+#[path = "support/environment.rs"]
+mod test_environment;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tempfile::TempDir;
+use test_cli::process_cli_command;
 
 const NORMATIVE_MARKER: &str = "<!-- normative-v0.2-specification -->";
 const HISTORICAL_MARKER: &str = "<!-- historical-v0.2-specification -->";
@@ -385,7 +390,8 @@ fn issue_68_contradictory_historical_tab_example_is_executable_and_rejected() {
     )
     .expect("write fixed historical contradiction");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_agentic-navigation-guide"))
+    let output = process_cli_command()
+        .current_dir(temp.path())
         .arg("check")
         .arg("--guide")
         .arg(&guide)

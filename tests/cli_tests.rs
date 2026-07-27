@@ -1,31 +1,44 @@
+#[path = "support/assert_cli.rs"]
+mod test_cli;
+#[path = "support/environment.rs"]
+mod test_environment;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::time::Duration;
 use tempfile::TempDir;
+use test_cli::{assert_cli_command, HermeticAssertCommand};
 
-fn get_command() -> Command {
-    Command::cargo_bin("agentic-navigation-guide").unwrap()
+fn get_command() -> HermeticAssertCommand {
+    assert_cli_command()
 }
 
 const GUIDE_SOURCE_SENTINEL: &str = "ISSUE49_SECRET_7f4a2d909b6c";
 const ISSUE39_OPAQUE_BODY_SENTINEL: &str = "ISSUE39_OPAQUE_SECRET_0c6248a7";
 
-fn isolated_command() -> Command {
-    let mut command = get_command();
-    command.timeout(Duration::from_secs(5));
-    for variable in [
-        "AGENTIC_NAVIGATION_GUIDE_PATH",
-        "AGENTIC_NAVIGATION_GUIDE_ROOT",
-        "AGENTIC_NAVIGATION_GUIDE_NAME",
-        "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
-        "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-    ] {
-        command.env_remove(variable);
-    }
-    command
+fn isolated_command() -> HermeticAssertCommand {
+    get_command()
+}
+
+#[test]
+fn issue_58_product_current_directory_default_is_covered_explicitly() {
+    let root = TempDir::new().expect("explicit product current-directory fixture");
+    fs::write(root.path().join("current-directory-item.txt"), "").expect("write fixture item");
+
+    let output = get_command()
+        .current_dir(root.path())
+        .args(["dump", "--depth", "0"])
+        .output()
+        .expect("run explicit current-directory default");
+    assert!(
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("current-directory-item.txt"),
+        "the explicitly selected product current directory was not used:\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[cfg(unix)]

@@ -242,6 +242,8 @@ jobs:
       run: cargo build --release --locked --verbose
     - name: Run README examples on every supported shell platform
       run: cargo test --locked --test issue_66_readme_examples -- --nocapture
+    - name: Run hermetic test-infrastructure contract
+      run: cargo test --locked --test issue_58_test_hermeticity -- --nocapture
     - name: Run focused entry-type tests
       run: cargo test --locked issue_42 -- --nocapture
     - name: Run focused generation-preflight tests

@@ -1,26 +1,19 @@
-use assert_cmd::Command;
+#[path = "support/assert_cli.rs"]
+mod test_cli;
+#[path = "support/environment.rs"]
+mod test_environment;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::time::Duration;
 use tempfile::TempDir;
+use test_cli::{assert_cli_command, HermeticAssertCommand};
 
 const GUIDE: &str = "<agentic-navigation-guide>\n- probe.txt\n</agentic-navigation-guide>";
 const GUIDE_SENTINEL: &str = "ISSUE101_GUIDE_BYTES_MUST_NOT_BE_READ_5dc315da";
 
-fn isolated_command() -> Command {
-    let mut command = Command::cargo_bin("agentic-navigation-guide").expect("test binary");
-    command.timeout(Duration::from_secs(5));
-    for variable in [
-        "AGENTIC_NAVIGATION_GUIDE_PATH",
-        "AGENTIC_NAVIGATION_GUIDE_ROOT",
-        "AGENTIC_NAVIGATION_GUIDE_NAME",
-        "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
-        "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-    ] {
-        command.env_remove(variable);
-    }
-    command
+fn isolated_command() -> HermeticAssertCommand {
+    assert_cli_command()
 }
 
 fn write_guide(path: &Path) {
