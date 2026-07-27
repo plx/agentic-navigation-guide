@@ -29,6 +29,7 @@ Implementation commits:
 006cb3752eccda3b3e91d4e2345e5de29e9191dd
 c12c3b9674ad44e3332934be85e7027d3831da46
 1679d77f7a4f2f64ea413caf364aa93cb700f54a
+868f223a49ab9846bca21d9ee449079dba51ce21
 ```
 
 Base revision:
@@ -73,6 +74,13 @@ The final three-test contract passes in both the working tree and Cargo's
 verified unpacked package. It ties the manifest floor to Clippy and the MSRV
 CI lane, requires every MSRV gate, checks supported stable and informational
 beta lanes, and prevents install and dependency-automation policy drift.
+
+The exact crates.io command is explicitly future-dated across README, release
+policy, and maintained site documentation because prepared `0.2.0` is not yet
+published. Until publication, the documented usable path is a trusted source
+checkout with `cargo install --path . --locked`. The regression requires the
+unpublished warning and exact post-publication command on every user-facing
+install surface so preparation is never presented as present availability.
 
 ## Chosen floor and compatible graph
 
@@ -194,7 +202,9 @@ SHA-256
 and verified before extraction. Review also consolidated the redundant
 standalone default-toolchain test and Clippy jobs into the exact support
 matrix: every supported lane tests fully, while the MSRV and current stable
-endpoints lint.
+endpoints lint. The repository API reports that `main` has no branch-protection
+required-status list, so retiring the old standalone job names leaves no stale
+required check.
 
 The following final gates passed:
 
@@ -214,6 +224,8 @@ cargo audit
 cargo about generate about.hbs --output-file THIRD_PARTY_LICENSES.md
 actionlint .github/workflows/*.yml
 just --fmt --check
+npm --prefix site run lint
+npm --prefix site run build
 cargo +1.85.0 run --locked -- check --guide AGENTIC_NAVIGATION_GUIDE.md
 cargo +1.85.0 run --locked -- verify \
   --guide AGENTIC_NAVIGATION_GUIDE.md --root .
