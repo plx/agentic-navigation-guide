@@ -844,6 +844,13 @@ fn documentation_and_fixture_are_a_bijection() {
         "the normative document and CLI argument fixture must contain the same rows"
     );
     for case in cli_fixtures::ARGUMENTS {
+        if case.required {
+            assert!(
+                case.documentation.starts_with("Required "),
+                "required CLI argument fixture '{}' must say so in its normative row",
+                case.id
+            );
+        }
         let spelling = match case.short {
             Some(short) => format!("`-{short}`, `--{}`", case.long),
             None => format!("`--{}`", case.long),
@@ -1060,6 +1067,20 @@ fn assert_cli_relationship_metadata() {
             "Clap conflicts drifted for '{} --{}'",
             case.command, case.long
         );
+        for conflict in conflicts {
+            let mut conflicting_arguments = requires.to_vec();
+            conflicting_arguments.push(conflict);
+            assert_eq!(
+                parse_cli_case(case, &conflicting_arguments)
+                    .unwrap_err()
+                    .kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "'{} --{}' no longer rejects its fixture-declared conflict '--{}'",
+                case.command,
+                case.long,
+                conflict
+            );
+        }
 
         let without_requirements = parse_cli_case(case, &[]);
         if requires.is_empty() {

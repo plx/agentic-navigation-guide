@@ -89,6 +89,10 @@ The workflow documentation gate now:
 - link-checks those maintained files plus the runnable GitHub Actions example
   with the checksum-pinned link checker.
 
+The contract lint's explicit rule suppressions preserve normative
+space-sensitive specimens and avoid treating wrapped `#NN` issue references
+as headings; they do not disable link or executable-contract validation.
+
 Existing focused gates remain authoritative for behavior instead of being
 duplicated or weakened:
 
