@@ -199,8 +199,11 @@ green. The [Windows job][deliberate-windows-job] became red in the full debug
 command on exactly that test, after the other five issue #55 policy tests
 passed. The [prepared-release job][deliberate-release-job] was skipped.
 
-The temporary test is absent from the final source. The immutable final
-restoration run is linked here after it completes.
+The temporary test is absent from the final source. The
+[restoration run][restoration-run] returned [Linux][restoration-linux-job],
+[macOS][restoration-macos-job], and [Windows][restoration-windows-job] to
+green across the same complete commands. Its dependent
+[prepared-release job][restoration-release-job] also passed.
 
 ## Residual boundary
 
@@ -231,3 +234,8 @@ checker, not a sandbox or access-control boundary.
 [deliberate-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644144
 [deliberate-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644286
 [deliberate-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90022729378
+[restoration-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914
+[restoration-linux-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90023050983
+[restoration-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90023050973
+[restoration-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90023050970
+[restoration-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90025113760
