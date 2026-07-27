@@ -5,6 +5,7 @@ use crate::parser::Parser;
 use crate::types::FilesystemItem;
 use crate::validator::Validator;
 use crate::verifier::Verifier;
+use clap::{ArgAction, CommandFactory};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env::VarError;
 use std::fs;
@@ -305,6 +306,48 @@ struct ApiTraitCase {
     disposition: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum CliAction {
+    Flag,
+    Value,
+    RepeatableValue,
+}
+
+impl CliAction {
+    fn contract_text(self, value_name: Option<&str>) -> String {
+        match (self, value_name) {
+            (Self::Flag, None) => "flag".to_string(),
+            (Self::Value, Some(name)) => format!("`<{name}>`"),
+            (Self::RepeatableValue, Some(name)) => format!("repeatable `--… <{name}>`"),
+            _ => panic!("CLI argument action and value name are inconsistent"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CliCommandCase {
+    id: &'static str,
+    name: &'static str,
+    about: &'static str,
+    documentation: &'static str,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CliArgumentCase {
+    id: &'static str,
+    command: &'static str,
+    long: &'static str,
+    short: Option<char>,
+    action: CliAction,
+    required: bool,
+    global: bool,
+    hidden: bool,
+    value_name: Option<&'static str>,
+    default_values: &'static [&'static str],
+    possible_values: &'static [&'static str],
+    documentation: &'static str,
+}
+
 mod fixtures {
     use super::{ContractCase, ExpectedItem, ExpectedResult, ItemKind};
 
@@ -327,6 +370,12 @@ mod api_fixtures {
     use super::{ApiCase, ApiDisposition, ApiKind, ApiTraitCase};
 
     include!("../tests/fixtures/v0_2_api.rs");
+}
+
+mod cli_fixtures {
+    use super::{CliAction, CliArgumentCase, CliCommandCase};
+
+    include!("../tests/fixtures/v0_2_cli.rs");
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -753,6 +802,189 @@ fn documentation_and_fixture_are_a_bijection() {
             case.id
         );
     }
+
+    assert_eq!(
+        document
+            .lines()
+            .filter(|line| line.starts_with("| `cli-command-"))
+            .count(),
+        cli_fixtures::COMMANDS.len(),
+        "the normative document and CLI command fixture must contain the same rows"
+    );
+    for case in cli_fixtures::COMMANDS {
+        let documented_row = format!(
+            "| `{}` | `{}` | {} |",
+            case.id, case.name, case.documentation
+        );
+        assert_eq!(
+            document
+                .lines()
+                .filter(|line| *line == documented_row)
+                .count(),
+            1,
+            "CLI command fixture '{}' must have one exact documented row",
+            case.id
+        );
+    }
+
+    assert_eq!(
+        document
+            .lines()
+            .filter(|line| line.starts_with("| `cli-") && !line.starts_with("| `cli-command-"))
+            .count(),
+        cli_fixtures::ARGUMENTS.len(),
+        "the normative document and CLI argument fixture must contain the same rows"
+    );
+    for case in cli_fixtures::ARGUMENTS {
+        let spelling = match case.short {
+            Some(short) => format!("`-{short}`, `--{}`", case.long),
+            None => format!("`--{}`", case.long),
+        };
+        let documented_row = format!(
+            "| `{}` | {} | {} | {} | {} |",
+            case.id,
+            if case.command == "global" {
+                "Global".to_string()
+            } else {
+                format!("`{}`", case.command)
+            },
+            spelling,
+            case.action.contract_text(case.value_name),
+            case.documentation
+        );
+        assert_eq!(
+            document
+                .lines()
+                .filter(|line| *line == documented_row)
+                .count(),
+            1,
+            "CLI argument fixture '{}' must have one exact documented row",
+            case.id
+        );
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ObservedCliArgument {
+    command: String,
+    long: String,
+    short: Option<char>,
+    action: CliAction,
+    required: bool,
+    global: bool,
+    hidden: bool,
+    value_name: Option<String>,
+    default_values: Vec<String>,
+    possible_values: Vec<String>,
+}
+
+fn observed_cli_action(action: &ArgAction) -> CliAction {
+    match action {
+        ArgAction::SetTrue => CliAction::Flag,
+        ArgAction::Set => CliAction::Value,
+        ArgAction::Append => CliAction::RepeatableValue,
+        other => panic!("unsupported CLI action in the v0.2 surface: {other:?}"),
+    }
+}
+
+fn observe_cli_arguments(command_name: &str, command: &clap::Command) -> Vec<ObservedCliArgument> {
+    command
+        .get_arguments()
+        .filter_map(|argument| {
+            let long = argument.get_long()?;
+            let action = observed_cli_action(argument.get_action());
+            Some(ObservedCliArgument {
+                command: command_name.to_string(),
+                long: long.to_string(),
+                short: argument.get_short(),
+                action,
+                required: argument.is_required_set(),
+                global: argument.is_global_set(),
+                hidden: argument.is_hide_set(),
+                value_name: (action != CliAction::Flag)
+                    .then(|| {
+                        argument
+                            .get_value_names()
+                            .and_then(|names| names.first())
+                            .map(ToString::to_string)
+                    })
+                    .flatten(),
+                default_values: argument
+                    .get_default_values()
+                    .iter()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .collect(),
+                possible_values: if action == CliAction::Flag {
+                    Vec::new()
+                } else {
+                    argument
+                        .get_possible_values()
+                        .into_iter()
+                        .filter(|value| !value.is_hide_set())
+                        .map(|value| value.get_name().to_string())
+                        .collect()
+                },
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn issue_67_cli_fixture_matches_the_complete_declared_clap_surface() {
+    let command = crate::cli::Cli::command();
+    let actual_commands = command
+        .get_subcommands()
+        .map(|subcommand| {
+            (
+                subcommand.get_name().to_string(),
+                subcommand
+                    .get_about()
+                    .expect("every supported command has help text")
+                    .to_string(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    let expected_commands = cli_fixtures::COMMANDS
+        .iter()
+        .map(|case| (case.name.to_string(), case.about.to_string()))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        actual_commands, expected_commands,
+        "the supported subcommand names or help summaries drifted"
+    );
+
+    let mut actual_arguments = observe_cli_arguments("global", &command);
+    for subcommand in command.get_subcommands() {
+        actual_arguments.extend(observe_cli_arguments(subcommand.get_name(), subcommand));
+    }
+    let actual_arguments = actual_arguments.into_iter().collect::<BTreeSet<_>>();
+    let expected_arguments = cli_fixtures::ARGUMENTS
+        .iter()
+        .map(|case| ObservedCliArgument {
+            command: case.command.to_string(),
+            long: case.long.to_string(),
+            short: case.short,
+            action: case.action,
+            required: case.required,
+            global: case.global,
+            hidden: case.hidden,
+            value_name: case.value_name.map(str::to_string),
+            default_values: case
+                .default_values
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            possible_values: case
+                .possible_values
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        actual_arguments, expected_arguments,
+        "the complete declared CLI argument surface drifted from its normative fixture"
+    );
 }
 
 #[test]
