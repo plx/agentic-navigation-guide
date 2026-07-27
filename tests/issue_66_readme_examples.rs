@@ -195,6 +195,15 @@ fn issue_66_quickstart_and_shown_cli_modes_run_in_a_clean_workspace() {
     let workspace = temp.path().join("navigation-demo");
     let binary = test_binary();
 
+    let dump = run_command(
+        product_command(&binary, &workspace).args(["dump", "--depth", "1"]),
+        "README dump preview",
+    );
+    assert!(
+        String::from_utf8_lossy(&dump.stdout).contains("<agentic-navigation-guide>"),
+        "README dump did not emit a guide"
+    );
+
     let init = run_command(
         product_command(&binary, &workspace).args([
             "init",
@@ -274,6 +283,13 @@ fn issue_66_package_install_upgrade_and_uninstall_are_executable() {
     );
     let packaged_readme =
         fs::read_to_string(package_directory.join("README.md")).expect("read packaged README");
+    let packaged_manifest = fs::read_to_string(package_directory.join("Cargo.toml"))
+        .expect("read normalized packaged Cargo.toml");
+    assert_eq!(
+        package_field(&packaged_manifest, "documentation").as_deref(),
+        Some(DOCUMENTATION_URL),
+        "packaged metadata must retain the maintained documentation target"
+    );
     for command in SOURCE_LIFECYCLE.lines().chain(RELEASE_LIFECYCLE.lines()) {
         if !command.starts_with('#') {
             assert!(
@@ -391,4 +407,17 @@ fn issue_66_ci_example_is_exact_parseable_and_immutable() {
         ci.contains("cargo test --locked --test issue_66_readme_examples -- --nocapture"),
         "every OS job must execute the README smoke harness"
     );
+    for required in [
+        "LYCHEE_VERSION: 0.24.2",
+        "LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a",
+        "RUMDL_VERSION: 0.2.43",
+        "RUMDL_SHA256: 01e0dd2d89c07d244c5c93243f7faf2986d2abec68a7cec458e38c25988fbabc",
+        "rumdl check --disable MD010,MD013,MD038 README.md",
+        "lychee --no-progress README.md .github/examples/readme-verify.yml",
+    ] {
+        assert!(
+            ci.contains(required),
+            "CI omits pinned README validation contract {required:?}"
+        );
+    }
 }

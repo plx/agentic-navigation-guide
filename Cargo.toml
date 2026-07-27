@@ -7,6 +7,7 @@ authors = ["plx <plxgithub@gmail.com>"]
 description = "A CLI tool for verifying hand-written navigation guides against filesystem structure"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/plx/agentic-navigation-guide"
+documentation = "https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md"
 keywords = ["cli", "filesystem", "validation", "documentation"]
 categories = ["command-line-utilities", "development-tools"]
 publish = ["crates-io"]
