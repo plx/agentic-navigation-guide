@@ -63,10 +63,11 @@ must record the actual non-sensitive verification status before relying on
 that control.
 
 Issue #63 owns the Trusted Publishing workflow and its exact repository,
-workflow, environment, and OIDC identity. Issue #65 established the strongest
-operable personal-repository rules, required checks, release-tag controls, and
-protected environment. Its zero-review `main` rule and self-review environment
-gate are consequences of this exception, not independent human approval.
+workflow, environment, and OIDC identity. Issue #65 owns the protected release
+environment and established the strongest operable personal-repository rules,
+required checks, and release-tag controls. Its zero-review `main` rule and
+self-review environment gate are consequences of this exception, not
+independent human approval.
 
 ## Release authority
 
