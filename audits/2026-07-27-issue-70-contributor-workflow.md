@@ -94,9 +94,15 @@ The exact candidate source passed:
 
 These commands targeted the exact candidate source in the issue working tree.
 The first package and dry-run exercise used `--allow-dirty` only because the
-candidate audit had not yet been committed. The exact non-`--allow-dirty`
-package commands and focused contracts are repeated on the clean committed
-tree before publication, and that commit/result is appended here.
+candidate audit had not yet been committed.
+
+Commit `34ce3479b8811b6afc85ccccdb41954be7fe4c1a` was then clean before and
+after the exact non-`--allow-dirty` `cargo package --locked` and
+`cargo publish --dry-run --locked` commands. Both passed with the reviewed
+35-file package and Cargo's expected dry-run upload abort. The three focused
+Rust contracts, nine Python regressions, live template checker, exact
+documentation/workflow commands, formatting checks, and release-mode
+navigation-guide verification also passed from that clean commit.
 
 Hosted CI remains authoritative for Linux, macOS, and Windows. A single local
 machine is not represented as three-platform evidence.
