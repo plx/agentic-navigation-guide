@@ -165,6 +165,14 @@ joins repository-relative path components with `/`, producing the same
 review identifier on every host. These changes affect only the issue #55
 policy test.
 
+The [fourth hosted matrix run][fourth-matrix-run] passed the issue #55 policy
+test and all prior Windows regressions. Its [Windows job][fourth-windows-job]
+then reached `issue_62_package_manifest_is_the_exact_reviewed_allowlist`.
+`cargo package --list` emitted host-native `\` separators, while the reviewed
+archive allowlist uses portable `/` package paths. The test now normalizes
+only that command's path separators before enforcing the same exact 33-entry
+allowlist. Package contents and production code are unchanged.
+
 ## Hosted evidence
 
 The pull request must retain:
@@ -194,3 +202,5 @@ checker, not a sandbox or access-control boundary.
 [second-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396/job/90013172856
 [third-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955
 [third-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955/job/90014524765
+[fourth-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121
+[fourth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121/job/90016134742

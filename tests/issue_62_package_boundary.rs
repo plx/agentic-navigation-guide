@@ -135,7 +135,7 @@ fn issue_62_package_manifest_is_the_exact_reviewed_allowlist() {
     let observed = String::from_utf8(output.stdout)
         .expect("cargo package --list output is UTF-8")
         .lines()
-        .map(ToOwned::to_owned)
+        .map(|path| path.replace('\\', "/"))
         .collect::<Vec<_>>();
     assert_eq!(
         observed, EXPECTED_PACKAGE_PATHS,
