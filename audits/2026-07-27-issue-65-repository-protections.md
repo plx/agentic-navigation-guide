@@ -79,7 +79,9 @@ The same temporary head contained a pull-request job that referenced the
 failed at the environment boundary in two seconds. GitHub reported zero job
 steps: the job never reached a runner, and therefore could not access code,
 credentials, or an environment secret. The probe workflow is removed from the
-next commit; only this non-sensitive run record remains.
+next commit. GitHub created failed deployment record `5626534791` for that
+rejected attempt; it is evidence of the denial, not a successful deployment.
+Only the non-sensitive run and deployment records remain.
 
 The configured positive authorization is mechanical at this stage: only a
 tag ref matching `v*` can enter the environment, and it still requires the
@@ -123,7 +125,7 @@ mutation campaign, or release publication was added or performed by #65.
 | Publication identity is narrowly scoped | No publication credential exists. Issue #63 is required to create only a Trusted Publisher scoped to this repository, its reviewed workflow, and `release`; until then publication fails closed |
 | Small-maintainer recovery path is explicit | `docs/repository-protections.md` requires a public control-change record, synchronized checked-in payload, ruleset history, restoration, and 48-hour retrospective; inability to restore stops changes/releases |
 | Reviewer can reproduce without privileged secrets | Public audit script and weekly read-only workflow validate every GitHub-public field and explicitly identify the one visibility limit |
-| No release is published | No tag, GitHub Release, crate, deployment, or publication credential was created |
+| No release is published | No tag, GitHub Release, crate, successful deployment, or publication credential was created. Failed deployment record `5626534791` contains the denied zero-step probe |
 
 Closure of #65 means the strongest operable personal-repository controls are
 configured and auditable. It does not claim organization-backed approval,

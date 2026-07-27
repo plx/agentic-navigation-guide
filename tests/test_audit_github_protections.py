@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -132,9 +133,7 @@ class RepositoryProtectionAuditTests(unittest.TestCase):
         )
 
     def test_publication_like_repository_secret_fails(self) -> None:
-        self.snapshot["repository_secret_names"].append(
-            "CARGO_REGISTRY_TOKEN"
-        )
+        self.snapshot["repository_secret_names"].append("CARGO_TOKEN")
         result = self.validate()
         self.assertFalse(result.ok)
         self.assertTrue(
@@ -171,6 +170,31 @@ class RepositoryProtectionAuditTests(unittest.TestCase):
             0,
         )
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", repr(report))
+
+    def test_paginated_collection_checks_every_page(self) -> None:
+        client = audit.GitHubClient("https://api.example.test", None)
+        responses = [
+            {
+                "total_count": 101,
+                "secrets": [{"name": f"SECRET_{index}"} for index in range(100)],
+            },
+            {"total_count": 101, "secrets": [{"name": "CARGO_TOKEN"}]},
+        ]
+        with mock.patch.object(client, "get", side_effect=responses) as get:
+            secrets = client.get_paginated("/secrets", "secrets")
+        self.assertEqual(len(secrets), 101)
+        self.assertEqual(secrets[-1]["name"], "CARGO_TOKEN")
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args_list[0].args[0], "/secrets?per_page=100&page=1")
+        self.assertEqual(get.call_args_list[1].args[0], "/secrets?per_page=100&page=2")
+
+    def test_paginated_collection_rejects_non_list_payload(self) -> None:
+        client = audit.GitHubClient("https://api.example.test", None)
+        with mock.patch.object(
+            client, "get", return_value={"total_count": 1, "secrets": {}}
+        ):
+            with self.assertRaisesRegex(audit.AuditError, "non-list"):
+                client.get_paginated("/secrets", "secrets")
 
 
 if __name__ == "__main__":

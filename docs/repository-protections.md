@@ -135,10 +135,10 @@ environment before issue #63 and any repository-level secret name that looks
 like a publication credential.
 
 `.github/workflows/repository-protection-audit.yml` runs the public check every
-Monday and on demand with only `contents: read`. Its token cannot see bypass
-actors or secret names, so it cannot replace the admin-visible release audit.
-It does make drift in every publicly inspectable control visible without
-privileged secrets.
+Monday and on demand with only `actions: read` and `contents: read`. Its token
+cannot see bypass actors or secret names, so it cannot replace the
+admin-visible release audit. It does make drift in every publicly inspectable
+control visible without privileged secrets.
 
 Repository administrators may change the hosted settings. During the current
 exception that means only `plx`. Reviewers can inspect the live rulesets at

@@ -22,10 +22,9 @@ DEFAULT_REPOSITORY = "plx/agentic-navigation-guide"
 DEFAULT_API_URL = "https://api.github.com"
 GITHUB_ACTIONS_APP_ID = 15368
 PUBLICATION_SECRET_MARKERS = (
-    "CARGO_REGISTRY",
-    "CRATES",
+    "CARGO",
+    "CRATE",
     "PUBLISH",
-    "RELEASE_TOKEN",
 )
 
 
@@ -341,6 +340,27 @@ class GitHubClient:
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
             raise AuditError(f"GitHub API GET {path} failed: {error}") from error
 
+    def get_paginated(self, path: str, item_key: str) -> list[Any]:
+        items: list[Any] = []
+        page = 1
+        separator = "&" if "?" in path else "?"
+        while True:
+            response = self.get(
+                f"{path}{separator}per_page=100&page={page}"
+            )
+            batch = response[item_key]
+            if not isinstance(batch, list):
+                raise AuditError(
+                    f"GitHub API GET {path} returned a non-list {item_key!r}"
+                )
+            items.extend(batch)
+            total_count = response.get("total_count")
+            if not batch or (
+                isinstance(total_count, int) and len(items) >= total_count
+            ):
+                return items
+            page += 1
+
 
 def collect_snapshot(
     client: GitHubClient,
@@ -363,25 +383,27 @@ def collect_snapshot(
         expected["environment"]["expected_response"]["name"], safe=""
     )
     environment = client.get(f"{base}/environments/{environment_name}")
-    policy_page = client.get(
-        f"{base}/environments/{environment_name}/deployment-branch-policies"
-        "?per_page=100"
+    environment_policies = client.get_paginated(
+        f"{base}/environments/{environment_name}/deployment-branch-policies",
+        "branch_policies",
     )
     snapshot: dict[str, Any] = {
         "rulesets": rulesets,
         "environment": environment,
-        "environment_policies": policy_page["branch_policies"],
+        "environment_policies": environment_policies,
     }
     if require_admin_visibility:
-        repository_secrets = client.get(f"{base}/actions/secrets?per_page=100")
-        environment_secrets = client.get(
-            f"{base}/environments/{environment_name}/secrets?per_page=100"
+        repository_secrets = client.get_paginated(
+            f"{base}/actions/secrets", "secrets"
+        )
+        environment_secrets = client.get_paginated(
+            f"{base}/environments/{environment_name}/secrets", "secrets"
         )
         snapshot["repository_secret_names"] = [
-            secret["name"] for secret in repository_secrets["secrets"]
+            secret["name"] for secret in repository_secrets
         ]
         snapshot["environment_secret_names"] = [
-            secret["name"] for secret in environment_secrets["secrets"]
+            secret["name"] for secret in environment_secrets
         ]
     return snapshot
 

@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read # Inspect environment protection metadata.
   contents: read
 
 concurrency:
