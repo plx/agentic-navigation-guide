@@ -46,6 +46,13 @@ complete and the final candidate is revalidated.
   `plx` remains the sole GitHub/crates.io owner, no independent recovery drill
   has passed, maintenance is best-effort, and the exception expires on
   2026-10-31. This is explicit residual risk, not organizational redundancy.
+- The personal repository now requires pull requests, current release-quality
+  CI, resolved review threads, and immutable `main` history without a bypass
+  actor. Release-tag creation is limited to the sole owner, matching `v*` tags
+  are immutable, and a tag-scoped `release` environment requires an explicit
+  owner approval with administrator bypass disabled. The zero independent
+  review count and allowed self-review are explicit consequences of the dated
+  single-maintainer exception.
 - `docs/v0.2-contract.md` is mechanically enforced as the sole normative v0.2
   specification. The original root `Specification.md` is preserved with its
   Git history under `docs/history/`, where an unmistakable dated banner and

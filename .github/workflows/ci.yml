@@ -261,14 +261,18 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml
+    - name: Run repository-protection audit regressions
+      run: >-
+        PYTHONDONTWRITEBYTECODE=1 python3 -m unittest
+        tests/test_audit_github_protections.py -v
     - name: Lint maintained Markdown
       run: |
         rumdl check --disable MD010,MD013,MD038 README.md
-        rumdl check --disable MD010,MD013,MD018,MD031,MD038 docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/history/README.md
+        rumdl check --disable MD010,MD013,MD018,MD031,MD038 docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
     - name: Check maintained documentation links
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: lychee --no-progress README.md .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/history/README.md
+      run: lychee --no-progress README.md .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
 
   issue-selector:
     name: Production-readiness issue selector
@@ -448,3 +452,28 @@ jobs:
           echo "::error file=THIRD_PARTY_LICENSES.md::THIRD_PARTY_LICENSES.md is out of date. Run \`cargo licenses\` (or \`cargo about generate about.hbs --output-file THIRD_PARTY_LICENSES.md\`) locally and commit the result."
           exit 1
         fi
+
+  required:
+    name: Required CI
+    if: always()
+    needs:
+    - rust-support
+    - branch-coverage
+    - blocker-mutations
+    - performance-baseline
+    - workflow-lint
+    - issue-selector
+    - release-identity
+    - fmt
+    - build
+    - third-party-licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Require every blocking job to pass
+      env:
+        REQUIRED_RESULTS: ${{ toJSON(needs) }}
+      run: >-
+        jq --exit-status
+        'all(.[]; .result == "success")'
+        <<<"$REQUIRED_RESULTS"

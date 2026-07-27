@@ -48,7 +48,7 @@ The 2026-07-27 inventory established the following non-secret facts:
 | crates.io ownership | `plx` is the only named owner |
 | Backup authority | None |
 | GitHub organization | None |
-| Protected release environment | Not configured; issue #65 owns it |
+| Protected release environment | `release` is tag-scoped and owner-approved; issue #65 |
 | crates.io Trusted Publishing | Not configured; issue #63 owns it |
 | Public security-report route | Not present; issue #69 owns it |
 | Homebrew tap | None |
@@ -63,10 +63,10 @@ must record the actual non-sensitive verification status before relying on
 that control.
 
 Issue #63 owns the Trusted Publishing workflow and its exact repository,
-workflow, environment, and OIDC identity. Issue #65 owns the protected release
-environment, required checks, review policy, and tag protection. Their future
-evidence must not cite issue #71 as proof that either control is already
-configured.
+workflow, environment, and OIDC identity. Issue #65 established the strongest
+operable personal-repository rules, required checks, release-tag controls, and
+protected environment. Its zero-review `main` rule and self-review environment
+gate are consequences of this exception, not independent human approval.
 
 ## Release authority
 
