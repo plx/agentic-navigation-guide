@@ -115,6 +115,24 @@ records and permanent tests. No new behavioral defect is fixed by this
 aggregate gate, so manufacturing a gate-only red commit would provide no
 additional evidence.
 
+## Retained evidence
+
+- [Normative v0.2 contract](../docs/v0.2-contract.md):
+  `1c34a08d2a91fdf21efb77bd380a356fea661fc250386114b6d4ba131454c4f5`
+- [CLI integration matrix](../tests/cli_tests.rs):
+  `ed92759ffb6bf992d770b5a6354186cfee15d9d19c68d7652bbabe06e4998108`
+- [Environment-precedence matrix](../tests/environment_precedence.rs):
+  `5cc944b5e74f782ccaf065f7a86ee0058b0ed14a03b6458c51c86ea0dc8c4164`
+- [Output-contract matrix](../tests/issue_47_output_contract.rs):
+  `1baf168cce9c0d2efe4241e0b5776570747950c3002e784ea0954720496d201b`
+- [#47 output-contract audit](./2026-07-27-issue-47-output-contract.md):
+  `7d260361bde58e52b65612462e37fd0f89184a613d69040bef7f01b48e2920d9`
+
+These are the exact content hashes at the evaluated component baseline. The
+landed-child table separately pins each leaf to its immutable merge commit,
+while these hashes prevent later incidental edits from silently replacing
+the mutable contract and regression evidence this gate evaluated.
+
 ## Validation
 
 The exact #47 merge tree matched its reviewed PR head, and both its PR checks
@@ -149,6 +167,11 @@ cargo package --locked
 cargo run --locked -- check --guide AGENTIC_NAVIGATION_GUIDE.md
 cargo run --locked -- verify --guide AGENTIC_NAVIGATION_GUIDE.md --root .
 just --fmt --check
+markdownlint --disable MD010 MD013 MD038 -- \
+  audits/2026-07-27-issue-28-cli-reliability-gate.md
+lychee --no-progress \
+  AGENTIC_NAVIGATION_GUIDE.md \
+  audits/2026-07-27-issue-28-cli-reliability-gate.md
 git diff --check
 ```
 

@@ -111,7 +111,6 @@
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
-  - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof
   - 2026-07-26-issue-30-supported-rust-api-gate.md # Rust API/SemVer gate proof
   - 2026-07-26-issue-57-parser-robustness.md # Deterministic bounded parser input-matrix evidence
   - 2026-07-26-issue-60-msrv-dependency-policy.md # Rust floor, compatible graph, CI, audit, and attribution evidence
@@ -122,6 +121,7 @@
   - 2026-07-27-issue-71-maintainer-continuity.md # Approved sole-maintainer exception and missing-control disposition
   - 2026-07-27-issue-47-output-contract.md # Broken-pipe, quiet-mode, and GitHub diagnostic evidence
   - 2026-07-27-issue-101-parent-explicit-guide.md # Ordered parent reduction, shared-opener, redaction, and platform evidence
+  - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
