@@ -68,7 +68,7 @@ The annotated upstream `v1.0.183` Claude tag resolves to the pinned
 | --- | --- | --- |
 | CI, site checks, guide verification | `contents: read` | Per-PR/ref concurrency with cancellation; 10–30 minute job timeouts |
 | Claude PR review | `contents: read`, `pull-requests: write` | Internal PRs only; trusted base SHA checkout; 30-minute timeout; PR-scoped cancellation |
-| Claude mention response | `actions: read`, `contents: write`, `issues: write`, `pull-requests: write` | Action-enforced write-access caller check; trusted default-branch checkout; 30-minute timeout; issue/PR-scoped cancellation |
+| Claude mention response | `actions: read`, `contents: write`, `issues: write`, `pull-requests: write` | Workflow-native maintainer association gate plus action-enforced write-access check; trusted default-branch checkout; 30-minute timeout; post-gate issue/PR concurrency |
 | Pages build | `contents: read` | 15-minute timeout |
 | Pages deploy | `pages: write`, `id-token: write` | Deployment job only; protected `github-pages` environment; 10-minute timeout; serialized deployment concurrency |
 
@@ -86,10 +86,14 @@ OIDC-to-App-token exchange and `id-token: write` is removed.
 The OAuth-bearing review job runs only for same-repository PRs and explicitly
 checks out `pull_request.base.sha`; it never checks out the PR head or merge
 commit. Its allowed shell tools are limited to reading and commenting on the
-current PR. The mention workflow explicitly checks out the trusted default
-branch, while the action retains its default rule that only actors with
-repository write access can trigger execution. Both workflows keep
-`show_full_output: false`.
+current PR. The mention workflow requires `OWNER`, `MEMBER`, or `COLLABORATOR`
+association for the exact event content that contains `@claude`, then
+participates in job-level concurrency only after that trust/mention condition
+passes. An unrelated or untrusted event therefore cannot cancel a legitimate
+run. The action retains its independent rule that only actors with repository
+write access can trigger execution. The workflow explicitly checks out the
+trusted default branch, and both Claude workflows keep `show_full_output:
+false`.
 
 Secrets are passed only as action inputs. No `run:` command interpolates a
 secret, and no checkout persists the job token into Git configuration.

@@ -127,18 +127,18 @@ fn every_workflow_and_job_has_explicit_permissions_and_execution_bounds() {
             "{} must declare workflow-level permissions",
             path.display()
         );
-        assert!(
-            workflow.lines().any(|line| line == "concurrency:"),
-            "{} must declare workflow-level concurrency",
-            path.display()
-        );
-        assert!(
-            workflow.contains("  group:") && workflow.contains("  cancel-in-progress:"),
-            "{} concurrency must declare a group and cancellation behavior",
-            path.display()
-        );
-
         let lines = workflow.lines().collect::<Vec<_>>();
+        let workflow_has_concurrency = lines.contains(&"concurrency:");
+        if workflow_has_concurrency {
+            assert!(
+                lines.iter().any(|line| line.starts_with("  group:"))
+                    && lines
+                        .iter()
+                        .any(|line| line.starts_with("  cancel-in-progress:")),
+                "{} workflow concurrency must declare a group and cancellation behavior",
+                path.display()
+            );
+        }
         let jobs_start = lines
             .iter()
             .position(|line| *line == "jobs:")
@@ -167,6 +167,18 @@ fn every_workflow_and_job_has_explicit_permissions_and_execution_bounds() {
                 path.display(),
                 lines[*start].trim_end_matches(':').trim()
             );
+            if !workflow_has_concurrency {
+                assert!(
+                    block.lines().any(|line| line == "    concurrency:")
+                        && block.lines().any(|line| line.starts_with("      group:"))
+                        && block
+                            .lines()
+                            .any(|line| line.starts_with("      cancel-in-progress:")),
+                    "{} job {} must declare bounded concurrency",
+                    path.display(),
+                    lines[*start].trim_end_matches(':').trim()
+                );
+            }
         }
     }
 }
@@ -192,6 +204,24 @@ fn secret_bearing_claude_jobs_use_trusted_checkouts_and_scoped_tokens() {
     assert!(mentions.contains("ref: ${{ github.event.repository.default_branch }}"));
     assert!(mentions.contains("show_full_output: false"));
     assert!(!mentions.contains("allowed_non_write_users:"));
+    assert!(!mentions.lines().any(|line| line == "concurrency:"));
+    assert!(job_block(&mentions, "claude").contains("    concurrency:"));
+    assert_eq!(
+        mentions
+            .matches(r#"fromJSON('["OWNER","MEMBER","COLLABORATOR"]')"#)
+            .count(),
+        4
+    );
+    for association in [
+        "github.event.comment.author_association",
+        "github.event.review.author_association",
+        "github.event.issue.author_association",
+    ] {
+        assert!(
+            mentions.contains(association),
+            "Claude mention workflow must gate {association}"
+        );
+    }
 
     for (path, workflow) in workflow_files() {
         assert!(
