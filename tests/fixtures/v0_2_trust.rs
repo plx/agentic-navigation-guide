@@ -104,7 +104,7 @@ pub(super) const CASES: &[TrustCase] = &[
     TrustCase {
         id: "trust-guide-windows-device-namespace",
         surface: TrustSurface::GuideInput,
-        normative: TrustOutcome::RejectBeforeRead,
+        normative: TrustOutcome::RejectUsage,
         owner_issue: 49,
     },
     TrustCase {
