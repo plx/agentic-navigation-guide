@@ -360,9 +360,10 @@ fn issue_66_ci_example_is_exact_parseable_and_immutable() {
     let readme = fs::read_to_string(root.join("README.md")).expect("read README");
     let example = fs::read_to_string(root.join(".github/examples/readme-verify.yml"))
         .expect("read checked README workflow example");
+    let normalized_example = example.lines().collect::<Vec<_>>().join("\n");
     assert_eq!(
         fenced_blocks(&readme, "yaml"),
-        [example.trim_end()],
+        [normalized_example],
         "README CI YAML must exactly mirror the actionlint-checked example"
     );
 

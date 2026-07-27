@@ -95,8 +95,9 @@ input work.
 
 ## Immutable CI example and continuous checks
 
-The README YAML exactly mirrors
-`.github/examples/readme-verify.yml`. The complete sample has:
+The README YAML exactly mirrors the logical lines in
+`.github/examples/readme-verify.yml`; the comparison treats Git's LF and CRLF
+checkout forms as the same YAML. The complete sample has:
 
 - workflow and job time bounds;
 - read-only contents permission;
