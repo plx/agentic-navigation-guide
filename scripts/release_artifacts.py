@@ -626,6 +626,29 @@ def verify_bundle(
     release_identity = identity()
     require_tag(tag, release_identity)
     checksums = verify_checksums(directory, checksums_path)
+    observed_files = {
+        entry.name
+        for entry in directory.iterdir()
+        if entry.is_file()
+    }
+    unexpected_non_files = sorted(
+        entry.name
+        for entry in directory.iterdir()
+        if not entry.is_file()
+    )
+    expected_files = set(checksums).union(
+        {
+            checksums_path.name,
+            provenance_path.name,
+        }
+    )
+    if observed_files != expected_files or unexpected_non_files:
+        raise ReleaseError(
+            "release bundle file set mismatch: "
+            f"expected {sorted(expected_files)!r}, "
+            f"observed files {sorted(observed_files)!r}, "
+            f"non-files {unexpected_non_files!r}"
+        )
     archive_names = [
         name
         for name in checksums

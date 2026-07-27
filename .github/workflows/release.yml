@@ -25,7 +25,7 @@ on:
         - package-smoke
 
 env:
-  CANDIDATE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_tag || github.ref_name }}
+  CANDIDATE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_tag || github.event_name == 'pull_request' && 'v0.2.0' || github.ref_name }}
   CARGO_TERM_COLOR: always
   SOURCE_REF: ${{ github.ref }}
 
@@ -542,6 +542,12 @@ jobs:
         python3 scripts/release_artifacts.py crates-version-state
         --crate-archive
         target/release-bundle/agentic-navigation-guide-0.2.0.crate
+    - name: Prove Cargo rebuilds the exact gated crate bytes
+      shell: bash
+      run: |
+        cargo package --locked
+        cmp target/release-bundle/agentic-navigation-guide-0.2.0.crate \
+          target/package/agentic-navigation-guide-0.2.0.crate
     - name: Exchange GitHub OIDC identity for a short-lived crates.io token
       if: steps.crate-state.outputs.state == 'publish-required'
       id: crates-auth

@@ -186,6 +186,33 @@ class ReleaseArtifactsTests(unittest.TestCase):
                     "refs/heads/main",
                 )
 
+    def test_bundle_rejects_an_unreviewed_extra_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            checksums = directory / "SHA256SUMS"
+            provenance = directory / "provenance.json"
+            (directory / "expected.bin").write_bytes(b"expected")
+            expected_hash = hashlib.sha256(b"expected").hexdigest()
+            checksums.write_text(
+                f"{expected_hash}  expected.bin\n",
+                encoding="utf-8",
+            )
+            provenance.write_text("{}\n", encoding="utf-8")
+            (directory / "unreviewed.bin").write_bytes(b"unexpected")
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseError,
+                "release bundle file set mismatch",
+            ):
+                RELEASE.verify_bundle(
+                    directory,
+                    checksums,
+                    directory / "expected.bin",
+                    provenance,
+                    "v0.2.0",
+                    COMMIT,
+                    "refs/heads/main",
+                )
+
     def test_sbom_has_one_root_and_resolved_dependencies(self) -> None:
         root_id = "path+file:///root#agentic-navigation-guide@0.2.0"
         dependency_id = (
