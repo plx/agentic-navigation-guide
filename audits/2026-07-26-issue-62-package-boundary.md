@@ -118,8 +118,8 @@ consumer artifact.
    `target/package/agentic-navigation-guide-0.2.0`, and exercises only the
    installed executable.
 
-The exact package reports 659.7 KiB of source and 151.1 KiB compressed. The
-archive is 154,759 bytes, comfortably below the test's conservative 1,000,000
+The exact package reports 659.8 KiB of source and 151.2 KiB compressed. The
+archive is 154,782 bytes, comfortably below the test's conservative 1,000,000
 byte ceiling. Metadata reports exactly one `bin` target and zero `lib`,
 `rlib`, `dylib`, `cdylib`, `staticlib`, or `proc-macro` targets.
 
@@ -162,8 +162,9 @@ the fast package-policy test.
 | `cargo test --locked --test issue_62_package_boundary issue_62_exact_package_installs_smokes_and_rejects_library_consumers -- --exact --ignored --nocapture` | Pass; package/install/CLI/negative-consumer contract |
 | Same manifest test with `ISSUE_62_PACKAGE_ROOT` set to detached `4ab6e72` | Expected failure, exit 101; observed 126 paths |
 | Both #62 tests under Rust `1.85.0` | Pass; exact manifest and full packaged-artifact smoke |
-| `cargo package --list --locked --allow-dirty` | Pass; exactly 33 paths |
-| `cargo package --locked --allow-dirty` | Pass; 33 files, 659.7 KiB / 151.1 KiB compressed |
+| `cargo package --list --locked` | Pass on the clean committed tree; exactly 33 paths |
+| `cargo package --locked` | Pass on the clean committed tree; 33 files, 659.8 KiB / 151.2 KiB compressed |
+| `cargo publish --dry-run --locked` | Pass on the clean committed tree; upload correctly aborted as a dry run |
 | `cargo test --locked --all-targets --all-features` | Pass; 345 passed, 3 intentionally ignored |
 | `cargo clippy --locked --all-targets --all-features -- -D warnings` | Pass |
 | `cargo check --locked --all-targets --all-features` | Pass |
