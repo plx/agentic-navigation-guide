@@ -1,0 +1,18 @@
+# Public, non-secret issue #71 control record.
+# A new maintainer decision is required to change the exception or authority.
+schema_version = "1"
+decision_date = "2026-07-27"
+exception_expires_on = "2026-10-31"
+mode = "single-maintainer-exception"
+repository_owner = "plx"
+crates_io_owner = "plx"
+github_organization = "none"
+backup_owner = "none"
+github_two_factor_status = "not-verified-api-unavailable"
+trusted_publishing_status = "not-configured-owned-by-issue-63"
+release_environment_status = "not-configured-owned-by-issue-65"
+recovery_runbook_status = "not-established-no-backup"
+recovery_drill_status = "not-run-no-backup"
+security_report_route_status = "not-present-owned-by-issue-69"
+homebrew_tap_status = "not-present"
+publication_after_expiry = "blocked-without-new-decision"

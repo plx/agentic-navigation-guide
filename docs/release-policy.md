@@ -26,6 +26,21 @@ The check validates an input; it does not create a tag, crate, GitHub Release,
 or other publication. The trusted publishing workflow owned by issue #63 must
 pass its real tag ref to this checker before any release action.
 
+## Maintainer continuity and release authority
+
+The project currently operates under the
+[issue #71 single-maintainer exception](https://github.com/plx/agentic-navigation-guide/blob/main/docs/maintainer-continuity.md).
+`plx` is the sole GitHub repository owner, crates.io owner, and release
+authority; there is no tested independent recovery path or human approval
+redundancy. The exception expires on 2026-10-31.
+
+This limitation does not weaken the release identity, package, audit,
+provenance, Trusted Publishing, or protected-environment gates. Issue #63 must
+use short-lived crates.io identity, and issue #65 must establish the strongest
+operable controls for the personal repository. Publication after the expiry
+date is blocked without a verified backup or a new explicit maintainer
+decision.
+
 ## Rust and dependency support
 
 Rust `1.85.0` is the minimum supported toolchain for the complete product:
