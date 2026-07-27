@@ -137,7 +137,7 @@ fn issue_47_recursive_github_error_has_discovery_path_and_line() {
         .output()
         .expect("run recursive GitHub verification");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let expected_location = format!("module space Ω/{guide_name}:2:");
+    let expected_location = format!("module space Ω{}{guide_name}:2:", std::path::MAIN_SEPARATOR);
 
     assert_eq!(
         output.status.code(),

@@ -28,12 +28,12 @@ shim. Published `0.1.4` Rust consumers must invoke the installed CLI through
 its process contract or remain pinned to unsupported `0.1.4` at their own
 risk. See the [migration record](CHANGELOG.md#migration-from-014).
 
-The prepared operating-system target is Linux, macOS, and Windows. The README
-smoke workflow runs on all three; the complete platform-support claim remains
-gated on the issue #55 filesystem conformance matrix and must be narrowed
-before publication if a claimed invariant cannot pass. Rust `1.85.0` is the
-minimum supported toolchain. CI also tests the current and immediately
-previous stable Rust releases; beta is informational.
+The supported operating-system matrix is Linux, macOS, and Windows. CI runs
+the complete locked debug and release suites on all three, including the
+host-applicable filesystem trust and capability fixtures described in the
+[platform matrix](docs/v0.2-contract.md#supported-platform-and-capability-matrix).
+Rust `1.85.0` is the minimum supported toolchain. CI also tests the current
+and immediately previous stable Rust releases; beta is informational.
 
 Once published, the documented CLI, guide format, process outcomes, supported
 platform scope, and trust boundary form the `0.2.x` compatibility surface.

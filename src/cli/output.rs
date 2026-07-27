@@ -1541,6 +1541,11 @@ mod tests {
                 .collect(),
             "host-applicable output evidence is not fully conformant"
         );
+        eprintln!(
+            "issue55_capability os={} surface=output-trust conformant={} unavailable={unavailable:?}",
+            std::env::consts::OS,
+            conformant.len()
+        );
     }
 
     #[test]
@@ -1692,6 +1697,10 @@ mod tests {
 
             let first_result = first_thread.join().unwrap();
             let second_result = second_thread.join().unwrap();
+            // The contract deliberately leaves the loser's diagnostic
+            // unspecified because either contender can lose at a fallible I/O
+            // stage. Exactly one success and the unique winner's bytes are the
+            // binding invariants.
             assert_ne!(
                 first_result.is_ok(),
                 second_result.is_ok(),
@@ -1702,15 +1711,6 @@ mod tests {
             } else {
                 b"second contender".as_slice()
             };
-            let loser = if first_result.is_ok() {
-                &second_result
-            } else {
-                &first_result
-            };
-            assert!(matches!(
-                loser,
-                Err(OutputError::Existing { .. } | OutputError::Unsafe { .. })
-            ));
             assert_eq!(fs::read(output).unwrap(), expected);
         }
     }

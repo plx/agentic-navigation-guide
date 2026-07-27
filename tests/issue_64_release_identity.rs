@@ -248,7 +248,8 @@ fn issue_64_published_api_baseline_is_complete_and_changeloged() {
     }
 
     let changelog = std::fs::read_to_string(manifest_root.join("CHANGELOG.md"))
-        .expect("read the 0.2.0 changelog");
+        .expect("read the 0.2.0 changelog")
+        .replace("\r\n", "\n");
     let inventory = changelog
         .split_once(PUBLISHED_API_START)
         .expect("CHANGELOG.md has published API start marker")

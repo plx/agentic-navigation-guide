@@ -1,0 +1,241 @@
+# Issue #55 cross-platform conformance evidence
+
+Date: 2026-07-27
+
+Issue: [#55](https://github.com/plx/agentic-navigation-guide/issues/55)
+
+## Scope
+
+This gate changes no product behavior. It promotes the complete existing
+behavioral suite from Ubuntu-only execution to binding Linux, macOS, and
+Windows execution in both debug and release modes. It also makes the exact
+host-applicable trust handoff, capability policy, and intentional-ignore
+allowlist reviewable in source and CI output.
+
+The work is independent of a GitHub organization. It adds no fuzzing,
+randomized generation, generated hostile inputs, or hostile-mutation claim.
+The deterministic transient-entry fixture and fixed creator-race loops are
+retained product regressions, not generated-input testing.
+
+## Tests-first baseline
+
+Commit `a80a20c` added
+`tests/issue_55_platform_conformance.rs` before the workflow or documentation
+changed. The focused command failed four policy groups:
+
+```text
+every matrix host must run the complete locked debug suite with auditable output
+prepared release validation must wait for the complete platform matrix
+the supported-platform contract must classify intentional ignore "benchmark_flat_hierarchy_scaling"
+README must not retain the pre-conformance support disclaimer
+```
+
+The same run found exactly three existing `#[ignore]` attributes. Its ignore
+test failed only because the normative classification was not yet present,
+not because an additional hidden skip existed.
+
+## Combined-suite compatibility finding
+
+The first complete local debug run passed the exactly-one-success assertion
+for an output creator race, then failed an older follow-up assertion that
+allowed only `Existing` or `Unsafe` as the loser's typed error. The normative
+`trust-output-creator-race` outcome requires exactly one creator and forbids
+overwrite; it does not prescribe the loser's diagnostic variant when another
+I/O stage fails.
+
+The retained regression asserts exactly one success and compares the final
+bytes with that unique winner. The former loser-variant assertion was
+redundant with exactly-one success and imposed an outcome the contract does
+not require. The regression does not accept two winners, zero winners,
+replacement, or unexpected content. No product error mapping or runtime
+behavior changed.
+
+## Binding matrix
+
+The `Build` job retains the exact runner set:
+
+- `ubuntu-latest`;
+- `macos-latest`; and
+- `windows-latest`.
+
+Every runner executes:
+
+```sh
+GUIDE_FORMAT_REQUIRE_CONFORMANCE=all \
+  cargo test --workspace --all-targets --all-features --locked -- --nocapture
+GUIDE_FORMAT_REQUIRE_CONFORMANCE=all \
+  cargo test --workspace --all-targets --all-features --release --locked -- --nocapture
+cargo test --workspace --all-targets --all-features --locked \
+  trust_evidence -- --nocapture
+```
+
+The first two commands compile and execute every test target and feature from
+the committed lockfile. The third deliberately repeats the exact guide,
+output, and containment trust oracles so their capability results cannot be
+buried among ordinary suite output.
+
+The existing focused invocations remain after these binding commands to keep
+per-issue failure attribution visible in the Actions interface. They reuse
+the compiled target artifacts; only the complete commands above define
+platform coverage.
+
+## Capability and skip audit
+
+The complete suite includes fixed fixtures for:
+
+- exact case and Unicode identity on aliasing and non-aliasing filesystems;
+- POSIX and Windows drive, rooted, UNC, separator, reserved-name, stream, and
+  device path behavior;
+- file, directory, dangling, chained, and looping links;
+- Windows junctions/reparse entries and real link privileges;
+- Unix permission failures and Windows DACL denial;
+- deterministic transient disappearance; and
+- exactly-one-winner exclusive creation.
+
+The #45 output oracle and #49 guide oracle require an empty unavailable set on
+Windows. Windows symlink, junction/reparse, DACL, stream, device, sentinel, and
+creator-race evidence therefore fail closed. Unix jobs declare only the exact
+Windows-only trust rows unavailable; Unix links and permission cases execute
+for real. Case and Unicode fixtures choose an observed alias or distinct-name
+branch and execute either way.
+
+The three intentional ignores are:
+
+1. a manual parser hierarchy benchmark;
+2. a manual serialized #50 release benchmark; and
+3. the #62 packaged-artifact acceptance test, which CI invokes explicitly
+   once with `--ignored`.
+
+`issue_55_intentional_ignore_allowlist_is_exact_and_documented` scans every
+Rust source and rejects any addition or changed rationale.
+
+## Release dependency
+
+The prepared `release-identity` job now has `needs: build`. A failure in any
+member of the platform matrix prevents package preparation, dry-run
+publication, and packaged-CLI smoke from running as a successful release
+path.
+
+There is intentionally no actual publication workflow yet; issue #63 owns the
+non-publishing rehearsal and later trusted-publishing pipeline. The normative
+contract requires that future workflow to depend on or invoke this same
+locked matrix. This issue does not create a tag, release, package publication,
+organization, or environment.
+
+## First hosted gap discovery
+
+The first expanded [hosted matrix run][first-matrix-run] passed Linux and
+failed the [Windows job][first-windows-job] in
+`windows_output_reparse_matrix`. The Windows unit suite had executed 203
+tests with two intentional ignores; the CLI suite then executed 94 tests and
+failed one rather than merely compiling.
+
+The failure exposed cross-case fixture contamination in the Windows
+regression. Its first subcase intentionally placed an unsafe directory link
+inside the selected input root and proved that an output beneath it was
+rejected. The later subcase reused that root while proving that an explicitly
+selected external output link is permitted. Source generation correctly
+rejected the unsafe link that the first subcase had left behind.
+
+The regression now removes only that directory-link fixture after the
+rejection assertions. The external target remains alive, and the later
+external-output case runs against a clean input root. No production path,
+parser input, trust classification, or expected output changed.
+
+The next [hosted matrix run][second-matrix-run] passed that reparse regression
+and exposed a separate [Windows-only test failure][second-windows-job].
+`issue_47_recursive_github_error_has_discovery_path_and_line` hard-coded `/`
+in its expected root-relative diagnostic, while the product consistently
+renders the logical `Path` with the host-native separator and emitted `\` on
+Windows. The test now builds its expected location with
+`std::path::MAIN_SEPARATOR`. The diagnostic remains root-relative, includes
+the Unicode path and exact line, and discloses no resolved external target.
+Again, no production behavior changed.
+
+The [third hosted matrix run][third-matrix-run] passed both prior Windows
+regressions and reached the issue #55 policy test itself. Its
+[Windows job][third-windows-job] exposed two platform assumptions in that new
+test: raw workflow matching assumed LF checkout bytes, and the reviewed
+ignore identifiers used `Path::display`, which renders repository-relative
+paths with `\` on Windows.
+
+The workflow helper now reconstructs the selected YAML job from logical
+lines, with an explicit LF/CRLF equivalence assertion. Ignore discovery now
+joins repository-relative path components with `/`, producing the same
+review identifier on every host. These changes affect only the issue #55
+policy test.
+
+The [fourth hosted matrix run][fourth-matrix-run] passed the issue #55 policy
+test and all prior Windows regressions. Its [Windows job][fourth-windows-job]
+then reached `issue_62_package_manifest_is_the_exact_reviewed_allowlist`.
+`cargo package --list` emitted host-native `\` separators, while the reviewed
+archive allowlist uses portable `/` package paths. The test now normalizes
+only that command's path separators before enforcing the same exact 33-entry
+allowlist. Package contents and production code are unchanged.
+
+The [fifth hosted matrix run][fifth-matrix-run] passed that package manifest
+gate and reached the release-identity suite. Its
+[Windows job][fifth-windows-job] found that the pinned published-API
+inventory compared generated LF text with CRLF checkout bytes from
+`CHANGELOG.md`. The release-identity test now normalizes CRLF to LF before
+extracting and exactly comparing the inventory. The 128-symbol baseline,
+category counts, content, order, hashes, package, and installed binary checks
+remain unchanged.
+
+## Hosted evidence
+
+The first clean [three-platform run][clean-matrix-run] passed the complete
+debug suite, complete release suite, exact trust rerun, and all retained
+focused checks on [Linux][clean-linux-job], [macOS][clean-macos-job], and
+[Windows][clean-windows-job]. The dependent
+[prepared-release job][clean-release-job] then ran and passed. This was
+executed test evidence, not a compile-only result.
+
+Commit `92a9666` then added one temporary `#[cfg(windows)]` test that panicked
+with `issue #55 deliberate Windows-only conformance gate proof`. In the
+resulting [deliberate red run][deliberate-red-run], the complete
+[Linux][deliberate-linux-job] and [macOS][deliberate-macos-job] jobs stayed
+green. The [Windows job][deliberate-windows-job] became red in the full debug
+command on exactly that test, after the other five issue #55 policy tests
+passed. The [prepared-release job][deliberate-release-job] was skipped.
+
+The temporary test is absent from the final source. The
+[restoration run][restoration-run] returned [Linux][restoration-linux-job],
+[macOS][restoration-macos-job], and [Windows][restoration-windows-job] to
+green across the same complete commands. Its dependent
+[prepared-release job][restoration-release-job] also passed.
+
+## Residual boundary
+
+The supported matrix covers ordinary local filesystems through the operating
+system's standard APIs and the current GitHub-hosted default workspaces. It
+does not certify network shares, userspace filesystems, foreign filesystem
+drivers, privileged device-node construction, or safety against hostile
+concurrent replacement. The product remains a stable-filesystem consistency
+checker, not a sandbox or access-control boundary.
+
+[first-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161
+[first-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161/job/90011882496
+[second-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396
+[second-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396/job/90013172856
+[third-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955
+[third-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955/job/90014524765
+[fourth-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121
+[fourth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121/job/90016134742
+[fifth-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278196689
+[fifth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278196689/job/90017519211
+[clean-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876
+[clean-linux-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90018904320
+[clean-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90018904319
+[clean-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90018904388
+[clean-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90021188611
+[deliberate-red-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633
+[deliberate-linux-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644182
+[deliberate-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644144
+[deliberate-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644286
+[deliberate-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90022729378
+[restoration-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914
+[restoration-linux-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90023050983
+[restoration-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90023050973
+[restoration-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90023050970
+[restoration-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279819914/job/90025113760

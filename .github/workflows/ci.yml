@@ -293,6 +293,7 @@ jobs:
 
   release-identity:
     name: Prepared release identity
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -357,10 +358,18 @@ jobs:
       with:
         persist-credentials: false
     - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
-    - name: Build
-      run: cargo build --locked --verbose
-    - name: Build release
-      run: cargo build --release --locked --verbose
+    - name: Run complete locked behavioral suite in debug mode
+      env:
+        GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
+      run: cargo test --workspace --all-targets --all-features --locked -- --nocapture
+    - name: Run complete locked behavioral suite in release mode
+      env:
+        GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
+      run: cargo test --workspace --all-targets --all-features --release --locked -- --nocapture
+    - name: Audit exact host-applicable trust evidence
+      run: >-
+        cargo test --workspace --all-targets --all-features --locked
+        trust_evidence -- --nocapture
     - name: Run README examples on every supported shell platform
       run: cargo test --locked --test issue_66_readme_examples -- --nocapture
     - name: Run hermetic test-infrastructure contract

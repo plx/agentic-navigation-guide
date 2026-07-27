@@ -2337,6 +2337,7 @@ fn windows_output_reparse_matrix() {
         );
         assert!(!result.status.success());
         assert!(!external.path().join("must-not-be-created.md").exists());
+        fs::remove_dir(&in_root_link).expect("remove in-root directory-link fixture");
 
         let external_link = output_parent
             .path()
@@ -5495,6 +5496,11 @@ fn test_guide_trust_evidence_is_an_exact_set_for_issue_49() {
             .copied()
             .collect(),
         "host-applicable guide evidence is not fully conformant"
+    );
+    eprintln!(
+        "issue55_capability os={} surface=guide-trust conformant={} unavailable={unavailable:?}",
+        std::env::consts::OS,
+        conformant.len()
     );
 }
 

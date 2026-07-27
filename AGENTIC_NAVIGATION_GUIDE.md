@@ -116,6 +116,7 @@
   - issue_64_release_identity.rs # Published API and exact package/install identity proof
   - issue_68_normative_source.rs # Sole normative claimant, historical rule ledger, links, and contradiction proof
   - issue_71_maintainer_continuity.rs # Single-maintainer exception, candid control status, and policy-alignment regressions
+  - issue_55_platform_conformance.rs # Three-platform full-suite, capability, skip, and release-dependency policy
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
   - issue_66_readme_examples.rs # Cross-platform README, package lifecycle, and immutable-CI smoke contract
@@ -143,6 +144,7 @@
   - 2026-07-27-issue-59-coverage-performance.md # Branch coverage, mutation sentinels, blocker traceability, and fixed performance evidence
   - 2026-07-27-issue-102-windows-device-ledger.md # Windows namespace pre-access oracle and real-platform precedence evidence
   - 2026-07-27-issue-29-filesystem-safety-gate.md # Verification, discovery, and filesystem-safety component-gate proof
+  - 2026-07-27-issue-55-platform-conformance.md # Full-suite platform matrix, capability audit, and red-gate evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
