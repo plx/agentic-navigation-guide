@@ -22,10 +22,11 @@ maintenance policy for the complete CLI:
 This work uses ordinary bounded builds and deterministic tests. It adds no
 fuzzer, nightly-only test workspace, or external model implementation.
 
-Implementation commit:
+Implementation commits:
 
 ```text
 9bf463784c8fbe335be96744e9113a9dc4ed975f
+006cb3752eccda3b3e91d4e2345e5de29e9191dd
 ```
 
 Base revision:
@@ -104,6 +105,13 @@ dependencies. Two pre-existing `map_or` expressions surfaced under the now
 enforced MSRV Clippy gate and were replaced with the equivalent
 MSRV-supported `is_none_or` form; no product behavior changed.
 
+The first hosted current-stable Clippy run then enforced Rust 1.97's newer
+`io_other_error` lint and identified 11 Linux-visible constructions of
+`io::ErrorKind::Other`. The review fix converted those and seven additional
+platform-gated occurrences to the equivalent `io::Error::other` constructor,
+which has been stable since before the declared floor. Both Rust 1.85 and Rust
+1.97 Clippy pass after the cross-platform sweep.
+
 ## Supported and forward toolchains
 
 The exact locally validated toolchains are:
@@ -174,6 +182,7 @@ cargo +1.85.0 fmt --all -- --check
 cargo +1.85.0 check --locked --all-targets --all-features
 cargo +1.85.0 test --locked --all-targets --all-features
 cargo +1.85.0 clippy --locked --all-targets --all-features -- -D warnings
+cargo +1.97.1 clippy --locked --all-targets --all-features -- -D warnings
 cargo +1.85.0 package --locked --allow-dirty
 cargo +1.85.0 install --path . --locked --root <isolated-root>
 cargo +1.96.1 test --locked --all-targets --all-features
