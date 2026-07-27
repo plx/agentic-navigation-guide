@@ -96,6 +96,7 @@
     - v0_2_api.rs # Frozen #36 Rust export disposition ledger
   - issue_54_binary_only_package.rs # Workspace/package binary-only target-shape regression
   - issue_60_msrv_dependency_policy.rs # MSRV, CI, install, and update-policy drift regression
+  - issue_61_workflow_security_policy.rs # Immutable, least-privilege, bounded workflow policy regression
   - issue_64_release_identity.rs # Published API and exact package/install identity proof
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
@@ -104,6 +105,7 @@
   - 2026-07-26-issue-30-supported-rust-api-gate.md # Rust API/SemVer gate proof
   - 2026-07-26-issue-57-parser-robustness.md # Deterministic bounded parser input-matrix evidence
   - 2026-07-26-issue-60-msrv-dependency-policy.md # Rust floor, compatible graph, CI, audit, and attribution evidence
+  - 2026-07-26-issue-61-workflow-hardening.md # Immutable Actions, least-privilege token, and bounded-execution evidence
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
