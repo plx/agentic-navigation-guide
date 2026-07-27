@@ -304,6 +304,70 @@ class ReleaseArtifactsTests(unittest.TestCase):
                     "refs/heads/main",
                 )
 
+    def test_bundle_rejects_wrong_archive_count_and_missing_crate(self) -> None:
+        def prepare(directory: Path, names: list[str]) -> tuple[Path, Path, Path]:
+            for name in names:
+                (directory / name).write_bytes(name.encode())
+            checksums = directory / "SHA256SUMS"
+            RELEASE.write_checksums(
+                checksums,
+                [directory / name for name in names],
+            )
+            sbom = directory / "agentic-navigation-guide-0.2.0.spdx.json"
+            provenance = directory / "agentic-navigation-guide-0.2.0.intoto.json"
+            provenance.write_text("{}\n", encoding="utf-8")
+            return checksums, sbom, provenance
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            checksums, sbom, provenance = prepare(
+                directory,
+                [
+                    "agentic-navigation-guide-0.2.0.crate",
+                    "agentic-navigation-guide-0.2.0-linux.tar.gz",
+                    "agentic-navigation-guide-0.2.0-macos.tar.gz",
+                    "agentic-navigation-guide-0.2.0.spdx.json",
+                ],
+            )
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseError,
+                "must contain 3 native archives",
+            ):
+                RELEASE.verify_bundle(
+                    directory,
+                    checksums,
+                    sbom,
+                    provenance,
+                    "v0.2.0",
+                    COMMIT,
+                    "refs/heads/main",
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            checksums, sbom, provenance = prepare(
+                directory,
+                [
+                    "agentic-navigation-guide-0.2.0-linux.tar.gz",
+                    "agentic-navigation-guide-0.2.0-macos.tar.gz",
+                    "agentic-navigation-guide-0.2.0-windows.zip",
+                    "agentic-navigation-guide-0.2.0.spdx.json",
+                ],
+            )
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseError,
+                "missing agentic-navigation-guide-0.2.0.crate",
+            ):
+                RELEASE.verify_bundle(
+                    directory,
+                    checksums,
+                    sbom,
+                    provenance,
+                    "v0.2.0",
+                    COMMIT,
+                    "refs/heads/main",
+                )
+
     def test_sbom_has_one_root_and_resolved_dependencies(self) -> None:
         root_id = "path+file:///root#agentic-navigation-guide@0.2.0"
         dependency_id = (

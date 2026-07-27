@@ -117,6 +117,8 @@ def check_pipeline_workflow() -> None:
     workflow_path = ROOT / ".github" / "workflows" / configuration["workflow_filename"]
     workflow = workflow_path.read_text(encoding="utf-8")
     matrix = ", ".join(configuration["supported_runners"])
+    # These literal checks intentionally make policy-relevant YAML reformatting a
+    # reviewed configuration change instead of silently accepting equivalent drift.
     required_fragments = {
         "candidate tag default": f"default: {configuration['candidate_tag']}",
         "protected environment": (
@@ -771,6 +773,8 @@ def crates_version_state(crate_archive: Path) -> str:
             )
         },
     )
+    # Registry uncertainty fails closed. Recovery reruns the same immutable
+    # workflow rather than hiding an outage behind an automatic retry.
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.load(response)

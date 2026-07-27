@@ -47,7 +47,8 @@ jobs:
     permissions:
       contents: read
     env:
-      FAILURE_INJECTION: ${{ inputs.failure_injection || 'none' }}
+      # Temporary hosted proof for issue #63; remove with the PR trigger.
+      FAILURE_INJECTION: ${{ github.event_name == 'pull_request' && 'package-smoke' || inputs.failure_injection || 'none' }}
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
@@ -78,6 +79,7 @@ jobs:
           remote_tag="$(git ls-remote --refs origin "refs/tags/$CANDIDATE_TAG")"
           test "$(cut -f1 <<<"$remote_tag")" = "$GITHUB_SHA"
           test "$(wc -l <<<"$remote_tag" | tr -d ' ')" = "1"
+          # Release tags must be cut from current protected main, not a stale ancestor.
           git fetch --no-tags --depth=1 origin main
           test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
         fi
@@ -237,7 +239,8 @@ jobs:
     permissions:
       contents: read
     env:
-      FAILURE_INJECTION: ${{ inputs.failure_injection || 'none' }}
+      # Temporary hosted proof for issue #63; remove with the PR trigger.
+      FAILURE_INJECTION: ${{ github.event_name == 'pull_request' && 'package-smoke' || inputs.failure_injection || 'none' }}
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
