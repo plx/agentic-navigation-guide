@@ -37,6 +37,11 @@ complete and the final candidate is revalidated.
   maintained user/contract documentation, and intentional license, notice,
   and attribution files; repository workflows, site sources, agent material,
   audits, remediations, and internal test fixtures are excluded.
+- The project records a
+  [time-bounded single-maintainer exception](https://github.com/plx/agentic-navigation-guide/blob/main/docs/maintainer-continuity.md):
+  `plx` remains the sole GitHub/crates.io owner, no independent recovery drill
+  has passed, maintenance is best-effort, and the exception expires on
+  2026-10-31. This is explicit residual risk, not organizational redundancy.
 - `docs/v0.2-contract.md` is mechanically enforced as the sole normative v0.2
   specification. The original root `Specification.md` is preserved with its
   Git history under `docs/history/`, where an unmistakable dated banner and
