@@ -112,12 +112,40 @@ jobs:
         echo "$ZIZMOR_SHA256  $archive" | sha256sum --check -
         tar -xzf "$archive" -C "$RUNNER_TEMP" zizmor
         echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+    - name: Install checksum-pinned README documentation tools
+      env:
+        LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
+        LYCHEE_VERSION: 0.24.2
+        RUMDL_SHA256: 01e0dd2d89c07d244c5c93243f7faf2986d2abec68a7cec458e38c25988fbabc
+        RUMDL_VERSION: 0.2.43
+      run: |
+        lychee_archive="$RUNNER_TEMP/lychee.tar.gz"
+        curl --fail --location --silent --show-error \
+          "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz" \
+          --output "$lychee_archive"
+        echo "$LYCHEE_SHA256  $lychee_archive" | sha256sum --check -
+        tar -xzf "$lychee_archive" -C "$RUNNER_TEMP" \
+          --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
+
+        rumdl_archive="$RUNNER_TEMP/rumdl.tar.gz"
+        curl --fail --location --silent --show-error \
+          "https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}/rumdl-v${RUMDL_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+          --output "$rumdl_archive"
+        echo "$RUMDL_SHA256  $rumdl_archive" | sha256sum --check -
+        tar -xzf "$rumdl_archive" -C "$RUNNER_TEMP" rumdl
+        echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
     - name: Lint GitHub Actions workflows
-      run: actionlint .github/workflows/*.yml
+      run: actionlint .github/workflows/*.yml .github/examples/*.yml
     - name: Audit GitHub Actions workflows
       env:
         GH_TOKEN: ${{ github.token }}
-      run: zizmor --pedantic --no-ignores .github/workflows/
+      run: zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml
+    - name: Lint README Markdown
+      run: rumdl check --disable MD010,MD013,MD038 README.md
+    - name: Check README links
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: lychee --no-progress README.md .github/examples/readme-verify.yml
 
   issue-selector:
     name: Production-readiness issue selector
@@ -212,6 +240,8 @@ jobs:
       run: cargo build --locked --verbose
     - name: Build release
       run: cargo build --release --locked --verbose
+    - name: Run README examples on every supported shell platform
+      run: cargo test --locked --test issue_66_readme_examples -- --nocapture
     - name: Run focused entry-type tests
       run: cargo test --locked issue_42 -- --nocapture
     - name: Run focused generation-preflight tests

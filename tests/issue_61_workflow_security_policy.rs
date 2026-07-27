@@ -259,7 +259,7 @@ fn secret_bearing_claude_jobs_use_trusted_checkouts_and_scoped_tokens() {
 }
 
 #[test]
-fn workflow_lint_is_fail_closed_and_checksum_pins_both_tools() {
+fn workflow_lint_is_fail_closed_and_checksum_pins_every_tool() {
     let ci = fs::read_to_string(repository_root().join(".github/workflows/ci.yml"))
         .expect("failed to read CI workflow");
     let lint = job_block(&ci, "workflow-lint");
@@ -272,14 +272,26 @@ fn workflow_lint_is_fail_closed_and_checksum_pins_both_tools() {
     assert!(lint.contains(
         "ZIZMOR_SHA256: aa1facd105f0d83fe5c55b1adcd9d7417de5d83aa27471f91dc0b66cf3803577"
     ));
+    assert!(lint.contains("LYCHEE_VERSION: 0.24.2"));
+    assert!(lint.contains(
+        "LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a"
+    ));
+    assert!(lint.contains("RUMDL_VERSION: 0.2.43"));
+    assert!(lint.contains(
+        "RUMDL_SHA256: 01e0dd2d89c07d244c5c93243f7faf2986d2abec68a7cec458e38c25988fbabc"
+    ));
     assert_eq!(
         lint.matches(r#"echo "$RUNNER_TEMP" >> "$GITHUB_PATH""#)
             .count(),
-        2,
-        "each scanner installer must export its own executable directory"
+        3,
+        "each scanner installer must export its executable directory"
     );
-    assert!(lint.contains("actionlint .github/workflows/*.yml"));
+    assert!(lint.contains("actionlint .github/workflows/*.yml .github/examples/*.yml"));
     assert!(lint.contains("GH_TOKEN: ${{ github.token }}"));
-    assert!(lint.contains("zizmor --pedantic --no-ignores .github/workflows/"));
+    assert!(lint.contains(
+        "zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml"
+    ));
+    assert!(lint.contains("rumdl check --disable MD010,MD013,MD038 README.md"));
+    assert!(lint.contains("lychee --no-progress README.md .github/examples/readme-verify.yml"));
     assert!(!lint.contains("continue-on-error"));
 }

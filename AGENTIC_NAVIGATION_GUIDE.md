@@ -83,6 +83,8 @@
   - config.toml # project-local aliases and rust-version-aware dependency resolution
 - .github/
   - dependabot.yml # Weekly review-only Cargo and GitHub Actions update proposals
+  - examples/
+    - readme-verify.yml # Actionlint-checked immutable README workflow example
 - THIRD_PARTY_LICENSES.md # generated bundled-dependency attributions (CI-gated)
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
@@ -107,6 +109,7 @@
   - issue_71_maintainer_continuity.rs # Single-maintainer exception, candid control status, and policy-alignment regressions
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
+  - issue_66_readme_examples.rs # Cross-platform README, package lifecycle, and immutable-CI smoke contract
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
@@ -122,6 +125,7 @@
   - 2026-07-27-issue-47-output-contract.md # Broken-pipe, quiet-mode, and GitHub diagnostic evidence
   - 2026-07-27-issue-101-parent-explicit-guide.md # Ordered parent reduction, shared-opener, redaction, and platform evidence
   - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof
+  - 2026-07-27-issue-66-readme-examples.md # Concise onboarding, package lifecycle, and immutable-CI evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
