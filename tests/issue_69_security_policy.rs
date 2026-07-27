@@ -198,9 +198,13 @@ fn issue_69_docs_ci_and_audit_keep_every_security_claim_in_scope() {
     ] {
         assert!(guide.contains(path), "navigation guide omits {path:?}");
     }
+    assert!(
+        ci.contains("rumdl check --disable MD013 CONTRIBUTING.md .github/pull_request_template.md")
+    );
     assert!(ci.contains("rumdl check SECURITY.md docs/security-response-runbook.md"));
-    assert!(ci
-        .contains("lychee --no-progress README.md SECURITY.md .github/examples/readme-verify.yml"));
+    assert!(ci.contains(
+        "lychee --no-progress README.md CONTRIBUTING.md SECURITY.md .github/pull_request_template.md"
+    ));
 
     for evidence in [
         "Issue #35",

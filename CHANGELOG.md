@@ -58,6 +58,11 @@ complete and the final candidate is revalidated.
   owner approval with administrator bypass disabled. The zero independent
   review count and allowed self-review are explicit consequences of the dated
   single-maintainer exception.
+- A root contributor guide, structured bug and contract-proposal issue forms,
+  and a pull request template now require one-issue scope, deterministic
+  red-before-fix evidence, focused/full validation, native dependency links,
+  documentation/compatibility/security review, and dependency/license impact.
+  CI validates their constrained YAML and headings without adding fuzzing.
 - `docs/v0.2-contract.md` is mechanically enforced as the sole normative v0.2
   specification. The original root `Specification.md` is preserved with its
   Git history under `docs/history/`, where an unmistakable dated banner and
