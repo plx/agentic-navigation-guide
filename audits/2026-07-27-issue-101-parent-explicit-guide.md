@@ -63,7 +63,7 @@ input was used.
 
 ## Bounded validation
 
-`tests/issue_101_parent_explicit_guide.rs` contains a fixed five-test
+`tests/issue_101_parent_explicit_guide.rs` contains a fixed six-test
 cross-platform subprocess matrix. `src/guide_input.rs` adds two direct
 shared-opener unit regressions. Together they cover:
 
@@ -78,3 +78,25 @@ shared-opener unit regressions. Together they cover:
 
 The existing #49 trust fixture IDs, outcomes, and owner remain unchanged.
 The existing #51 containment tests remain separately owned and unchanged.
+
+## Validation results
+
+All local validation used fixed, reviewable cases:
+
+- the focused issue #101 integration matrix passed all 6 tests;
+- the two direct shared-opener unit regressions passed;
+- the focused issue #101 matrix passed with Rust 1.85, the declared MSRV;
+- the complete debug and release suites each passed 360 tests with the same
+  3 intentional ignores;
+- strict Clippy, all-target/all-feature checking, formatting, diff hygiene,
+  guide `check`, and guide `verify --deny-ignored` passed;
+- #49's exact trust evidence and all 12 #51 containment tests passed;
+- all 61 selector tests and all 14 release-identity mutation tests passed;
+  the release-identity checker also passed;
+- `cargo package --locked` packaged and verified successfully;
+- the exact-package install/smoke boundary test passed; and
+- `cargo package --locked --list` remained at exactly 33 files.
+
+The real Windows junction case remains required hosted evidence. A passing
+`Build (windows-latest)` PR job is required before the platform criterion can
+be marked verified and before the change can merge.
