@@ -28,6 +28,7 @@ Implementation commits:
 9bf463784c8fbe335be96744e9113a9dc4ed975f
 006cb3752eccda3b3e91d4e2345e5de29e9191dd
 c12c3b9674ad44e3332934be85e7027d3831da46
+1679d77f7a4f2f64ea413caf364aa93cb700f54a
 ```
 
 Base revision:
@@ -186,11 +187,14 @@ The existing CI regeneration-and-diff gate remains in place.
 lockfile and immutable GitHub Actions references. Its labels were checked
 against the live repository. It contains no registries or credentials.
 Repository CI now defaults to read-only `contents` permission, and Dependabot
-has no workflow that can publish or merge a proposal. Pinned actionlint
-`1.7.12` is now a standing hosted check. Review also consolidated the
-redundant standalone default-toolchain test and Clippy jobs into the exact
-support matrix: every supported lane tests fully, while the MSRV and current
-stable endpoints lint.
+has no workflow that can publish or merge a proposal. Actionlint `1.7.12` is
+now a standing hosted check. Its upstream Linux release archive is pinned by
+SHA-256
+`8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8`
+and verified before extraction. Review also consolidated the redundant
+standalone default-toolchain test and Clippy jobs into the exact support
+matrix: every supported lane tests fully, while the MSRV and current stable
+endpoints lint.
 
 The following final gates passed:
 
