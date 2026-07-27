@@ -152,6 +152,19 @@ Windows. The test now builds its expected location with
 the Unicode path and exact line, and discloses no resolved external target.
 Again, no production behavior changed.
 
+The [third hosted matrix run][third-matrix-run] passed both prior Windows
+regressions and reached the issue #55 policy test itself. Its
+[Windows job][third-windows-job] exposed two platform assumptions in that new
+test: raw workflow matching assumed LF checkout bytes, and the reviewed
+ignore identifiers used `Path::display`, which renders repository-relative
+paths with `\` on Windows.
+
+The workflow helper now reconstructs the selected YAML job from logical
+lines, with an explicit LF/CRLF equivalence assertion. Ignore discovery now
+joins repository-relative path components with `/`, producing the same
+review identifier on every host. These changes affect only the issue #55
+policy test.
+
 ## Hosted evidence
 
 The pull request must retain:
@@ -179,3 +192,5 @@ checker, not a sandbox or access-control boundary.
 [first-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161/job/90011882496
 [second-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396
 [second-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276909396/job/90013172856
+[third-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955
+[third-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955/job/90014524765

@@ -10,28 +10,37 @@ fn leading_spaces(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
 }
 
-fn job_block<'a>(workflow: &'a str, job_name: &str) -> &'a str {
+fn job_block(workflow: &str, job_name: &str) -> String {
     let start_marker = format!("  {job_name}:");
-    let start = workflow
-        .find(&start_marker)
-        .unwrap_or_else(|| panic!("missing CI job {job_name:?}"));
-    let body = &workflow[start..];
-    let end = body
+    let mut lines = workflow
         .lines()
-        .skip(1)
-        .scan(start_marker.len() + 1, |offset, line| {
-            let current = *offset;
-            *offset += line.len() + 1;
-            Some((current, line))
-        })
-        .find_map(|(offset, line)| {
-            (leading_spaces(line) == 2
-                && !line.trim().is_empty()
-                && !line.trim_start().starts_with('#'))
-            .then_some(offset)
-        })
-        .unwrap_or(body.len());
-    &body[..end]
+        .skip_while(|line| *line != start_marker)
+        .peekable();
+    lines
+        .peek()
+        .unwrap_or_else(|| panic!("missing CI job {job_name:?}"));
+    let mut block = String::new();
+    for line in lines {
+        if line != start_marker
+            && leading_spaces(line) == 2
+            && !line.trim().is_empty()
+            && !line.trim_start().starts_with('#')
+        {
+            break;
+        }
+        block.push_str(line);
+        block.push('\n');
+    }
+    block
+}
+
+fn portable_relative_path(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .expect("source beneath repository root")
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn rust_sources_below(path: &Path, sources: &mut Vec<PathBuf>) {
@@ -81,10 +90,7 @@ fn ignored_tests() -> BTreeSet<String> {
                         index + 1
                     )
                 });
-            let relative = path
-                .strip_prefix(&root)
-                .expect("source beneath repository root")
-                .display();
+            let relative = portable_relative_path(&path, &root);
             ignored.insert(format!("{relative}::{function}::{}", line.trim()));
         }
     }
@@ -96,6 +102,13 @@ fn issue_55_ci_runs_complete_locked_suites_on_the_exact_supported_matrix() {
     let ci = fs::read_to_string(repository_root().join(".github/workflows/ci.yml"))
         .expect("read CI workflow");
     let build = job_block(&ci, "build");
+    let lf_ci = ci.replace("\r\n", "\n");
+    let crlf_ci = lf_ci.replace('\n', "\r\n");
+    assert_eq!(
+        build,
+        job_block(&crlf_ci, "build"),
+        "workflow policy extraction must be independent of checkout line endings"
+    );
 
     assert!(
         build.contains("os: [ubuntu-latest, windows-latest, macos-latest]"),
