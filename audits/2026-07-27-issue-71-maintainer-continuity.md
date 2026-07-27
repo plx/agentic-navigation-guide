@@ -77,7 +77,9 @@ No tabletop recovery drill was represented as passing.
 4. README, release-policy, changelog, navigation-guide, and five-row
    acceptance-ledger alignment.
 
-The validation uses fixed strings and repository files only. It performs no
+The boundary assertions use fixed dates, strings, and repository files. The
+fail-closed enforcement also deliberately reads the runner's current UTC day,
+so its result changes after the recorded deadline. The validation performs no
 fuzzing, mutation testing, randomized generation, or generated hostile input.
 
 ## Red-before-fix evidence
