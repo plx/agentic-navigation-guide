@@ -44,12 +44,11 @@ The new deterministic contract in
 
 ## Reviewed action inventory
 
-There are 30 executable action invocations using these nine reviewed
-repository/revision pairs across eight actions:
+There are 30 executable action invocations using these eight reviewed
+repository/revision pairs:
 
 | Action | Immutable revision | Review comment |
 | --- | --- | --- |
-| `actions/checkout` | `34e114876b0b11c390a56381ad16ebd13914f8d5` | `v4.3.1` |
 | `actions/checkout` | `93cb6efe18208431cddfb8368fd83d5badbf9bfd` | `v5.0.1` |
 | `actions-rust-lang/setup-rust-toolchain` | `46268bd060767258de96ed93c1251119784f2ab6` | `v1.16.1` |
 | `actions/setup-python` | `5fda3b95a4ea91299a34e894583c3862153e4b97` | `v7.0.0` |
@@ -60,15 +59,16 @@ repository/revision pairs across eight actions:
 | `anthropics/claude-code-action` | `be7b93b1907a4abad570368f3c74b6fe3807510b` | `v1.0.183` |
 
 The annotated upstream `v1.0.183` Claude tag resolves to the pinned
-`be7b93b...` commit. The previously reviewed action pins remain unchanged.
+`be7b93b...` commit. All checkout steps use the already-reviewed v5.0.1 pin;
+this avoids the hosted Node 20 deprecation warning emitted by checkout v4.
 
 ## Permission and trust decisions
 
 | Workflow/job | Effective capability | Bound |
 | --- | --- | --- |
 | CI, site checks, guide verification | `contents: read` | Per-PR/ref concurrency with cancellation; 10–30 minute job timeouts |
-| Claude PR review | `contents: read`, `pull-requests: write` | Internal PRs only; trusted base SHA checkout; 30-minute timeout; PR-scoped cancellation |
-| Claude mention response | `actions: read`, `contents: write`, `issues: write`, `pull-requests: write` | Workflow-native maintainer association gate plus action-enforced write-access check; trusted default-branch checkout; 30-minute timeout; post-gate issue/PR concurrency |
+| Claude PR review | `contents: read`, `pull-requests: write` | Internal PRs only; trusted initial base SHA checkout; PR-only allowed shell tools; 30-minute timeout; PR-scoped cancellation |
+| Claude mention response | `actions: read`, `contents: write`, `issues: write`, `pull-requests: write` | Workflow-native maintainer association gate plus action-enforced write-access check; issue comments exclude PRs and review events require an internal PR; 30-minute timeout; post-gate issue/PR concurrency |
 | Pages build | `contents: read` | 15-minute timeout |
 | Pages deploy | `pages: write`, `id-token: write` | Deployment job only; protected `github-pages` environment; 10-minute timeout; serialized deployment concurrency |
 
@@ -83,20 +83,28 @@ requesting an OIDC token. Both Claude workflows now pass the job-scoped
 `${{ github.token }}` explicitly, so the action does not perform its default
 OIDC-to-App-token exchange and `id-token: write` is removed.
 
-The OAuth-bearing review job runs only for same-repository PRs and explicitly
-checks out `pull_request.base.sha`; it never checks out the PR head or merge
-commit. Its allowed shell tools are limited to reading and commenting on the
-current PR. The mention workflow requires `OWNER`, `MEMBER`, or `COLLABORATOR`
-association for the exact event content that contains `@claude`, then
-participates in job-level concurrency only after that trust/mention condition
-passes. An unrelated or untrusted event therefore cannot cancel a legitimate
-run. The action retains its independent rule that only actors with repository
-write access can trigger execution. The workflow explicitly checks out the
-trusted default branch, and both Claude workflows keep `show_full_output:
-false`.
+The OAuth-bearing review job runs only for same-repository PRs and initially
+checks out `pull_request.base.sha`. The Claude action subsequently obtains the
+same-repository PR branch for review, but its allowed shell tools are limited
+to reading and commenting on that PR; it cannot execute workspace commands.
+
+The mention workflow requires `OWNER`, `MEMBER`, or `COLLABORATOR` association
+for the exact event content that contains `@claude`, then participates in
+job-level concurrency only after that trust/mention condition passes. Issue
+comments must refer to issues rather than PRs. Review and review-comment events
+must target a branch in this repository. An unrelated or untrusted event
+therefore cannot cancel a legitimate run or introduce an external PR checkout.
+The action retains its independent rule that only actors with repository write
+access can trigger execution.
+
+The mention workflow initially checks out the trusted default branch. A live
+same-repository `pull_request_review_comment` run confirmed that the action
+then selects the PR branch after both trust gates, using the scoped job token.
+Both Claude workflows keep `show_full_output: false`.
 
 Secrets are passed only as action inputs. No `run:` command interpolates a
-secret, and no checkout persists the job token into Git configuration.
+secret, and no `actions/checkout` step persists the job token. Hosted log
+inspection showed token-bearing fields only as `***`; no token value appeared.
 
 ## Scanner enforcement
 
@@ -137,11 +145,13 @@ finding; reported findings are zero with online audits enabled.
 | `just test-production-readiness-selector` | Pass; 61 tests |
 | Site format, spelling, Astro check/build, and Playwright suite | Pass; 27 browser tests |
 
-The pull request's hosted runs provide the final event-level proof for normal
-CI, the internal pull-request Claude review, and the release dry-run. The
-issue-comment Claude workflow and Pages deployment retain explicit event
-guards and least-privilege jobs but are not artificially triggered by this
-remediation.
+The pull request's hosted runs provide event-level proof for normal CI, the
+internal pull-request Claude review, and the release dry-run. A trusted
+maintainer `pull_request_review_comment` also exercised the mention path on
+commit `4a8c62d`; run `30234018781` passed in 94 seconds and the action's
+response independently confirmed the post-gate concurrency fix. Pages
+deployment retains a dedicated protected-environment job and was not
+artificially triggered by this remediation.
 
 One earlier local full-suite attempt overlapped a separate `cargo run` in the
 same target directory after Cargo released its build lock. Eight CLI tests in

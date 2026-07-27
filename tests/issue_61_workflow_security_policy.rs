@@ -105,6 +105,14 @@ fn every_remote_action_is_immutable_and_checkout_drops_credentials() {
             );
 
             if repository == "actions/checkout" {
+                assert_eq!(
+                    action,
+                    "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd",
+                    "{}:{} must use the reviewed Node 24 checkout release",
+                    path.display(),
+                    index + 1
+                );
+                assert_eq!(review_comment, Some("v5.0.1"));
                 let block = step_block(&lines, index);
                 assert!(
                     block.contains("persist-credentials: false"),
@@ -204,6 +212,13 @@ fn secret_bearing_claude_jobs_use_trusted_checkouts_and_scoped_tokens() {
     assert!(mentions.contains("ref: ${{ github.event.repository.default_branch }}"));
     assert!(mentions.contains("show_full_output: false"));
     assert!(!mentions.contains("allowed_non_write_users:"));
+    assert!(mentions.contains("github.event.issue.pull_request == null"));
+    assert_eq!(
+        mentions
+            .matches("github.event.pull_request.head.repo.full_name == github.repository")
+            .count(),
+        2
+    );
     assert!(!mentions.lines().any(|line| line == "concurrency:"));
     assert!(job_block(&mentions, "claude").contains("    concurrency:"));
     assert_eq!(
