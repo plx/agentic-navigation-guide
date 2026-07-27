@@ -18,6 +18,10 @@ check-release-identity tag="v0.2.0":
 test-release-identity:
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_release_identity.py -v
 
+# Run deterministic release artifact and fail-closed workflow regressions.
+test-release-artifacts:
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_release_artifacts.py -v
+
 # Compare live repository protections with the reviewed issue #65 payloads.
 audit-github-protections *args:
     PYTHONDONTWRITEBYTECODE=1 python3 scripts/audit_github_protections.py {{ args }}

@@ -1,0 +1,24 @@
+schema = 1
+workflow_filename = "release.yml"
+repository = "plx/agentic-navigation-guide"
+environment = "release"
+candidate_tag = "v0.2.0"
+crate = "agentic-navigation-guide"
+binary = "agentic-navigation-guide"
+supported_runners = [
+    "ubuntu-latest",
+    "macos-latest",
+    "windows-latest",
+]
+archive_license_files = [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "NOTICE",
+    "README.md",
+    "THIRD_PARTY_LICENSES.md",
+]
+reproducibility_claim = "same-runner-release-binary-byte-for-byte"
+trusted_publisher_owner = "plx"
+trusted_publisher_repository = "agentic-navigation-guide"
+trusted_publisher_workflow = "release.yml"
+trusted_publisher_environment = "release"

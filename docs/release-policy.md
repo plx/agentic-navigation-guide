@@ -23,8 +23,8 @@ python3 scripts/check_release_identity.py --tag v0.2.0
 ```
 
 The check validates an input; it does not create a tag, crate, GitHub Release,
-or other publication. The trusted publishing workflow owned by issue #63 must
-pass its real tag ref to this checker before any release action.
+or other publication. The trusted publishing workflow passes its real tag ref
+to this checker before any release action.
 
 ## Maintainer continuity and release authority
 
@@ -40,9 +40,126 @@ established the strongest operable controls for the personal repository:
 pull-request-only `main` changes, current required CI, immutable release tags,
 and a tag-scoped owner-approved `release` environment. The absence of an
 independent pull-request or deployment approver remains residual risk. Issue
-#63 must use short-lived crates.io identity scoped to that environment.
+#63's workflow uses short-lived crates.io identity scoped to that environment.
 Publication after the expiry date is blocked without a verified backup or a
 new explicit maintainer decision.
+
+## Release workflow
+
+[`release/pipeline.toml`](../release/pipeline.toml) records the expected
+personal-repository identity. The only production identity is:
+
+- repository `plx/agentic-navigation-guide`;
+- workflow `.github/workflows/release.yml`;
+- protected environment `release`;
+- crate and binary `agentic-navigation-guide`; and
+- tag `v0.2.0` for the prepared candidate.
+
+The workflow has two entry points. A manual dispatch is always a
+non-publishing rehearsal. A `v*` tag event may reach the `publish` job only
+after the one `release-gate` aggregate sees every prerequisite succeed. The
+production tag must name the exact prepared version, resolve to the checked-out
+commit, and equal current protected `main`; a stale or moved candidate fails
+before build, package, attestation, or publication.
+
+The gate requires:
+
+1. source, Cargo, lockfile, CLI, changelog, package-target, and migration
+   identity;
+2. complete locked debug and release suites on Linux, macOS, and Windows;
+3. complete check, test, Clippy, package, and install gates on Rust `1.85.0`;
+4. rustfmt, all-target/all-feature Clippy with warnings denied, rustdoc with
+   warnings denied, RustSec, license/attribution, workflow, manifest, and
+   binary-only compatibility checks;
+5. exact `cargo package`, clean-root installation, success/failure smoke, and
+   `cargo publish --dry-run`;
+6. two isolated release builds on every native runner, requiring byte-identical
+   binaries before normalized `.tar.gz` or `.zip` creation;
+7. target-OS extraction and success/failure smoke of each exact archive; and
+8. re-download, SHA-256 verification, SPDX 2.3 SBOM generation, an in-toto/SLSA
+   provenance statement, and complete bundle verification.
+
+The reproducibility claim is deliberately narrow: two release binaries built
+on the same hosted runner, toolchain, commit, and locked graph must be byte for
+byte identical. Archive timestamps, ownership, order, modes, and gzip/ZIP
+metadata are normalized. The project does not claim that different runner
+images, operating systems, architectures, or future toolchains produce the
+same bytes.
+
+The rehearsal produces the crate archive, three native archives, checksums,
+SBOM, provenance statement, installed/smoke evidence, and complete bundle as
+short-retention Actions artifacts. It has only `contents: read`; the protected
+environment, OIDC permission, attestations API, crates.io, tags, and GitHub
+Releases are structurally unavailable. `tag-mismatch` and `package-smoke`
+manual choices are deliberate red runs used to prove that early identity or
+late installed-artifact failure cannot satisfy `release-gate`.
+
+The tag-only `publish` job re-verifies the downloaded bundle inside the
+owner-approved `release` environment. That job alone receives
+`id-token: write`, `attestations: write`, and `contents: write`. It creates
+Sigstore-backed GitHub build and SPDX attestations, creates or verifies an
+immutable GitHub Release, verifies the API's `immutable` result, and only then
+exchanges GitHub OIDC identity for a short-lived crates.io token. No repository
+or environment publication secret is used.
+
+The crates.io Trusted Publisher must be registered with exactly `plx`,
+`agentic-navigation-guide`, `release.yml`, and `release`. GitHub's repository
+setting **Enable release immutability** must also be enabled for future
+releases. Until both hosted settings are verified, the source mechanism is
+ready for rehearsal but real publication remains blocked: OIDC exchange or
+the post-release immutability assertion fails before `cargo publish`.
+
+## Non-publishing rehearsal
+
+From the Actions page, run the `Release` workflow on trusted `main` with
+candidate tag `v0.2.0` and failure injection `none`. This does not create a tag
+or release. Download `release-bundle` from the completed run and verify it:
+
+```sh
+python3 scripts/release_artifacts.py verify-checksums \
+  --directory target/release-bundle \
+  --checksums target/release-bundle/SHA256SUMS
+```
+
+The full hosted rehearsal is required before a release decision. Local helper
+tests are useful development evidence but do not replace native runner,
+protected-environment, OIDC, or hosted artifact behavior.
+
+## Release and recovery runbook
+
+No recovery step may delete, move, recreate, or reuse a `v*` tag.
+
+1. Merge the independently audited candidate through protected `main`; verify
+   the continuity exception is active and all hosted controls match their
+   checked-in policies.
+2. Run the non-publishing rehearsal and both deliberate failure injections.
+3. Verify the exact Trusted Publisher and future-release immutability settings.
+4. Create `v0.2.0` once at the exact current `main` commit. The tag-triggered
+   workflow must pass every gate and pause for `release` approval.
+5. If a gate fails before the protected job, fix source through a new pull
+   request. The existing immutable tag cannot move, so that candidate is
+   abandoned and a new version decision is required.
+6. If the protected job fails before an immutable GitHub Release exists,
+   correct only the hosted configuration and rerun the same failed workflow
+   attempt. Do not push the tag again.
+7. If GitHub created a mutable release, the workflow rejects it before
+   crates.io authentication. Remove that release record, enable future-release
+   immutability, and rerun the same tagged workflow; do not delete or change
+   the tag.
+8. If an immutable GitHub Release exists but crates.io publication failed,
+   configure or restore only the exact Trusted Publisher and rerun the same
+   tagged workflow. Recovery downloads and verifies every immutable asset
+   against the same checksums, commit, and ref before retrying.
+9. If crates.io already contains `0.2.0`, recovery continues only when its
+   registry checksum exactly matches the gated `.crate`. A missing or different
+   checksum is a stop condition requiring an incident record; it is never
+   repaired by moving the tag or replacing release assets.
+
+The workflow intentionally publishes the immutable GitHub Release before the
+crate. This ensures a missing immutability control cannot leave a crate
+published from a mutable asset set. A short interval where the immutable
+release exists before crates.io succeeds is recoverable from the same tag and
+bundle.
 
 ## Rust and dependency support
 

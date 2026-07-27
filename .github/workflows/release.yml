@@ -1,0 +1,550 @@
+name: Release
+
+on:
+  push:
+    tags:
+    - "v*"
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: Exact prepared tag identity to rehearse
+        required: true
+        default: v0.2.0
+        type: string
+      failure_injection:
+        description: Deliberate fail-closed proof; never publishes
+        required: true
+        default: none
+        type: choice
+        options:
+        - none
+        - tag-mismatch
+        - package-smoke
+
+env:
+  CANDIDATE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_tag || github.ref_name }}
+  CARGO_TERM_COLOR: always
+  SOURCE_REF: ${{ github.ref }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# All remote actions use immutable, reviewed commits. The manual path is a
+# rehearsal only. OIDC and write permission exist solely in the tag-triggered,
+# protected-environment publish job after release-gate succeeds.
+jobs:
+  identity:
+    name: Exact source identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      FAILURE_INJECTION: ${{ inputs.failure_injection || 'none' }}
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        cache: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - name: Reject a source/tag/version mismatch before every downstream job
+      shell: bash
+      run: |
+        checked_tag="$CANDIDATE_TAG"
+        if [[ "$FAILURE_INJECTION" == "tag-mismatch" ]]; then
+          checked_tag="v999.0.0-injected-mismatch"
+        fi
+        python3 scripts/check_release_identity.py --tag "$checked_tag"
+    - name: Require the exact checked-out commit and immutable tag source
+      shell: bash
+      run: |
+        test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+          test "$GITHUB_REF" = "refs/tags/$CANDIDATE_TAG"
+          remote_tag="$(git ls-remote --refs origin "refs/tags/$CANDIDATE_TAG")"
+          test "$(cut -f1 <<<"$remote_tag")" = "$GITHUB_SHA"
+          test "$(wc -l <<<"$remote_tag" | tr -d ' ')" = "1"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+        fi
+        git diff --exit-code
+    - name: Run release identity and artifact regressions
+      run: >-
+        PYTHONDONTWRITEBYTECODE=1 python3 -m unittest
+        tests/test_check_release_identity.py
+        tests/test_release_artifacts.py
+        -v
+    - name: Prove binary-only package identity and migration baseline
+      run: cargo test --locked --test issue_64_release_identity -- --nocapture
+
+  quality:
+    name: Release quality and supply-chain gates
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        components: clippy,rustfmt
+        cache: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - uses: taiki-e/install-action@c070f87102a1c75b3183910f391c1cb887fe13c8  # v2.77.6
+      with:
+        tool: cargo-audit@0.22.1,cargo-about@0.9.0
+    - name: Check formatting
+      run: cargo fmt -- --check
+    - name: Deny every Clippy warning
+      run: cargo clippy --locked --all-targets --all-features -- -D warnings
+    - name: Deny every rustdoc warning
+      env:
+        RUSTDOCFLAGS: -D warnings
+      run: cargo doc --locked --all-features --no-deps --document-private-items
+    - name: Audit the exact dependency graph
+      run: cargo audit --file Cargo.lock
+    - name: Verify licenses and attribution
+      shell: bash
+      run: |
+        cargo about generate about.hbs \
+          --output-file "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md"
+        cmp THIRD_PARTY_LICENSES.md "$RUNNER_TEMP/THIRD_PARTY_LICENSES.md"
+    - name: Verify package manifest, CLI contract, and absent library target
+      run: >-
+        cargo test --locked
+        --test issue_54_binary_only_package
+        --test issue_62_package_boundary
+        --test issue_64_release_identity
+        --test issue_66_readme_examples
+        -- --nocapture
+    - name: Install checksum-pinned workflow auditors
+      env:
+        ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        ACTIONLINT_VERSION: 1.7.12
+        ZIZMOR_SHA256: aa1facd105f0d83fe5c55b1adcd9d7417de5d83aa27471f91dc0b66cf3803577
+        ZIZMOR_VERSION: 1.25.2
+      shell: bash
+      run: |
+        actionlint_archive="$RUNNER_TEMP/actionlint.tar.gz"
+        curl --fail --location --silent --show-error \
+          "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+          --output "$actionlint_archive"
+        echo "$ACTIONLINT_SHA256  $actionlint_archive" | sha256sum --check -
+        tar -xzf "$actionlint_archive" -C "$RUNNER_TEMP" actionlint
+
+        zizmor_archive="$RUNNER_TEMP/zizmor.tar.gz"
+        curl --fail --location --silent --show-error \
+          "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
+          --output "$zizmor_archive"
+        echo "$ZIZMOR_SHA256  $zizmor_archive" | sha256sum --check -
+        tar -xzf "$zizmor_archive" -C "$RUNNER_TEMP" zizmor
+
+        "$RUNNER_TEMP/actionlint" .github/workflows/*.yml .github/examples/*.yml
+        "$RUNNER_TEMP/zizmor" --pedantic --no-ignores \
+          .github/workflows/ .github/examples/readme-verify.yml
+
+  platform-tests:
+    name: Full tests (${{ matrix.os }})
+    needs: identity
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        cache: false
+    - name: Run the complete locked debug suite
+      env:
+        GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
+      run: cargo test --workspace --all-targets --all-features --locked -- --nocapture
+    - name: Run the complete locked release suite
+      env:
+        GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
+      run: >-
+        cargo test --workspace --all-targets --all-features
+        --release --locked -- --nocapture
+
+  msrv:
+    name: Full MSRV gates
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.85.0"
+        components: clippy
+        cache: false
+    - name: Check every MSRV target and feature
+      run: cargo check --locked --all-targets --all-features
+    - name: Test every MSRV target and feature
+      env:
+        GUIDE_FORMAT_REQUIRE_CONFORMANCE: all
+      run: cargo test --locked --all-targets --all-features -- --nocapture
+    - name: Deny warnings at the declared MSRV
+      run: cargo clippy --locked --all-targets --all-features -- -D warnings
+    - name: Package and install at the declared MSRV
+      shell: bash
+      run: |
+        cargo package --locked
+        cargo install \
+          --path target/package/agentic-navigation-guide-0.2.0 \
+          --locked \
+          --root "$RUNNER_TEMP/msrv-install"
+
+  package:
+    name: Exact crate package and installed smoke
+    needs: [identity, quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      FAILURE_INJECTION: ${{ inputs.failure_injection || 'none' }}
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        cache: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - name: Build, verify, and unpack the exact crate archive
+      run: cargo package --locked
+    - name: Install the exact unpacked crate in a clean root
+      shell: bash
+      run: |
+        cargo install \
+          --path target/package/agentic-navigation-guide-0.2.0 \
+          --locked \
+          --root "$RUNNER_TEMP/package-install"
+    - name: Exercise installed success and failure behavior
+      shell: bash
+      run: |
+        injection=()
+        if [[ "$FAILURE_INJECTION" == "package-smoke" ]]; then
+          injection+=(--inject-failure)
+        fi
+        python3 scripts/release_artifacts.py smoke-binary \
+          --binary "$RUNNER_TEMP/package-install/bin/agentic-navigation-guide" \
+          --tag "$CANDIDATE_TAG" \
+          "${injection[@]}"
+    - name: Rehearse Cargo publication without external state
+      run: cargo publish --dry-run --locked
+    - name: Upload the exact crate archive
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: release-crate
+        path: target/package/agentic-navigation-guide-0.2.0.crate
+        if-no-files-found: error
+        retention-days: 14
+
+  native-archives:
+    name: Native archive (${{ matrix.os }})
+    needs: [identity, quality, platform-tests, msrv]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        cache: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - name: Resolve the actual native Rust host
+      id: host
+      run: python3 scripts/release_artifacts.py host-triple
+    - name: Build the release binary twice in isolated target directories
+      shell: bash
+      run: |
+        CARGO_TARGET_DIR="$RUNNER_TEMP/release-a" \
+          cargo build --release --locked --bin agentic-navigation-guide
+        CARGO_TARGET_DIR="$RUNNER_TEMP/release-b" \
+          cargo build --release --locked --bin agentic-navigation-guide
+    - name: Require byte-identical binaries and create a normalized archive
+      env:
+        BINARY_SUFFIX: ${{ runner.os == 'Windows' && '.exe' || '' }}
+        HOST_TRIPLE: ${{ steps.host.outputs.host-triple }}
+      shell: bash
+      run: |
+        python3 scripts/release_artifacts.py archive \
+          --binary "$RUNNER_TEMP/release-a/release/agentic-navigation-guide$BINARY_SUFFIX" \
+          --comparison-binary "$RUNNER_TEMP/release-b/release/agentic-navigation-guide$BINARY_SUFFIX" \
+          --host-triple "$HOST_TRIPLE" \
+          --tag "$CANDIDATE_TAG" \
+          --output-directory target/release-dist
+    - name: Smoke-test the exact archive on its target operating system
+      shell: bash
+      run: |
+        archive=(target/release-dist/*)
+        test "${#archive[@]}" -eq 1
+        python3 scripts/release_artifacts.py smoke-archive \
+          --archive "${archive[0]}" \
+          --tag "$CANDIDATE_TAG"
+    - name: Upload the exact native archive
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: release-native-${{ runner.os }}
+        path: target/release-dist
+        if-no-files-found: error
+        retention-days: 14
+
+  assemble:
+    name: Checksums, SBOM, provenance, and downloaded verification
+    needs: [package, native-archives]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        cache: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - name: Download every independently uploaded distribution
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      with:
+        pattern: release-*
+        path: target/release-bundle
+        merge-multiple: true
+        digest-mismatch: error
+    - name: Use the candidate commit timestamp for deterministic metadata
+      shell: bash
+      run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$GITHUB_SHA")" >> "$GITHUB_ENV"
+    - name: Generate SPDX 2.3 dependency and license SBOM
+      run: >-
+        python3 scripts/release_artifacts.py sbom
+        --commit "$GITHUB_SHA"
+        --output target/release-bundle/agentic-navigation-guide-0.2.0.spdx.json
+    - name: Generate and verify SHA-256 checksums
+      shell: bash
+      run: |
+        subjects=(target/release-bundle/*)
+        python3 scripts/release_artifacts.py checksums \
+          --output target/release-bundle/SHA256SUMS \
+          "${subjects[@]}"
+        python3 scripts/release_artifacts.py verify-checksums \
+          --directory target/release-bundle \
+          --checksums target/release-bundle/SHA256SUMS
+    - name: Generate the rehearsal in-toto/SLSA provenance statement
+      run: >-
+        python3 scripts/release_artifacts.py provenance
+        --checksums target/release-bundle/SHA256SUMS
+        --commit "$GITHUB_SHA"
+        --ref "$SOURCE_REF"
+        --run-id "$GITHUB_RUN_ID"
+        --run-attempt "$GITHUB_RUN_ATTEMPT"
+        --output target/release-bundle/agentic-navigation-guide-0.2.0.intoto.json
+    - name: Verify the complete downloaded release bundle
+      run: >-
+        python3 scripts/release_artifacts.py verify-bundle
+        --directory target/release-bundle
+        --checksums target/release-bundle/SHA256SUMS
+        --sbom target/release-bundle/agentic-navigation-guide-0.2.0.spdx.json
+        --provenance target/release-bundle/agentic-navigation-guide-0.2.0.intoto.json
+        --tag "$CANDIDATE_TAG"
+        --commit "$GITHUB_SHA"
+        --ref "$SOURCE_REF"
+    - name: Upload the complete non-publishing rehearsal bundle
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: release-bundle
+        path: target/release-bundle
+        if-no-files-found: error
+        retention-days: 14
+
+  release-gate:
+    name: Fail-closed release gate
+    if: always()
+    needs:
+    - identity
+    - quality
+    - platform-tests
+    - msrv
+    - package
+    - native-archives
+    - assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+    - name: Require every release prerequisite to pass
+      env:
+        RELEASE_RESULTS: ${{ toJSON(needs) }}
+      run: >-
+        jq --exit-status
+        'all(.[]; .result == "success")'
+        <<<"$RELEASE_RESULTS"
+
+  rehearsal:
+    name: Non-publishing rehearsal complete
+    if: github.event_name == 'workflow_dispatch' && inputs.failure_injection == 'none'
+    needs: release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+    - name: Record that publication capability was structurally unavailable
+      run: |
+        echo "All gates and artifact steps passed for $CANDIDATE_TAG."
+        echo "The rehearsal job has no OIDC or contents-write permission."
+
+  publish:
+    name: Protected Trusted Publishing
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: release
+      url: ${{ steps.release.outputs.url }}
+    permissions:
+      attestations: write # Persist signed build and SBOM attestations.
+      contents: write # Create the immutable GitHub Release and assets.
+      id-token: write # Mint short-lived Sigstore and crates.io identities.
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: "3.12"
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+        cache: false
+    - name: Download the exact gated bundle
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      with:
+        name: release-bundle
+        path: target/release-bundle
+        digest-mismatch: error
+    - name: Reverify checksums and exact source identity in the protected job
+      run: >-
+        python3 scripts/release_artifacts.py verify-bundle
+        --directory target/release-bundle
+        --checksums target/release-bundle/SHA256SUMS
+        --sbom target/release-bundle/agentic-navigation-guide-0.2.0.spdx.json
+        --provenance target/release-bundle/agentic-navigation-guide-0.2.0.intoto.json
+        --tag "$CANDIDATE_TAG"
+        --commit "$GITHUB_SHA"
+        --ref "$SOURCE_REF"
+    - name: Sign build provenance for every distribution
+      uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6  # v4.2.0
+      with:
+        subject-checksums: target/release-bundle/SHA256SUMS
+    - name: Sign the SPDX SBOM attestation
+      uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6  # v4.2.0
+      with:
+        subject-checksums: target/release-bundle/SHA256SUMS
+        sbom-path: target/release-bundle/agentic-navigation-guide-0.2.0.spdx.json
+    - name: Create or verify the immutable GitHub Release before crate publication
+      id: release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        recovery_directory="$RUNNER_TEMP/existing-release"
+        if gh release view "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          mkdir -p "$recovery_directory"
+          gh release download "$CANDIDATE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$recovery_directory"
+          cmp target/release-bundle/SHA256SUMS \
+            "$recovery_directory/SHA256SUMS"
+          python3 scripts/release_artifacts.py verify-bundle \
+            --directory "$recovery_directory" \
+            --checksums "$recovery_directory/SHA256SUMS" \
+            --sbom "$recovery_directory/agentic-navigation-guide-0.2.0.spdx.json" \
+            --provenance "$recovery_directory/agentic-navigation-guide-0.2.0.intoto.json" \
+            --tag "$CANDIDATE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --ref "$SOURCE_REF"
+        else
+          gh release create "$CANDIDATE_TAG" target/release-bundle/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --latest=false \
+            --title "agentic-navigation-guide $CANDIDATE_TAG"
+        fi
+        release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$CANDIDATE_TAG")"
+        jq --exit-status \
+          --arg tag "$CANDIDATE_TAG" \
+          'select(.tag_name == $tag and .draft == false and .immutable == true)' \
+          <<<"$release_json" >/dev/null
+        release_url="$(jq --raw-output '.html_url' <<<"$release_json")"
+        echo "url=$release_url" >> "$GITHUB_OUTPUT"
+    - name: Check whether recovery already published the identical crate
+      id: crate-state
+      run: >-
+        python3 scripts/release_artifacts.py crates-version-state
+        --crate-archive
+        target/release-bundle/agentic-navigation-guide-0.2.0.crate
+    - name: Exchange GitHub OIDC identity for a short-lived crates.io token
+      if: steps.crate-state.outputs.state == 'publish-required'
+      id: crates-auth
+      uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18  # v1.0.5
+    - name: Publish the exact gated crate without a long-lived token
+      if: steps.crate-state.outputs.state == 'publish-required'
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+      run: cargo publish --locked
