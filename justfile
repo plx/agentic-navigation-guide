@@ -17,3 +17,12 @@ check-release-identity tag="v0.2.0":
 # Run fail-closed release-identity checker regressions without building.
 test-release-identity:
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_release_identity.py -v
+
+# Run fail-closed coverage, mutation-report, and performance policy regressions.
+test-quality-gates:
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_check_coverage.py tests/test_check_mutation_report.py tests/test_performance_baseline.py -v
+
+# Reproduce the fixed release performance matrix against its reviewed baseline.
+performance-baseline:
+    cargo build --release --locked
+    python3 scripts/run_performance_baseline.py --reference benchmarks/issue-59-baseline.json

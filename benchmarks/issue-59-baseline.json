@@ -1,0 +1,100 @@
+{
+  "cases": {
+    "deep": [
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.003052322999963053,
+        "p95_seconds": 0.00309866000003467,
+        "size": 256,
+        "success": true,
+        "variant": "valid"
+      },
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.00198925600000166,
+        "p95_seconds": 0.002155168000001595,
+        "size": 257,
+        "success": false,
+        "variant": "invalid"
+      }
+    ],
+    "flat": [
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.010825851000049624,
+        "p95_seconds": 0.010855193999987023,
+        "size": 10000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.02079260499999691,
+        "p95_seconds": 0.021138478000011673,
+        "size": 20000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.03969126399999823,
+        "p95_seconds": 0.04012673500000119,
+        "size": 40000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 32.85546875,
+        "median_seconds": 0.09425694599997314,
+        "p95_seconds": 0.09454955100000006,
+        "size": 100000,
+        "success": true
+      }
+    ],
+    "placeholders": [
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.009379416999991008,
+        "p95_seconds": 0.009406540999975732,
+        "size": 500,
+        "success": true
+      },
+      {
+        "max_rss_mib": 19.41796875,
+        "median_seconds": 0.017423766999968393,
+        "p95_seconds": 0.017645844000014677,
+        "size": 1000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 19.54296875,
+        "median_seconds": 0.03388574400003108,
+        "p95_seconds": 0.034466971000028934,
+        "size": 2000,
+        "success": true
+      }
+    ],
+    "recursive": [
+      {
+        "max_rss_mib": 19.54296875,
+        "median_seconds": 0.0317726920000041,
+        "p95_seconds": 0.03219084400001293,
+        "size": 200,
+        "success": true
+      }
+    ],
+    "self_verify": [
+      {
+        "max_rss_mib": 19.54296875,
+        "median_seconds": 0.005375258000015037,
+        "p95_seconds": 0.005487309999978152,
+        "size": 1,
+        "success": true
+      }
+    ]
+  },
+  "metadata": {
+    "binary_sha256": "8e62e5b58f712c2312f40aa0de278f16f2f861b47d86f8068d11d126a80e07c2",
+    "filesystem": "ext4",
+    "fixture_seed": "fixed-sequential-v1",
+    "os": "Linux-6.17.0-1020-azure-x86_64-with-glibc2.39",
+    "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+  }
+}

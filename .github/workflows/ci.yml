@@ -80,6 +80,127 @@ jobs:
     - name: Test the next Rust toolchain
       run: cargo test --locked --all-targets --all-features
 
+  branch-coverage:
+    name: Branch-aware coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: nightly-2025-11-04
+        components: llvm-tools-preview
+    - uses: taiki-e/install-action@c070f87102a1c75b3183910f391c1cb887fe13c8  # v2.77.6
+      with:
+        tool: cargo-llvm-cov@0.8.7
+    - name: Run all-target branch instrumentation from a clean state
+      run: |
+        cargo llvm-cov clean --workspace
+        cargo llvm-cov \
+          --locked --all-targets --all-features --branch --no-report
+    - name: Generate branch-aware reports
+      run: |
+        mkdir -p target/issue-59-coverage
+        cargo llvm-cov report --branch --json \
+          --output-path target/issue-59-coverage/coverage.json
+        cargo llvm-cov report --branch --lcov \
+          --output-path target/issue-59-coverage/lcov.info
+        cargo llvm-cov report --branch --html \
+          --output-dir target/issue-59-coverage/html
+    - name: Enforce overall and critical-module floors
+      run: >-
+        python3 scripts/check_coverage.py
+        target/issue-59-coverage/coverage.json
+    - name: Upload coverage evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: issue-59-branch-coverage
+        path: target/issue-59-coverage
+        if-no-files-found: error
+
+  blocker-mutations:
+    name: Original-blocker mutation sentinels
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      MUTATION_FILTER: "replace Parser::classify_marker_line ->|replace Parser::build_hierarchy ->|replace Dumper::dump ->|replace Validator::validate_syntax ->|replace Verifier::verify ->|replace VerificationRun.*::snapshot ->|replace VerificationAggregate::from_results ->|in VerificationAggregate::from_results|replace find_guides ->"
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+    - uses: taiki-e/install-action@c070f87102a1c75b3183910f391c1cb887fe13c8  # v2.77.6
+      with:
+        tool: cargo-mutants@27.1.0
+    - name: Run the deterministic reviewed mutation set
+      run: |
+        mkdir -p target/issue-59-mutants
+        cargo mutants \
+          --file src/parser.rs \
+          --file src/dumper.rs \
+          --file src/validator.rs \
+          --file src/verifier.rs \
+          --file src/recursive.rs \
+          --re "$MUTATION_FILTER" \
+          --jobs 4 \
+          --timeout 30 \
+          --output target/issue-59-mutants \
+          --caught \
+          --unviable \
+          -- \
+          -- \
+          --skip issue_62 \
+          --skip issue_64 \
+          --skip issue_66
+    - name: Reject missing, incomplete, surviving, or timed-out mutations
+      run: >-
+        python3 scripts/check_mutation_report.py
+        target/issue-59-mutants/mutants.out/outcomes.json
+    - name: Upload mutation evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: issue-59-blocker-mutations
+        path: target/issue-59-mutants/mutants.out
+        if-no-files-found: error
+
+  performance-baseline:
+    name: Release performance baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        persist-credentials: false
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: "1.97.1"
+    - name: Build the optimized binary
+      run: cargo build --release --locked
+    - name: Run fixed fixtures and compare the versioned baseline
+      run: >-
+        python3 scripts/run_performance_baseline.py
+        --output target/issue-59-performance.json
+        --reference benchmarks/issue-59-baseline.json
+    - name: Upload performance evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: issue-59-performance
+        path: target/issue-59-performance.json
+        if-no-files-found: error
+
   workflow-lint:
     name: Workflow lint
     runs-on: ubuntu-latest
