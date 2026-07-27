@@ -111,6 +111,7 @@
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
+  - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof
   - 2026-07-26-issue-30-supported-rust-api-gate.md # Rust API/SemVer gate proof
   - 2026-07-26-issue-57-parser-robustness.md # Deterministic bounded parser input-matrix evidence
   - 2026-07-26-issue-60-msrv-dependency-policy.md # Rust floor, compatible graph, CI, audit, and attribution evidence
