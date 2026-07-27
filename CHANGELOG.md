@@ -37,6 +37,10 @@ complete and the final candidate is revalidated.
   maintained user/contract documentation, and intentional license, notice,
   and attribution files; repository workflows, site sources, agent material,
   audits, remediations, and internal test fixtures are excluded.
+- Linux, macOS, and Windows now run the same complete locked behavioral suite
+  in debug and release modes. Strict host-applicable trust oracles reject
+  missing link, reparse, permission, identity, path, confidentiality, and
+  creator-race evidence instead of treating capability absence as a pass.
 - The project records a
   [time-bounded single-maintainer exception](https://github.com/plx/agentic-navigation-guide/blob/main/docs/maintainer-continuity.md):
   `plx` remains the sole GitHub/crates.io owner, no independent recovery drill

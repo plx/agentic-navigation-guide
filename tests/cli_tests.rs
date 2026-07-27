@@ -5496,6 +5496,11 @@ fn test_guide_trust_evidence_is_an_exact_set_for_issue_49() {
             .collect(),
         "host-applicable guide evidence is not fully conformant"
     );
+    eprintln!(
+        "issue55_capability os={} surface=guide-trust conformant={} unavailable={unavailable:?}",
+        std::env::consts::OS,
+        conformant.len()
+    );
 }
 
 fn observe_platform_guide_policy() -> GuideTrustEvidenceOutcome {

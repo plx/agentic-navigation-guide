@@ -35,8 +35,8 @@ fn job_block<'a>(workflow: &'a str, job_name: &str) -> &'a str {
 }
 
 fn rust_sources_below(path: &Path, sources: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+    for entry in
+        fs::read_dir(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
     {
         let entry = entry.expect("read source directory entry");
         let path = entry.path();
@@ -168,8 +168,7 @@ fn issue_55_intentional_ignore_allowlist_is_exact_and_documented() {
 fn issue_55_supported_platform_documentation_matches_the_enforced_matrix() {
     let root = repository_root();
     let readme = fs::read_to_string(root.join("README.md")).expect("read README");
-    let contract =
-        fs::read_to_string(root.join("docs/v0.2-contract.md")).expect("read contract");
+    let contract = fs::read_to_string(root.join("docs/v0.2-contract.md")).expect("read contract");
 
     assert!(
         !readme.contains("gated on the issue #55 filesystem conformance matrix"),
@@ -201,4 +200,31 @@ fn issue_55_supported_platform_documentation_matches_the_enforced_matrix() {
             "the supported-platform contract omitted {required:?}"
         );
     }
+}
+
+#[test]
+fn issue_55_capability_results_are_visible_in_hosted_logs() {
+    let root = repository_root();
+    let identity = fs::read_to_string(root.join("src/filesystem_identity_snapshot_tests.rs"))
+        .expect("read identity tests");
+    let output = fs::read_to_string(root.join("src/cli/output.rs")).expect("read output tests");
+    let guide = fs::read_to_string(root.join("tests/cli_tests.rs")).expect("read CLI tests");
+
+    for required in [
+        "dimension=case identity_mode=",
+        "dimension=unicode-normalization identity_mode=",
+    ] {
+        assert!(
+            identity.contains(required),
+            "identity capability log omitted {required:?}"
+        );
+    }
+    assert!(
+        output.contains("surface=output-trust conformant="),
+        "output trust capability result is not visible"
+    );
+    assert!(
+        guide.contains("surface=guide-trust conformant="),
+        "guide trust capability result is not visible"
+    );
 }

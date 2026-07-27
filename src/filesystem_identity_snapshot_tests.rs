@@ -71,8 +71,18 @@ fn issue_50_case_identity_is_exact_or_capability_is_explicit() {
     } else {
         "README.md"
     };
+    let host_aliases = temp.path().join(alias).is_file();
+    eprintln!(
+        "issue55_capability os={} dimension=case identity_mode={}",
+        std::env::consts::OS,
+        if host_aliases {
+            "filesystem-alias"
+        } else {
+            "distinct-names"
+        }
+    );
 
-    if temp.path().join(alias).is_file() {
+    if host_aliases {
         let error = verify_lines(temp.path(), &format!("- {alias}\n- ...\n"))
             .expect_err("a host alias must not satisfy exact filesystem identity");
         assert_exact_identity_mismatch(&error, 2, alias);
@@ -230,8 +240,18 @@ fn issue_50_unicode_identity_is_exact_or_capability_is_explicit() {
     } else {
         PRECOMPOSED
     };
+    let host_aliases = temp.path().join(alias).is_file();
+    eprintln!(
+        "issue55_capability os={} dimension=unicode-normalization identity_mode={}",
+        std::env::consts::OS,
+        if host_aliases {
+            "filesystem-alias"
+        } else {
+            "distinct-names"
+        }
+    );
 
-    if temp.path().join(alias).is_file() {
+    if host_aliases {
         let error = verify_lines(temp.path(), &format!("- {alias}\n- ...\n"))
             .expect_err("a normalization alias must not satisfy exact filesystem identity");
         assert_exact_identity_mismatch(&error, 2, alias);

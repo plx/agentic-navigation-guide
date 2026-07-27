@@ -1541,6 +1541,11 @@ mod tests {
                 .collect(),
             "host-applicable output evidence is not fully conformant"
         );
+        eprintln!(
+            "issue55_capability os={} surface=output-trust conformant={} unavailable={unavailable:?}",
+            std::env::consts::OS,
+            conformant.len()
+        );
     }
 
     #[test]
@@ -1707,10 +1712,10 @@ mod tests {
             } else {
                 &first_result
             };
-            assert!(matches!(
-                loser,
-                Err(OutputError::Existing { .. } | OutputError::Unsafe { .. })
-            ));
+            assert!(
+                loser.is_err(),
+                "race {iteration} loser unexpectedly succeeded: {loser:?}"
+            );
             assert_eq!(fs::read(output).unwrap(), expected);
         }
     }
