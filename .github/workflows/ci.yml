@@ -117,7 +117,7 @@ jobs:
         target/issue-59-coverage/coverage.json
     - name: Upload coverage evidence
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: issue-59-branch-coverage
         path: target/issue-59-coverage
@@ -167,7 +167,7 @@ jobs:
         target/issue-59-mutants/mutants.out/outcomes.json
     - name: Upload mutation evidence
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: issue-59-blocker-mutations
         path: target/issue-59-mutants/mutants.out
@@ -195,7 +195,7 @@ jobs:
         --reference benchmarks/issue-59-baseline.json
     - name: Upload performance evidence
       if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: issue-59-performance
         path: target/issue-59-performance.json
