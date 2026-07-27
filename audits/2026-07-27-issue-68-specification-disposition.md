@@ -38,6 +38,10 @@ inaccurate guide can be worse than none. Those paragraphs state motivation,
 not format or product rules, so they are retained verbatim outside the
 substantive-rule ledger below.
 
+References to the former root path in older dated audits and completed
+remediation records remain unchanged because those files are point-in-time
+historical evidence, not living specification claimants.
+
 ## Complete substantive-rule classification
 
 The table groups adjacent sentences only when they express one inseparable
@@ -124,10 +128,12 @@ behavior.
 
 ## Draft PR #21 disposition
 
-PR #21 is non-authoritative prior art based on commit
-`15a6df3b4d78273ed3beeb82a412e7c1dc259c46`. It is not merged or rebased.
-After this replacement lands it is closed as superseded with a link to the
-issue #68 PR.
+PR #21 is non-authoritative prior art. GitHub records its base commit
+(`baseRefOid`) as `15a6df3b4d78273ed3beeb82a412e7c1dc259c46` and its
+unchanged head commit as `d588dc3b34f913d9527a01d6224e29efd0f384d4`; the
+former is also their Git merge-base. PR #21 is not merged or rebased. After
+this replacement lands it is closed as superseded with a link to the issue
+#68 PR.
 
 | ID | PR #21 proposal | Disposition | Evidence and reason |
 | --- | --- | --- | --- |
