@@ -173,6 +173,15 @@ archive allowlist uses portable `/` package paths. The test now normalizes
 only that command's path separators before enforcing the same exact 33-entry
 allowlist. Package contents and production code are unchanged.
 
+The [fifth hosted matrix run][fifth-matrix-run] passed that package manifest
+gate and reached the release-identity suite. Its
+[Windows job][fifth-windows-job] found that the pinned published-API
+inventory compared generated LF text with CRLF checkout bytes from
+`CHANGELOG.md`. The release-identity test now normalizes CRLF to LF before
+extracting and exactly comparing the inventory. The 128-symbol baseline,
+category counts, content, order, hashes, package, and installed binary checks
+remain unchanged.
+
 ## Hosted evidence
 
 The pull request must retain:
@@ -204,3 +213,5 @@ checker, not a sandbox or access-control boundary.
 [third-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277309955/job/90014524765
 [fourth-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121
 [fourth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121/job/90016134742
+[fifth-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278196689
+[fifth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278196689/job/90017519211
