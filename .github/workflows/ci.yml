@@ -375,6 +375,13 @@ jobs:
       run: cargo test --locked issue_44 -- --nocapture
     - name: Run focused environment-precedence tests
       run: cargo test --locked issue_46 -- --nocapture
+    # This oracle directly invokes the host-specific Unix or Windows behavior
+    # matrix and fails if any host-applicable evidence group is unavailable.
+    - name: Run exact guide-input trust oracle
+      run: >-
+        cargo test --locked --test cli_tests
+        test_guide_trust_evidence_is_an_exact_set_for_issue_49
+        -- --exact --nocapture
     - name: Run focused filesystem-identity tests
       run: cargo test --locked issue_50 -- --nocapture
     - name: Run focused filesystem-identity tests in release mode
@@ -383,6 +390,8 @@ jobs:
       run: cargo test --locked issue_51 -- --nocapture
     - name: Run focused containment-guarantee tests in release mode
       run: cargo test --release --locked issue_51 -- --nocapture
+    - name: Run focused parent-containing explicit-guide tests
+      run: cargo test --locked issue_101 -- --nocapture
     - name: Run focused historical full-path disposition tests
       run: cargo test --bin agentic-navigation-guide --locked issue_52 -- --nocapture
     - name: Run focused historical symlink-model disposition tests
