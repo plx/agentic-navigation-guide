@@ -29,15 +29,18 @@ The [0.2.0 changelog](CHANGELOG.md#020---unreleased) enumerates the exact
 published `0.1.4` removal and user-visible migration, while the
 [release policy](docs/release-policy.md) pins the prepared identity and future
 baseline rule.
+The docs.rs badge above still describes the published `0.1.4` artifact; #66
+owns removing or retargeting it and setting maintained documentation metadata
+before release.
+
+### Maintainer continuity
+
 The project currently has one GitHub/crates.io owner and no backup maintainer.
 Its
 [time-bounded maintainer-continuity exception](https://github.com/plx/agentic-navigation-guide/blob/main/docs/maintainer-continuity.md)
 expires on 2026-10-31, provides best-effort maintenance without a response-time
 or redundancy guarantee, and remains residual risk rather than evidence of a
 tested recovery path.
-The docs.rs badge above still describes the published `0.1.4` artifact; #66
-owns removing or retargeting it and setting maintained documentation metadata
-before release.
 
 ### Rust and installation support
 

@@ -31,6 +31,10 @@ Publication after 2026-10-31 is blocked unless one of these occurs first:
 2. a new explicit maintainer decision renews the exception with a new date and
    carries the residual risk into the final readiness record.
 
+Repository CI fails closed after the expiry until the machine-readable record
+contains a newly approved deadline. This deliberately makes an expired
+exception visible before any publication workflow can remain green.
+
 Closing issue #71 records an accepted exception. It does not make the missing
 controls pass, and it does not waive issues #63, #65, #69, #72, or #73.
 

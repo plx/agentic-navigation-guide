@@ -44,7 +44,7 @@ Those facts remain unverified rather than inferred.
 | A71-002 | Policy set; external verification deferred | Privileged accounts use 2FA and publication uses short-lived scoped identity where practical. | The policy requires secure 2FA and issue-#63 Trusted Publishing, but 2FA is not attested and Trusted Publishing is not configured. Issues #63 and #65 retain the external controls. |
 | A71-003 | Implemented | Release authority, emergency handling, access review, and offboarding are explicit. | `docs/maintainer-continuity.md` names the sole authority, fail-closed normal and emergency paths, 48-hour retrospective, minor-release/six-month review, and 24-hour offboarding target. |
 | A71-004 | Verified | No secret or recovery material is committed or copied into a public ticket. | Only public usernames, roles, statuses, dates, secret names already visible in workflows, and absence findings were inspected. The deterministic test rejects common token prefixes in the new artifacts. |
-| A71-005 | Exception accepted | A single-maintainer exception is explicit, justified, time-bounded, and residual risk in the final audit. | The policy, machine-readable record, this audit, README, release policy, and changelog all state the 2026-10-31 expiry and forbid treating closure as redundancy proof. |
+| A71-005 | Exception accepted | A single-maintainer exception is explicit, justified, time-bounded, and residual risk in the final audit. | The policy, machine-readable record, this audit, README, release policy, and changelog all state the 2026-10-31 expiry and forbid treating closure as redundancy proof. A UTC-date regression fails CI after expiry until a new approved record replaces it. |
 
 No organization, collaborator, crate owner, token, environment, ruleset, or other protected setting was changed.
 No tabletop recovery drill was represented as passing.
@@ -70,9 +70,11 @@ No tabletop recovery drill was represented as passing.
 
 1. the exact public record, including owner count by identity, missing-control
    statuses, and expiry;
-2. candid policy language that requires future controls without claiming they
+2. the expiry boundary with fixed before/after dates and the current UTC day,
+   failing closed after 2026-10-31;
+3. candid policy language that requires future controls without claiming they
    already exist; and
-3. README, release-policy, changelog, navigation-guide, and five-row
+4. README, release-policy, changelog, navigation-guide, and five-row
    acceptance-ledger alignment.
 
 The validation uses fixed strings and repository files only. It performs no
@@ -89,12 +91,12 @@ record, public policy, and acceptance audit did not exist.
 
 The completed local acceptance was:
 
-- `cargo test --locked --test issue_71_maintainer_continuity` — 3 passed;
-- `cargo +1.85.0 test --locked --test issue_71_maintainer_continuity` — 3
+- `cargo test --locked --test issue_71_maintainer_continuity` — 4 passed;
+- `cargo +1.85.0 test --locked --test issue_71_maintainer_continuity` — 4
   passed on the MSRV;
 - `cargo fmt -- --check`, all-target/all-feature `cargo check`, and Clippy
   with warnings denied — passed;
-- the full all-target/all-feature suite with one serial test thread — 351
+- the full all-target/all-feature suite with one serial test thread — 352
   passed and 3 intentional manual/packaged-artifact tests ignored;
 - navigation-guide syntax and filesystem verification with ignored guides
   denied — passed;

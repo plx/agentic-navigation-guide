@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const DECISION_COMMENT: &str =
     "https://github.com/plx/agentic-navigation-guide/issues/71#issuecomment-5090158814";
@@ -86,6 +87,55 @@ fn normalized_whitespace(source: &str) -> String {
     source.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn parse_date(value: &str) -> (i64, u32, u32) {
+    let fields = value.split('-').collect::<Vec<_>>();
+    assert_eq!(fields.len(), 3, "date {value:?} must be YYYY-MM-DD");
+    assert_eq!(fields[0].len(), 4, "date {value:?} must have a year");
+    assert_eq!(fields[1].len(), 2, "date {value:?} must have a month");
+    assert_eq!(fields[2].len(), 2, "date {value:?} must have a day");
+
+    let year = fields[0]
+        .parse::<i64>()
+        .unwrap_or_else(|error| panic!("date {value:?} has an invalid year: {error}"));
+    let month = fields[1]
+        .parse::<u32>()
+        .unwrap_or_else(|error| panic!("date {value:?} has an invalid month: {error}"));
+    let day = fields[2]
+        .parse::<u32>()
+        .unwrap_or_else(|error| panic!("date {value:?} has an invalid day: {error}"));
+    assert!((1..=12).contains(&month), "date {value:?} has no month");
+
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let maximum_day = match month {
+        2 if leap_year => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    assert!(
+        (1..=maximum_day).contains(&day),
+        "date {value:?} has no day"
+    );
+    (year, month, day)
+}
+
+fn days_since_unix_epoch(value: &str) -> i64 {
+    let (mut year, month, day) = parse_date(value);
+    if month <= 2 {
+        year -= 1;
+    }
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let shifted_month = i64::from(month) + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * shifted_month + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+fn exception_is_active(as_of: &str, expires_on: &str) -> bool {
+    days_since_unix_epoch(as_of) <= days_since_unix_epoch(expires_on)
+}
+
 #[test]
 fn issue_71_exception_record_is_explicit_complete_and_time_bounded() {
     let record_source = repository_file("release/maintainer-continuity.toml");
@@ -109,6 +159,34 @@ fn issue_71_exception_record_is_explicit_complete_and_time_bounded() {
 }
 
 #[test]
+fn issue_71_exception_expiry_is_a_fail_closed_utc_gate() {
+    let record = parse_flat_string_record(&repository_file("release/maintainer-continuity.toml"));
+    let expires_on = &record["exception_expires_on"];
+
+    assert!(
+        exception_is_active("2026-10-31", expires_on),
+        "the approved exception includes its final recorded day"
+    );
+    assert!(
+        !exception_is_active("2026-11-01", expires_on),
+        "the exception must fail closed on the first day after expiry"
+    );
+
+    let current_day = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("the current clock must be after the Unix epoch")
+        .as_secs()
+        / 86_400;
+    let expiry_day = days_since_unix_epoch(expires_on);
+    assert!(
+        i64::try_from(current_day).expect("current UTC day fits i64") <= expiry_day,
+        "the issue #71 sole-maintainer exception expired on {expires_on}; \
+         publication and ordinary green CI remain blocked until a new explicit \
+         maintainer decision updates the continuity record"
+    );
+}
+
+#[test]
 fn issue_71_policy_states_authority_recovery_and_support_without_false_attestation() {
     let policy = repository_file("docs/maintainer-continuity.md");
     let normalized_policy = normalized_whitespace(&policy);
@@ -120,6 +198,7 @@ fn issue_71_policy_states_authority_recovery_and_support_without_false_attestati
         "GitHub 2FA status is not verified by this repository.",
         "No independent recovery drill has been performed.",
         "Publication after 2026-10-31 is blocked",
+        "Repository CI fails closed after the expiry",
         "best-effort maintenance",
         "no response-time, availability, or organizational-redundancy guarantee",
         "Issue #63 owns the Trusted Publishing workflow",
