@@ -42,6 +42,14 @@ largely platform/capability and defensive error classification. Overall branch
 coverage remains a hard gate. The checker uses count-weighted CLI aggregation,
 not an average of file percentages.
 
+`guide_input.rs` is part of the overall gate and has exact trust-boundary
+regressions in the table below, but is not mislabeled as an 85%-covered module:
+the hosted Linux report measures it at 71.05% (373/525), with mutually
+exclusive Windows implementation paths and defensive I/O-race errors making up
+most of the unexecuted lines. The approved critical-module floor remains scoped
+to parser, dumper, validator, verifier, recursive discovery, and the CLI
+aggregate.
+
 ## Original P0/P1 traceability
 
 Every original release blocker and high-priority audit defect has an exact
@@ -110,7 +118,9 @@ fixture seed is the literal `fixed-sequential-v1`; names and structure are
 sequential and reproducible. Each case receives one warmup and five measured
 release-mode subprocesses. The JSON report records median, nearest-rank p95,
 maximum child RSS, binary SHA-256, fixture seed, filesystem, OS, and Rust
-toolchain.
+toolchain. Every measured subprocess is reaped independently with `wait4`; its
+per-child resource record is used directly, so a large earlier fixture cannot
+contaminate a later fixture's RSS value.
 
 The versioned implementation baseline is
 `benchmarks/issue-59-baseline.json`:
@@ -149,7 +159,8 @@ an explicit reviewed baseline update and analysis. The hard 2.5x, five-second,
 - `tests/test_check_mutation_report.py` proves missing/incomplete runs,
   survivors, timeouts, and baseline failures fail.
 - `tests/test_performance_baseline.py` proves missing metadata/cases, wrong
-  outcomes, scaling/resource overruns, and reference regressions fail.
+  outcomes, scaling/resource overruns, reference regressions, and accidental
+  replacement of per-child RSS with a process-lifetime high-water mark fail.
 - Each CI job uses a pinned toolchain/tool version, explicit timeout and
   read-only permissions, and `if-no-files-found: error` artifact publication.
 

@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 SCRIPT = (
@@ -109,6 +111,28 @@ class PerformanceBaselineTests(unittest.TestCase):
 
         self.assertTrue(any("flat size 10000 median" in item for item in failures))
         self.assertTrue(any("recursive size 200 RSS" in item for item in failures))
+
+    def test_run_once_uses_the_reaped_childs_own_rss(self):
+        child = SimpleNamespace(pid=1234, returncode=None)
+        usage = SimpleNamespace(ru_maxrss=20 * 1024)
+        with (
+            mock.patch.object(BASELINE.subprocess, "Popen", return_value=child),
+            mock.patch.object(
+                BASELINE.os,
+                "wait4",
+                return_value=(child.pid, 0, usage),
+            ) as wait4,
+            mock.patch.object(BASELINE.sys, "platform", "linux"),
+        ):
+            _, rss_mib, success = BASELINE.run_once(
+                ["fixed-command"],
+                Path("/fixed-cwd"),
+            )
+
+        wait4.assert_called_once_with(child.pid, 0)
+        self.assertEqual(rss_mib, 20.0)
+        self.assertTrue(success)
+        self.assertEqual(child.returncode, 0)
 
 
 if __name__ == "__main__":

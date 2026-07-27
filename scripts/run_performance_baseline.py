@@ -224,8 +224,8 @@ def child_environment() -> dict[str, str]:
     return environment
 
 
-def resource_rss_mib() -> float:
-    rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+def resource_rss_mib(usage: resource.struct_rusage) -> float:
+    rss = usage.ru_maxrss
     if sys.platform == "darwin":
         return rss / (1024 * 1024)
     return rss / 1024
@@ -233,17 +233,18 @@ def resource_rss_mib() -> float:
 
 def run_once(command: list[str], cwd: Path) -> tuple[float, float, bool]:
     started = time.perf_counter()
-    completed = subprocess.run(
+    child = subprocess.Popen(
         command,
         cwd=cwd,
         env=child_environment(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        check=False,
     )
+    _, wait_status, usage = os.wait4(child.pid, 0)
+    child.returncode = os.waitstatus_to_exitcode(wait_status)
     elapsed = time.perf_counter() - started
-    return elapsed, resource_rss_mib(), completed.returncode == 0
+    return elapsed, resource_rss_mib(usage), child.returncode == 0
 
 
 def benchmark_command(

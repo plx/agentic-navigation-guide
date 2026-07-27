@@ -130,16 +130,7 @@ jobs:
     permissions:
       contents: read
     env:
-      MUTATION_FILTER: >-
-        replace Parser::classify_marker_line ->|
-        replace Parser::build_hierarchy ->|
-        replace Dumper::dump ->|
-        replace Validator::validate_syntax ->|
-        replace Verifier::verify ->|
-        replace VerificationRun.*::snapshot ->|
-        replace VerificationAggregate::from_results ->|
-        in VerificationAggregate::from_results|
-        replace find_guides ->
+      MUTATION_FILTER: "replace Parser::classify_marker_line ->|replace Parser::build_hierarchy ->|replace Dumper::dump ->|replace Validator::validate_syntax ->|replace Verifier::verify ->|replace VerificationRun.*::snapshot ->|replace VerificationAggregate::from_results ->|in VerificationAggregate::from_results|replace find_guides ->"
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
