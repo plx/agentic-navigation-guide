@@ -1,5 +1,7 @@
 #[path = "support/assert_cli.rs"]
 mod test_cli;
+#[path = "support/environment.rs"]
+mod test_environment;
 
 use assert_cmd::Command;
 use predicates::prelude::*;

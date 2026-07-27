@@ -2,13 +2,7 @@ use std::ops::{Deref, DerefMut};
 use std::process::Command;
 use tempfile::TempDir;
 
-const GUIDE_ENVIRONMENT_VARIABLES: &[&str] = &[
-    "AGENTIC_NAVIGATION_GUIDE_PATH",
-    "AGENTIC_NAVIGATION_GUIDE_ROOT",
-    "AGENTIC_NAVIGATION_GUIDE_NAME",
-    "AGENTIC_NAVIGATION_GUIDE_LOG_MODE",
-    "AGENTIC_NAVIGATION_GUIDE_EXECUTION_MODE",
-];
+use crate::test_environment::GUIDE_ENVIRONMENT_VARIABLES;
 
 pub struct HermeticProcessCommand {
     command: Command,

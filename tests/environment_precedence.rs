@@ -1,11 +1,14 @@
 #[path = "support/assert_cli.rs"]
 mod test_cli;
+#[path = "support/environment.rs"]
+mod test_environment;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use tempfile::TempDir;
-use test_cli::{assert_cli_command, HermeticAssertCommand, GUIDE_ENVIRONMENT_VARIABLES};
+use test_cli::{assert_cli_command, HermeticAssertCommand};
+use test_environment::GUIDE_ENVIRONMENT_VARIABLES;
 
 const ENVIRONMENT_VARIABLES: &[&str] = GUIDE_ENVIRONMENT_VARIABLES;
 const DEFAULT_GUIDE_NAME: &str = "AGENTIC_NAVIGATION_GUIDE.md";

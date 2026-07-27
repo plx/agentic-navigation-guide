@@ -96,6 +96,7 @@
 - tests/
   - support/
     - assert_cli.rs # Hermetic assert_cmd wrapper with owned default root and cleared guide environment
+    - environment.rs # Canonical guide configuration environment-variable inventory
     - process_cli.rs # Hermetic raw-process wrapper with owned default root and cleared guide environment
   - fixtures/
     - v0_1_4_published_api.tsv # Canonical immutable published API migration baseline

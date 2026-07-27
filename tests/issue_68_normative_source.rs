@@ -1,6 +1,8 @@
 use regex::Regex;
 #[path = "support/process_cli.rs"]
 mod test_cli;
+#[path = "support/environment.rs"]
+mod test_environment;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

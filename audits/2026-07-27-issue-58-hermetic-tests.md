@@ -34,7 +34,8 @@ its temporary working directory.
 `tests/support/assert_cli.rs` owns the `assert_cmd` helper used by the main CLI,
 environment-precedence, and parent-containing-guide suites.
 `tests/support/process_cli.rs` owns the raw-process helper used where tests need
-direct spawning or process output.
+direct spawning or process output. Both import the canonical five-variable
+inventory from `tests/support/environment.rs`.
 
 Both helpers:
 
@@ -64,10 +65,12 @@ variable only when that behavior is the subject of the test.
 | `tests/issue_54_binary_only_package.rs` and `tests/issue_64_release_identity.rs` | Cargo metadata/package/install tests intentionally read the candidate checkout; product smoke commands use isolated package/install directories. |
 | Documentation and policy tests | Read named repository files as their explicit subject; they do not run filesystem discovery against the checkout. |
 
-The issue #58 contract walks all integration-test Rust sources and rejects
-process-global `set_current_dir`, `set_var`, or `remove_var` calls. Child-only
+The issue #58 contract parses all integration-test Rust sources with `syn` and
+rejects process-global `set_current_dir`, `set_var`, or `remove_var` calls,
+including directly imported and renamed functions. Child-only
 `Command::current_dir`, `env`, and `env_remove` remain safe under parallel test
-execution.
+execution. The same syntax tree locates the two explicit current-directory
+fixtures without relying on source-text item boundaries.
 
 The original `test_init_command` now has both an explicit `TempDir` and
 `--root`. The separate
