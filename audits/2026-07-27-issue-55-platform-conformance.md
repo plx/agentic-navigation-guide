@@ -184,17 +184,23 @@ remain unchanged.
 
 ## Hosted evidence
 
-The pull request must retain:
+The first clean [three-platform run][clean-matrix-run] passed the complete
+debug suite, complete release suite, exact trust rerun, and all retained
+focused checks on [Linux][clean-linux-job], [macOS][clean-macos-job], and
+[Windows][clean-windows-job]. The dependent
+[prepared-release job][clean-release-job] then ran and passed. This was
+executed test evidence, not a compile-only result.
 
-- one successful Linux matrix job;
-- one successful macOS matrix job;
-- one successful Windows matrix job;
-- a deliberate Windows-only invariant failure in which the Windows matrix
-  job becomes red while the non-Windows hosts remain green; and
-- a final successful run after reverting that injected failure.
+Commit `92a9666` then added one temporary `#[cfg(windows)]` test that panicked
+with `issue #55 deliberate Windows-only conformance gate proof`. In the
+resulting [deliberate red run][deliberate-red-run], the complete
+[Linux][deliberate-linux-job] and [macOS][deliberate-macos-job] jobs stayed
+green. The [Windows job][deliberate-windows-job] became red in the full debug
+command on exactly that test, after the other five issue #55 policy tests
+passed. The [prepared-release job][deliberate-release-job] was skipped.
 
-Those immutable run and job links are added here before merge. A successful
-compile without executed tests is not accepted.
+The temporary test is absent from the final source. The immutable final
+restoration run is linked here after it completes.
 
 ## Residual boundary
 
@@ -215,3 +221,13 @@ checker, not a sandbox or access-control boundary.
 [fourth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30277784121/job/90016134742
 [fifth-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278196689
 [fifth-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278196689/job/90017519211
+[clean-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876
+[clean-linux-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90018904320
+[clean-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90018904319
+[clean-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90018904388
+[clean-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30278598876/job/90021188611
+[deliberate-red-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633
+[deliberate-linux-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644182
+[deliberate-macos-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644144
+[deliberate-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90021644286
+[deliberate-release-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30279404633/job/90022729378

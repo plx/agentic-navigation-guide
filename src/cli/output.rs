@@ -1697,6 +1697,10 @@ mod tests {
 
             let first_result = first_thread.join().unwrap();
             let second_result = second_thread.join().unwrap();
+            // The contract deliberately leaves the loser's diagnostic
+            // unspecified because either contender can lose at a fallible I/O
+            // stage. Exactly one success and the unique winner's bytes are the
+            // binding invariants.
             assert_ne!(
                 first_result.is_ok(),
                 second_result.is_ok(),
