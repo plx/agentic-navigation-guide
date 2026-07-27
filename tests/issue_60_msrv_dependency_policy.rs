@@ -69,6 +69,10 @@ fn issue_60_tests_supported_stable_lines_and_informational_beta() {
     }
 
     assert!(
+        ci.contains("fail-fast: false"),
+        "one supported Rust failure must not hide the other lane results"
+    );
+    assert!(
         ci.contains("toolchain: beta") && ci.contains("continue-on-error: true"),
         "beta must be an explicitly informational CI signal"
     );
