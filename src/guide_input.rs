@@ -17,6 +17,13 @@ pub(crate) enum GuideAuthority {
     Explicit,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CandidateClass<'a> {
+    ProvenInAnchor(&'a Path),
+    ProvenExternal,
+    ParentContaining(&'a Path),
+}
+
 #[derive(Debug)]
 pub(crate) enum GuideInputError {
     InvalidName {
@@ -105,11 +112,14 @@ impl GuideAnchor {
             source,
         })?;
         let spelling = lexical_absolute(path, &current_dir, path)?;
-        let canonical = fs::canonicalize(&spelling).map_err(|source| GuideInputError::Io {
-            path: path.to_path_buf(),
-            operation: "resolve the trust anchor for",
-            source,
-        })?;
+        let canonical =
+            canonicalize_anchor_preserving_parent_order(&spelling).map_err(|source| {
+                GuideInputError::Io {
+                    path: path.to_path_buf(),
+                    operation: "resolve the trust anchor for",
+                    source,
+                }
+            })?;
         let metadata = fs::metadata(&canonical).map_err(|source| GuideInputError::Io {
             path: path.to_path_buf(),
             operation: "inspect the trust anchor for",
@@ -135,11 +145,13 @@ impl GuideAnchor {
         logical_path: &Path,
     ) -> Result<(), GuideInputError> {
         let candidate = lexical_absolute(path, &self.current_dir, path)?;
-        let tail =
-            safe_tail(&self.spelling, &candidate).ok_or_else(|| GuideInputError::UnsafePath {
+        let CandidateClass::ProvenInAnchor(tail) = classify_candidate(&self.spelling, &candidate)
+        else {
+            return Err(GuideInputError::UnsafePath {
                 path: logical_path.to_path_buf(),
                 reason: "an implicit guide must remain beneath its trust anchor",
-            })?;
+            });
+        };
         self.validate_beneath(&candidate, tail, logical_path)?;
         validate_exact_implicit_entry(&candidate, logical_path)
     }
@@ -156,18 +168,22 @@ impl GuideAnchor {
         validate_explicit_path(path)?;
 
         let candidate = lexical_absolute(path, &self.current_dir, path)?;
-        let metadata = match safe_tail(&self.spelling, &candidate) {
-            Some(tail) => {
+        let (access_path, metadata) = match classify_candidate(&self.spelling, &candidate) {
+            CandidateClass::ProvenInAnchor(tail) => {
                 let metadata = self.validate_beneath(&candidate, tail, logical_path)?;
                 if authority == GuideAuthority::Implicit {
                     validate_exact_implicit_entry(&candidate, logical_path)?;
                 }
-                metadata
+                (candidate.clone(), metadata)
             }
-            None if authority == GuideAuthority::Explicit => {
-                validate_final_entry(&candidate, logical_path)?
+            CandidateClass::ProvenExternal if authority == GuideAuthority::Explicit => {
+                let metadata = validate_final_entry(&candidate, logical_path)?;
+                (candidate.clone(), metadata)
             }
-            None => {
+            CandidateClass::ParentContaining(tail) if authority == GuideAuthority::Explicit => {
+                self.validate_parent_containing(&candidate, tail, logical_path)?
+            }
+            CandidateClass::ProvenExternal | CandidateClass::ParentContaining(_) => {
                 return Err(GuideInputError::UnsafePath {
                     path: logical_path.to_path_buf(),
                     reason: "an implicit guide must remain beneath its trust anchor",
@@ -175,11 +191,85 @@ impl GuideAnchor {
             }
         };
 
-        open_and_read(&candidate, logical_path, &metadata)
+        open_and_read(&access_path, logical_path, &metadata)
     }
 
     fn validate_beneath(
         &self,
+        candidate: &Path,
+        tail: &Path,
+        logical_path: &Path,
+    ) -> Result<Metadata, GuideInputError> {
+        self.validate_beneath_from(&self.spelling, candidate, tail, logical_path)
+    }
+
+    fn validate_parent_containing(
+        &self,
+        candidate: &Path,
+        tail: &Path,
+        logical_path: &Path,
+    ) -> Result<(PathBuf, Metadata), GuideInputError> {
+        let mut current = self.canonical.clone();
+        let mut tail_entries = Vec::new();
+        let mut left_anchor = false;
+
+        for component in tail.components() {
+            match component {
+                Component::Normal(name) => {
+                    current.push(name);
+                    tail_entries.push(current.clone());
+                }
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if let Some(reduced) = tail_entries.pop() {
+                        validate_component_before_parent(&reduced, logical_path)?;
+                        current.pop();
+                    } else {
+                        left_anchor = true;
+                        current.pop();
+                    }
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(GuideInputError::UnsafePath {
+                        path: logical_path.to_path_buf(),
+                        reason: "a parent-containing guide path has an ambiguous root or prefix",
+                    });
+                }
+            }
+        }
+
+        if current.starts_with(&self.canonical) {
+            if left_anchor {
+                return Err(GuideInputError::UnsafePath {
+                    path: logical_path.to_path_buf(),
+                    reason:
+                        "a parent-containing guide path leaves and then returns to its trust anchor",
+                });
+            }
+
+            let normalized_tail =
+                current
+                    .strip_prefix(&self.canonical)
+                    .map_err(|_| GuideInputError::UnsafePath {
+                        path: logical_path.to_path_buf(),
+                        reason: "a parent-containing guide path could not be proven in-anchor",
+                    })?;
+            let metadata = self.validate_beneath_from(
+                &self.canonical,
+                &current,
+                normalized_tail,
+                logical_path,
+            )?;
+            return Ok((current, metadata));
+        }
+
+        let metadata = validate_final_entry(candidate, logical_path)?;
+        Ok((candidate.to_path_buf(), metadata))
+    }
+
+    fn validate_beneath_from(
+        &self,
+        anchor: &Path,
         candidate: &Path,
         tail: &Path,
         logical_path: &Path,
@@ -192,7 +282,7 @@ impl GuideAnchor {
             });
         }
 
-        let mut current = self.spelling.clone();
+        let mut current = anchor.to_path_buf();
         for (index, component) in components.iter().enumerate() {
             let Component::Normal(name) = component else {
                 return Err(GuideInputError::UnsafePath {
@@ -292,18 +382,79 @@ pub(crate) fn validate_explicit_path(path: &Path) -> Result<(), GuideInputError>
     validate_explicit_path_spelling(path)
 }
 
-fn safe_tail<'a>(anchor: &Path, candidate: &'a Path) -> Option<&'a Path> {
-    let tail = candidate.strip_prefix(anchor).ok()?;
-    if tail.components().any(|component| {
-        matches!(
-            component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        )
-    }) {
-        None
+fn classify_candidate<'a>(anchor: &Path, candidate: &'a Path) -> CandidateClass<'a> {
+    let Ok(tail) = candidate.strip_prefix(anchor) else {
+        return CandidateClass::ProvenExternal;
+    };
+    if tail
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        CandidateClass::ParentContaining(tail)
     } else {
-        Some(tail)
+        CandidateClass::ProvenInAnchor(tail)
     }
+}
+
+fn validate_component_before_parent(
+    path: &Path,
+    logical_path: &Path,
+) -> Result<(), GuideInputError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| GuideInputError::Io {
+        path: logical_path.to_path_buf(),
+        operation: "inspect the component before '..' in",
+        source,
+    })?;
+    if is_link_like(&metadata) {
+        return Err(GuideInputError::UnsafePath {
+            path: logical_path.to_path_buf(),
+            reason: "a parent-containing guide path crosses a link or reparse point before '..'",
+        });
+    }
+    if !metadata.is_dir() {
+        return Err(GuideInputError::UnsafePath {
+            path: logical_path.to_path_buf(),
+            reason: "a guide-path component before '..' is not a directory",
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn canonicalize_anchor_preserving_parent_order(path: &Path) -> io::Result<PathBuf> {
+    if !path
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        return fs::canonicalize(path);
+    }
+
+    // Resolve every spelling prefix before applying its following parent.
+    // Windows would otherwise erase `alias/..` before observing the reparse
+    // alias, unlike Unix path traversal and the v0.2 anchor contract.
+    let mut pending = match path.components().next() {
+        Some(Component::Prefix(_) | Component::RootDir) => PathBuf::new(),
+        _ => std::env::current_dir()?,
+    };
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                let resolved_prefix = fs::canonicalize(&pending)?;
+                if !fs::metadata(&resolved_prefix)?.is_dir() {
+                    return Err(io::Error::other(
+                        "an anchor component before '..' is not a directory",
+                    ));
+                }
+                pending = resolved_prefix;
+                pending.pop();
+            }
+            Component::CurDir => {}
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                pending.push(component.as_os_str());
+            }
+        }
+    }
+
+    fs::canonicalize(pending)
 }
 
 fn validate_final_entry(path: &Path, logical_path: &Path) -> Result<Metadata, GuideInputError> {
@@ -916,3 +1067,93 @@ fn reserved_numbered_alias(name: &str, prefix: &str) -> bool {
 
 #[cfg(not(any(unix, windows)))]
 compile_error!("safe guide opening is implemented only for Unix and Windows");
+
+#[cfg(test)]
+mod issue_101_tests {
+    use super::{GuideAnchor, GuideAuthority};
+    use std::fs;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    const SENTINEL: &str = "ISSUE101_INTERNAL_GUIDE_BYTES_9a134c92";
+
+    #[cfg(unix)]
+    fn create_directory_link(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("create directory symlink");
+    }
+
+    #[cfg(windows)]
+    fn create_directory_link(target: &Path, link: &Path) {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .expect("execute mklink /J");
+        assert!(
+            output.status.success(),
+            "real Windows junction capability is required for issue #101:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn direct_shared_opener_rejects_parent_containing_link_ancestor() {
+        let temp = TempDir::new().expect("temporary fixture");
+        let root = temp.path().join("root");
+        let outside = temp.path().join("resolved-target");
+        fs::create_dir_all(root.join("padding")).expect("padding directory");
+        fs::create_dir(&outside).expect("outside target");
+        fs::write(outside.join("guide.md"), SENTINEL).expect("outside guide");
+        create_directory_link(&outside, &root.join("linked"));
+
+        let configured = root.join("padding/../linked/guide.md");
+        let anchor = GuideAnchor::new(&root).expect("guide anchor");
+        let error = anchor
+            .read(
+                &configured,
+                Path::new("padding/../linked/guide.md"),
+                GuideAuthority::Explicit,
+            )
+            .expect_err("shared opener accepted a parent-containing linked ancestor");
+        let diagnostic = error.to_string();
+
+        assert!(
+            diagnostic.contains("unsafe guide path")
+                && diagnostic.contains("link or reparse point")
+                && diagnostic.contains("padding/../linked/guide.md"),
+            "{diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(SENTINEL) && !diagnostic.contains(&outside.display().to_string()),
+            "{diagnostic}"
+        );
+    }
+
+    #[test]
+    fn parent_classification_does_not_change_true_external_authority() {
+        let temp = TempDir::new().expect("temporary fixture");
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside");
+        fs::create_dir(&root).expect("root");
+        fs::create_dir(&outside).expect("outside");
+        let guide = outside.join("guide.md");
+        fs::write(&guide, SENTINEL).expect("external guide");
+
+        let anchor = GuideAnchor::new(&root).expect("guide anchor");
+        let configured = root.join("../outside/guide.md");
+        let content = anchor
+            .read(
+                &configured,
+                Path::new("../outside/guide.md"),
+                GuideAuthority::Explicit,
+            )
+            .expect("true external regular guide remains allowed");
+
+        assert_eq!(content, SENTINEL);
+        assert_eq!(
+            fs::canonicalize(configured).expect("configured external guide"),
+            fs::canonicalize(guide).expect("expected external guide")
+        );
+    }
+}

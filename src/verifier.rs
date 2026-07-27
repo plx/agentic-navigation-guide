@@ -132,7 +132,7 @@ impl Verifier {
 
     /// Canonicalize the root once while retaining parent-component order.
     fn canonicalize_root_path(&self) -> Result<PathBuf> {
-        Ok(canonicalize_root_preserving_parent_order(&self.root_path)?)
+        Ok(crate::guide_input::canonicalize_anchor_preserving_parent_order(&self.root_path)?)
     }
 
     /// Get a human-readable string for the item type
@@ -149,46 +149,6 @@ impl Verifier {
             .map(|comment| !comment.trim().is_empty())
             .unwrap_or(false)
     }
-}
-
-fn canonicalize_root_preserving_parent_order(path: &Path) -> io::Result<PathBuf> {
-    use std::path::Component;
-
-    if !path
-        .components()
-        .any(|component| component == Component::ParentDir)
-    {
-        return std::fs::canonicalize(path);
-    }
-
-    // Windows normally normalizes `..` before CreateFile follows a reparse
-    // component. Resolve each spelling prefix that precedes `..` first so a
-    // caller-selected `alias/..` means the parent of the alias target on every
-    // supported platform, as required by the v0.2 anchor contract.
-    let mut pending = match path.components().next() {
-        Some(Component::Prefix(_) | Component::RootDir) => PathBuf::new(),
-        _ => std::env::current_dir()?,
-    };
-    for component in path.components() {
-        match component {
-            Component::ParentDir => {
-                let resolved_prefix = std::fs::canonicalize(&pending)?;
-                if !std::fs::metadata(&resolved_prefix)?.is_dir() {
-                    return Err(io::Error::other(
-                        "a verification-root component before '..' is not a directory",
-                    ));
-                }
-                pending = resolved_prefix;
-                pending.pop();
-            }
-            Component::CurDir => {}
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                pending.push(component.as_os_str());
-            }
-        }
-    }
-
-    std::fs::canonicalize(pending)
 }
 
 impl<'a, C: VerificationControl> VerificationRun<'a, C> {

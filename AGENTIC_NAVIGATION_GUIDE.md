@@ -105,6 +105,7 @@
   - issue_64_release_identity.rs # Published API and exact package/install identity proof
   - issue_68_normative_source.rs # Sole normative claimant, historical rule ledger, links, and contradiction proof
   - issue_71_maintainer_continuity.rs # Single-maintainer exception, candid control status, and policy-alignment regressions
+  - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
 - audits/ # Production-readiness records
@@ -117,6 +118,7 @@
   - 2026-07-26-issue-64-release-identity.md # Prepared v0.2.0 identity, migration, licensing, and no-publication proof
   - 2026-07-27-issue-68-specification-disposition.md # Historical specification and PR #21 disposition evidence
   - 2026-07-27-issue-71-maintainer-continuity.md # Approved sole-maintainer exception and missing-control disposition
+  - 2026-07-27-issue-101-parent-explicit-guide.md # Ordered parent reduction, shared-opener, redaction, and platform evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
