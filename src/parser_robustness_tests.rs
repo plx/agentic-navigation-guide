@@ -4,6 +4,7 @@ use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use crate::validator::Validator;
 use std::collections::BTreeSet;
 
+// Harness-only fixture ceiling; the product parser has no global document-size limit.
 const MAX_INPUT_BYTES: usize = 65_536;
 const MAX_CHOICE_ALTERNATIVES: usize = 256;
 const MAX_LOGICAL_DEPTH: usize = 256;

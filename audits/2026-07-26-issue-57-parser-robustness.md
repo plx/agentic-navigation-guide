@@ -59,10 +59,11 @@ the exact expansions `filea`, `file`, and `fileb`; no product code changed.
 ## Persistent Deterministic Matrix
 
 `src/parser_robustness_tests.rs` contains five normal binary-unit tests.
-`src/main.rs` includes the module only under `cfg(test)`, and `Cargo.toml`
-excludes the test-only source file from published packages. It also excludes
-`.context/**`, preserving local operator notes while preventing Cargo from
-including ignored workspace state in an archive.
+`src/main.rs` includes the module only under `cfg(test)`. Like the existing
+binary-unit test modules, its source remains in published packages so
+`cargo test` on an unpacked package can resolve every `cfg(test)` module.
+`Cargo.toml` excludes only `.context/**`, preserving local operator notes while
+preventing Cargo from including ignored workspace state in an archive.
 
 ### Full UTF-8 documents
 
@@ -156,13 +157,19 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 just --fmt --check
 cargo test --locked --test issue_54_binary_only_package -- --nocapture
 cargo package --locked --allow-dirty --list
+cargo package --locked --allow-dirty
+cargo test --locked \
+  --manifest-path target/package/agentic-navigation-guide-0.2.0/Cargo.toml \
+  issue_57_parser_robustness -- --nocapture
 cargo run --locked -- check --guide AGENTIC_NAVIGATION_GUIDE.md
 cargo run --locked -- verify --guide AGENTIC_NAVIGATION_GUIDE.md --root .
 ```
 
-The package list contains neither `src/parser_robustness_tests.rs`,
-`.context/**`, nor any abandoned fuzz material. The binary-only proof still
-finds exactly one product binary and zero Rust-linkable library targets.
+The package list contains neither `.context/**` nor any abandoned fuzz
+material. It intentionally retains `src/parser_robustness_tests.rs`, consistent
+with the existing packaged binary-unit tests. The binary-only proof still finds
+exactly one product binary and zero Rust-linkable library targets. The focused
+five-test suite also passes from Cargo's verified unpacked package.
 
 ## Acceptance-Criteria Mapping
 
