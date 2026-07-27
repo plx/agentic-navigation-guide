@@ -6,14 +6,24 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     name: Verify Navigation Guide
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
       - name: Build agentic-navigation-guide
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: Verify navigation guide
-        run: cargo run --release -- verify --github-actions-check --deny-ignored
+        run: cargo run --release --locked -- verify --github-actions-check --deny-ignored
