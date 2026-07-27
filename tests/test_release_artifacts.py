@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from unittest import mock
+import urllib.error
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +110,32 @@ class ReleaseArtifactsTests(unittest.TestCase):
             ):
                 RELEASE.parse_checksums(checksums)
 
+    def test_checksums_reject_missing_subjects_and_duplicate_basenames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            first_directory = directory / "first"
+            second_directory = directory / "second"
+            first_directory.mkdir()
+            second_directory.mkdir()
+            first = first_directory / "artifact.bin"
+            second = second_directory / "artifact.bin"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseError,
+                "duplicate checksum subject name",
+            ):
+                RELEASE.checksum_lines([first, second])
+
+            checksums = directory / "SHA256SUMS"
+            RELEASE.write_checksums(checksums, [first])
+            first.unlink()
+            with self.assertRaisesRegex(
+                RELEASE.ReleaseError,
+                "checksum subject is missing",
+            ):
+                RELEASE.verify_checksums(first_directory, checksums)
+
     def test_smoke_injection_deliberately_blocks_an_otherwise_valid_binary(
         self,
     ) -> None:
@@ -150,6 +178,69 @@ class ReleaseArtifactsTests(unittest.TestCase):
                         "v0.2.0",
                         inject_failure=True,
                     )
+
+    def test_smoke_archive_extracts_the_exact_member_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            binary = directory / "agentic-navigation-guide"
+            comparison = directory / "comparison"
+            binary.write_bytes(b"native executable")
+            comparison.write_bytes(binary.read_bytes())
+            archive = RELEASE.create_archive(
+                binary,
+                comparison,
+                "x86_64-unknown-linux-gnu",
+                "v0.2.0",
+                directory / "dist",
+            )
+
+            def inspect_extracted(
+                extracted_binary: Path,
+                tag: str,
+                inject_failure: bool,
+            ) -> None:
+                self.assertEqual(extracted_binary.read_bytes(), b"native executable")
+                self.assertEqual(extracted_binary.name, "agentic-navigation-guide")
+                self.assertEqual(tag, "v0.2.0")
+                self.assertFalse(inject_failure)
+
+            with mock.patch.object(
+                RELEASE,
+                "smoke_binary",
+                side_effect=inspect_extracted,
+            ) as smoke:
+                RELEASE.smoke_archive(archive, "v0.2.0")
+            smoke.assert_called_once()
+
+    def test_windows_archive_smoke_selects_the_exe_member(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            binary = directory / "agentic-navigation-guide.exe"
+            comparison = directory / "comparison.exe"
+            binary.write_bytes(b"windows executable")
+            comparison.write_bytes(binary.read_bytes())
+            archive = RELEASE.create_archive(
+                binary,
+                comparison,
+                "x86_64-pc-windows-msvc",
+                "v0.2.0",
+                directory / "dist",
+            )
+
+            def inspect_extracted(
+                extracted_binary: Path,
+                _tag: str,
+                _inject_failure: bool,
+            ) -> None:
+                self.assertEqual(extracted_binary.read_bytes(), b"windows executable")
+                self.assertEqual(extracted_binary.name, "agentic-navigation-guide.exe")
+
+            with mock.patch.object(
+                RELEASE,
+                "smoke_binary",
+                side_effect=inspect_extracted,
+            ):
+                RELEASE.smoke_archive(archive, "v0.2.0")
 
     def test_provenance_binds_exact_checksums_commit_and_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -261,6 +352,42 @@ class ReleaseArtifactsTests(unittest.TestCase):
             {"DESCRIBES", "DEPENDS_ON"},
         )
 
+    def test_sbom_verifier_rejects_each_required_identity_boundary(self) -> None:
+        valid = {
+            "spdxVersion": "SPDX-2.3",
+            "documentNamespace": (
+                "https://github.com/plx/agentic-navigation-guide/sbom/0.2.0/"
+                f"{COMMIT}"
+            ),
+            "packages": [
+                {
+                    "name": "agentic-navigation-guide",
+                    "versionInfo": "0.2.0",
+                }
+            ],
+            "relationships": [{"relationshipType": "DESCRIBES"}],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "sbom.json"
+            RELEASE.write_json(path, valid)
+            RELEASE.verify_sbom(path, COMMIT)
+            mutations = {
+                "SPDX 2.3": {"spdxVersion": "SPDX-2.2"},
+                "candidate commit": {"documentNamespace": "https://example.invalid"},
+                "root package": {"packages": []},
+                "dependency relationships": {"relationships": []},
+            }
+            for expected_error, mutation in mutations.items():
+                with self.subTest(expected_error=expected_error):
+                    invalid = dict(valid)
+                    invalid.update(mutation)
+                    RELEASE.write_json(path, invalid)
+                    with self.assertRaisesRegex(
+                        RELEASE.ReleaseError,
+                        expected_error,
+                    ):
+                        RELEASE.verify_sbom(path, COMMIT)
+
     def test_release_workflow_has_one_fail_closed_gate_and_publish_boundary(
         self,
     ) -> None:
@@ -293,6 +420,8 @@ class ReleaseArtifactsTests(unittest.TestCase):
         self.assertIn(".immutable == true", publish)
         self.assertIn("steps.crate-state.outputs.state == 'publish-required'", publish)
         self.assertIn("github.event_name == 'push'", publish)
+        self.assertIn('[[ "$RUNNER_OS" == "Windows" ]]', before_publish)
+        self.assertIn("-C link-arg=/Brepro", before_publish)
 
     def test_pipeline_identity_is_exact_and_personal(self) -> None:
         configuration = RELEASE.pipeline()
@@ -309,6 +438,88 @@ class ReleaseArtifactsTests(unittest.TestCase):
             {key: configuration[key] for key in expected},
             expected,
         )
+        RELEASE.check_pipeline_workflow()
+
+    def test_pipeline_rejects_identity_drift_at_runtime(self) -> None:
+        drifted = RELEASE.load_toml(RELEASE.PIPELINE_PATH)
+        drifted["candidate_tag"] = "v9.9.9"
+        real_load_toml = RELEASE.load_toml
+
+        def load_with_drift(path: Path):
+            if path == RELEASE.PIPELINE_PATH:
+                return drifted
+            return real_load_toml(path)
+
+        with (
+            mock.patch.object(
+                RELEASE,
+                "load_toml",
+                side_effect=load_with_drift,
+            ),
+            self.assertRaisesRegex(
+                RELEASE.ReleaseError,
+                "candidate_tag",
+            ),
+        ):
+            RELEASE.pipeline()
+
+    def test_crates_version_state_is_fail_closed_and_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = (
+                Path(temporary)
+                / "agentic-navigation-guide-0.2.0.crate"
+            )
+            archive.write_bytes(b"exact crate bytes")
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            def raise_not_found(*_args, **_kwargs):
+                error = urllib.error.HTTPError(
+                    "https://crates.io/example",
+                    404,
+                    "not found",
+                    {},
+                    io.BytesIO(),
+                )
+                error.close()
+                raise error
+
+            with mock.patch.object(
+                RELEASE.urllib.request,
+                "urlopen",
+                side_effect=raise_not_found,
+            ):
+                self.assertEqual(
+                    RELEASE.crates_version_state(archive),
+                    "publish-required",
+                )
+
+            matching = io.BytesIO(
+                json.dumps({"version": {"checksum": checksum}}).encode()
+            )
+            with mock.patch.object(
+                RELEASE.urllib.request,
+                "urlopen",
+                return_value=matching,
+            ):
+                self.assertEqual(
+                    RELEASE.crates_version_state(archive),
+                    "already-published-matching",
+                )
+
+            mismatched = io.BytesIO(
+                json.dumps({"version": {"checksum": "0" * 64}}).encode()
+            )
+            with (
+                mock.patch.object(
+                    RELEASE.urllib.request,
+                    "urlopen",
+                    return_value=mismatched,
+                ),
+                self.assertRaisesRegex(
+                    RELEASE.ReleaseError,
+                    "different archive checksum",
+                ),
+            ):
+                RELEASE.crates_version_state(archive)
 
 
 if __name__ == "__main__":

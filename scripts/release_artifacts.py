@@ -26,6 +26,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 IDENTITY_PATH = ROOT / "release" / "identity.toml"
 PIPELINE_PATH = ROOT / "release" / "pipeline.toml"
+MANIFEST_PATH = ROOT / "Cargo.toml"
 LOCKFILE_PATH = ROOT / "Cargo.lock"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SPDX_RE = re.compile(r"[^A-Za-z0-9.-]+")
@@ -63,7 +64,79 @@ def pipeline() -> dict[str, Any]:
     value = load_toml(PIPELINE_PATH)
     if value.get("schema") != 1:
         raise ReleaseError("release pipeline schema must be 1")
+    release_identity = identity()
+    manifest = load_toml(MANIFEST_PATH).get("package", {})
+    repository_url = str(manifest.get("repository", ""))
+    repository_prefix = "https://github.com/"
+    if not repository_url.startswith(repository_prefix):
+        raise ReleaseError("Cargo package repository must be a GitHub HTTPS URL")
+    manifest_repository = repository_url.removeprefix(repository_prefix).removesuffix(
+        ".git"
+    )
+    repository = str(value.get("repository", ""))
+    owner, separator, repository_name = repository.partition("/")
+    expected = {
+        "repository": manifest_repository,
+        "candidate_tag": expected_tag(release_identity),
+        "crate": release_identity["package"],
+        "binary": release_identity["binary"],
+        "trusted_publisher_owner": owner,
+        "trusted_publisher_repository": repository_name,
+        "trusted_publisher_workflow": value.get("workflow_filename"),
+        "trusted_publisher_environment": value.get("environment"),
+    }
+    for key, expected_value in expected.items():
+        if value.get(key) != expected_value:
+            raise ReleaseError(
+                f"release pipeline {key}: expected {expected_value!r}, "
+                f"observed {value.get(key)!r}"
+            )
+    if not separator or not owner or not repository_name:
+        raise ReleaseError("release pipeline repository must be owner/name")
+    workflow_filename = str(value.get("workflow_filename", ""))
+    if (
+        PurePosixPath(workflow_filename).name != workflow_filename
+        or not workflow_filename.endswith(".yml")
+    ):
+        raise ReleaseError("release pipeline workflow filename must be one .yml basename")
+    if value.get("supported_runners") != [
+        "ubuntu-latest",
+        "macos-latest",
+        "windows-latest",
+    ]:
+        raise ReleaseError("release pipeline supported runner matrix drifted")
+    if value.get("reproducibility_claim") != (
+        "same-runner-release-binary-byte-for-byte"
+    ):
+        raise ReleaseError("release pipeline reproducibility claim drifted")
     return value
+
+
+def check_pipeline_workflow() -> None:
+    configuration = pipeline()
+    workflow_path = ROOT / ".github" / "workflows" / configuration["workflow_filename"]
+    workflow = workflow_path.read_text(encoding="utf-8")
+    matrix = ", ".join(configuration["supported_runners"])
+    required_fragments = {
+        "candidate tag default": f"default: {configuration['candidate_tag']}",
+        "protected environment": (
+            f"environment:\n      name: {configuration['environment']}"
+        ),
+        "supported runner matrix": f"os: [{matrix}]",
+        "Windows reproducibility linker": "-C link-arg=/Brepro",
+        "Trusted Publisher action": "rust-lang/crates-io-auth-action@",
+        "immutable release assertion": ".immutable == true",
+    }
+    for label, fragment in required_fragments.items():
+        if fragment not in workflow:
+            raise ReleaseError(
+                f"release workflow omits configured {label}: {fragment!r}"
+            )
+    if workflow.count(required_fragments["supported runner matrix"]) != 2:
+        raise ReleaseError(
+            "release workflow must use the configured runner matrix for tests "
+            "and native archives"
+        )
 
 
 def expected_tag(release_identity: Mapping[str, Any]) -> str:
@@ -773,6 +846,9 @@ def command_host_triple(_: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+
+    check_config = commands.add_parser("check-config")
+    check_config.set_defaults(handler=lambda _: check_pipeline_workflow())
 
     host = commands.add_parser("host-triple")
     host.set_defaults(handler=command_host_triple)

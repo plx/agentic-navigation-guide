@@ -67,6 +67,7 @@ jobs:
         if [[ "$FAILURE_INJECTION" == "tag-mismatch" ]]; then
           checked_tag="v999.0.0-injected-mismatch"
         fi
+        python3 scripts/release_artifacts.py check-config
         python3 scripts/check_release_identity.py --tag "$checked_tag"
     - name: Require the exact checked-out commit and immutable tag source
       shell: bash
@@ -173,7 +174,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
@@ -272,7 +273,7 @@ jobs:
     - name: Rehearse Cargo publication without external state
       run: cargo publish --dry-run --locked
     - name: Upload the exact crate archive
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: release-crate
         path: target/package/agentic-navigation-guide-0.2.0.crate
@@ -289,7 +290,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
     - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
       with:
@@ -308,9 +309,18 @@ jobs:
     - name: Build the release binary twice in isolated target directories
       shell: bash
       run: |
-        CARGO_TARGET_DIR="$RUNNER_TEMP/release-a" \
+        release_rustflags="$RUSTFLAGS"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          # MSVC's linker otherwise records timestamps in PE/COFF output.
+          release_rustflags="$release_rustflags -C link-arg=/Brepro"
+        fi
+        export SOURCE_DATE_EPOCH
+        SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+        RUSTFLAGS="$release_rustflags" \
+          CARGO_TARGET_DIR="$RUNNER_TEMP/release-a" \
           cargo build --release --locked --bin agentic-navigation-guide
-        CARGO_TARGET_DIR="$RUNNER_TEMP/release-b" \
+        RUSTFLAGS="$release_rustflags" \
+          CARGO_TARGET_DIR="$RUNNER_TEMP/release-b" \
           cargo build --release --locked --bin agentic-navigation-guide
     - name: Require byte-identical binaries and create a normalized archive
       env:
@@ -333,7 +343,7 @@ jobs:
           --archive "${archive[0]}" \
           --tag "$CANDIDATE_TAG"
     - name: Upload the exact native archive
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: release-native-${{ runner.os }}
         path: target/release-dist
@@ -404,7 +414,7 @@ jobs:
         --commit "$GITHUB_SHA"
         --ref "$SOURCE_REF"
     - name: Upload the complete non-publishing rehearsal bundle
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: release-bundle
         path: target/release-bundle
