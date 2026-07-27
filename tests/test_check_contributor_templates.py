@@ -71,6 +71,9 @@ def valid_pull_request_template() -> str:
 
 
 class ContributorTemplateCheckerTests(unittest.TestCase):
+    def test_checked_in_repository_artifacts_pass(self) -> None:
+        checker.check_repository(ROOT)
+
     def test_valid_constrained_form_passes(self) -> None:
         form = checker.validate_issue_form(Path("form.yml"), valid_form())
         self.assertEqual(form.name, "Test form")

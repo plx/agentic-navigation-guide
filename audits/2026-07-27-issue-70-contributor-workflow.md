@@ -84,7 +84,7 @@ The exact candidate source passed:
 | Rust `1.97.1` | Locked all-target/all-feature check, test, and warnings-denied Clippy passed |
 | Full conformance suite | `GUIDE_FORMAT_REQUIRE_CONFORMANCE=all` passed 393 tests; the two manual benchmarks and explicit package test were the three documented ignores |
 | Explicit packaged-artifact acceptance | The ignored issue #62 exact-package install, smoke, and no-library-consumer test passed separately |
-| Issue #70 contracts | Three Rust tests, nine Python negative/unit tests, and the live constrained-template check passed |
+| Issue #70 contracts | Three Rust tests, ten Python tests (including the checked-in repository), and the live constrained-template check passed |
 | Deterministic parser matrix | The five issue #57 fixed equivalence-matrix tests passed; no generated input was used |
 | Related and repository policy | Eleven issue #61/#66/#69 Rust contracts and 101 selector, identity, protection, coverage, fixed-mutation-report, and performance-policy tests passed |
 | Package | The exact 35-file allowlist packaged and verified; `cargo publish --dry-run --locked` reached only Cargo's expected pre-upload abort |
@@ -109,13 +109,15 @@ machine is not represented as three-platform evidence.
 
 ## Template validation and preview
 
-The constrained local validator, its nine negative/unit regressions, and a
+The constrained local validator, its ten unit/integration regressions, and a
 second parse with Ruby's maintained YAML implementation pass before
-publication. GitHub only makes repository issue and pull request templates
-available from the default branch, so the rendered chooser, each issue form,
-the pull request template, and the community-profile contribution surface must
-be checked immediately after merge. No draft test issue containing placeholder
-content will be left open.
+publication. The Python suite includes an explicit positive check of the
+checked-in forms, chooser, pull request template, and contributor guide.
+GitHub only makes repository issue and pull request templates available from
+the default branch, so the rendered chooser, each issue form, the pull request
+template, and the community-profile contribution surface must be checked
+immediately after merge. No draft test issue containing placeholder content
+will be left open.
 
 ## Representative-ticket cold read
 
@@ -141,6 +143,13 @@ assumed an LF checkout. The test now normalizes Git's LF and CRLF forms before
 extracting the owning job and explicitly asserts that both representations
 produce identical evidence. This was a test-proof portability defect; the
 issue forms and contributor guidance were unchanged.
+
+The final automated review on
+[the corrected head](https://github.com/plx/agentic-navigation-guide/pull/137#issuecomment-5095926802)
+reported no bug, security concern, or performance concern. Its one useful test
+gap was that the unit module did not itself name the live checked-in positive
+path. `test_checked_in_repository_artifacts_pass` now makes that integration
+contract explicit; the recipe retains the separate CLI-style live check.
 
 The cold reader confirmed that these prerequisites remain discoverable without
 oral context:
