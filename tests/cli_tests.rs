@@ -5210,6 +5210,57 @@ fn test_windows_guide_namespaces_and_streams_reject_before_access() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn issue_102_windows_device_namespaces_reject_on_every_explicit_surface_before_access() {
+    let temp = TempDir::new().expect("temporary Windows namespace fixture");
+    let root = temp.path().join("root");
+    let missing_root = temp.path().join("missing-root");
+    fs::create_dir(&root).expect("namespace fixture root");
+
+    let namespaces = [
+        r"\\.\NUL",
+        r"\\.\pipe\agentic-navigation-guide-test",
+        r"\\localhost\pipe\agentic-navigation-guide-test",
+        r"\\localhost\mailslot\agentic-navigation-guide-test",
+        r"\\localhost\IPC$\agentic-navigation-guide-test",
+        r"\\?\GLOBALROOT\Device\HarddiskVolume1\agentic-navigation-guide-test",
+        r"\??\C:\agentic-navigation-guide-test.md",
+    ];
+
+    for namespace in namespaces {
+        for surface in ["check", "verify"] {
+            for source in ["--guide", "AGENTIC_NAVIGATION_GUIDE_PATH"] {
+                let mut command = isolated_command();
+                command.current_dir(&root);
+                if source == "AGENTIC_NAVIGATION_GUIDE_PATH" {
+                    command.env(source, namespace);
+                }
+                command.arg(surface);
+                if surface == "verify" {
+                    command.arg("--root").arg(&missing_root);
+                }
+                if source == "--guide" {
+                    command.arg(source).arg(namespace);
+                }
+
+                let output = command.output().expect("run namespace precedence case");
+                let diagnostics = combined_output(&output);
+                assert!(
+                    !output.status.success()
+                        && diagnostics.contains("invalid explicit guide path")
+                        && !diagnostics.contains("trust anchor")
+                        && !diagnostics.contains("filesystem walk error")
+                        && !diagnostics.contains(&missing_root.display().to_string())
+                        && !diagnostics.contains(GUIDE_SOURCE_SENTINEL),
+                    "{surface} via {source} reached root, namespace, metadata, or guide access \
+                     for {namespace:?}:\n{diagnostics}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn test_invalid_implicit_guide_names_fail_before_search_or_allow_empty() {
     let temp = TempDir::new().unwrap();

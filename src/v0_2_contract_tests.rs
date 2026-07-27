@@ -756,6 +756,20 @@ fn documentation_and_fixture_are_a_bijection() {
 }
 
 #[test]
+fn issue_102_windows_device_namespace_requires_pre_access_rejection() {
+    let case = trust_fixtures::CASES
+        .iter()
+        .find(|case| case.id == "trust-guide-windows-device-namespace")
+        .expect("the #49 Windows device-namespace row must remain in the trust ledger");
+
+    assert_eq!(
+        case.normative,
+        TrustOutcome::RejectUsage,
+        "Windows guide device namespaces must be invalid configuration before filesystem access"
+    );
+}
+
+#[test]
 fn pending_rows_have_one_allowed_owner_and_no_tbd_policy() {
     for case in fixtures::CASES {
         for (label, result) in [("normative", case.normative), ("current", case.current)] {

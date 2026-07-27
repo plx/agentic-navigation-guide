@@ -141,6 +141,7 @@
   - 2026-07-27-issue-66-readme-examples.md # Concise onboarding, package lifecycle, and immutable-CI evidence
   - 2026-07-27-issue-58-hermetic-tests.md # Owned test roots, child-only environment, and binary-boundary evidence
   - 2026-07-27-issue-59-coverage-performance.md # Branch coverage, mutation sentinels, blocker traceability, and fixed performance evidence
+  - 2026-07-27-issue-102-windows-device-ledger.md # Windows namespace pre-access oracle and real-platform precedence evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure

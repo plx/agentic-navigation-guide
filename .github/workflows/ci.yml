@@ -397,6 +397,9 @@ jobs:
       run: >-
         cargo test --bin agentic-navigation-guide --locked
         v0_2_contract_tests:: -- --nocapture
+    - name: Run focused Windows guide namespace precedence tests
+      if: runner.os == 'Windows'
+      run: cargo test --locked issue_102 -- --nocapture
     - name: Run focused logical-backslash regression
       run: cargo test --locked issue_27 -- --nocapture
     - name: Run focused syntax-sensitive-name tests

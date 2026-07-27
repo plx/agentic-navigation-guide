@@ -742,4 +742,43 @@ mod tests {
             "internal GuideLocation bypassed Windows path validation: {error}"
         );
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn issue_102_internal_recursive_paths_reject_device_namespaces_before_anchor() {
+        let temp = TempDir::new().expect("temporary Windows namespace fixture");
+        let missing_root = temp.path().join("missing-root");
+
+        for namespace in [
+            r"\\.\NUL",
+            r"\\.\pipe\agentic-navigation-guide-test",
+            r"\\localhost\pipe\agentic-navigation-guide-test",
+            r"\\localhost\mailslot\agentic-navigation-guide-test",
+            r"\\localhost\IPC$\agentic-navigation-guide-test",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\agentic-navigation-guide-test",
+            r"\??\C:\agentic-navigation-guide-test.md",
+        ] {
+            let results = verify_guides(
+                &[GuideLocation {
+                    guide_path: PathBuf::from(namespace),
+                    root_path: missing_root.clone(),
+                    logical_path: PathBuf::from(namespace),
+                }],
+                &Config::default(),
+            )
+            .expect("internal Windows namespace verification result");
+            let error = results[0]
+                .error
+                .as_ref()
+                .map_or("", GuideDiagnostic::reason);
+            assert!(
+                !results[0].success
+                    && error.contains("invalid explicit guide path")
+                    && !error.contains("trust anchor")
+                    && !error.contains(&missing_root.display().to_string())
+                    && !error.contains(GUIDE_SOURCE_SENTINEL),
+                "internal GuideLocation reached the root or namespace for {namespace:?}: {error}"
+            );
+        }
+    }
 }

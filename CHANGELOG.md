@@ -78,6 +78,11 @@ complete and the final candidate is revalidated.
   `AGENTIC_NAVIGATION_GUIDE_PATH` remain path authorities. A default
   single-guide `verify` resolves its guide beneath the effective `--root`;
   explicit regular guide files may still be selected outside that root.
+- Windows device, named-pipe, mailslot, IPC, and unsupported namespace guide
+  spellings are invalid configuration before any selected-root, namespace,
+  metadata, or guide access. This pre-access result applies equally to
+  `check`, single `verify`, the explicit guide environment variable, and the
+  retained binary-internal verification route.
 - `--indent` accepts only `1` through `16`; `--depth` accepts `0` through
   `256`, where zero includes root children but no grandchildren. Invalid
   values are usage errors rather than wrapping, flattening, panicking, or
