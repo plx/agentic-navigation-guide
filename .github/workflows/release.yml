@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  # Temporary issue-#63 hosted rehearsal trigger; remove after PR evidence.
+  pull_request:
+    branches: [main]
   push:
     tags:
     - "v*"
