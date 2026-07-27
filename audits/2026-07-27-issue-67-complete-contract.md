@@ -73,9 +73,9 @@ The changelog records the completed contract surface.
 `tests/fixtures/v0_2_cli.rs` is the machine-readable command/argument ledger.
 The binary-unit contract test compares it directly with Clap and fails on a
 command name/help summary, long or short spelling, action, required/global/
-hidden setting, value name, default, or possible-value change. The existing
-documentation bijection now also requires one exact normative row for every
-CLI fixture entry.
+hidden setting, value name, requirement/conflict relationship, default, or
+possible-value change. The existing documentation bijection now also requires
+one exact normative row for every CLI fixture entry.
 
 `tests/issue_67_complete_contract.rs` binds the complete-support headings and
 limitations to the package MSRV and retained normative links. Its fixed CLI

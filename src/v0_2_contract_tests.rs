@@ -348,6 +348,14 @@ struct CliArgumentCase {
     documentation: &'static str,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CliRelationshipCase {
+    command: &'static str,
+    long: &'static str,
+    requires: &'static [&'static str],
+    conflicts: &'static [&'static str],
+}
+
 mod fixtures {
     use super::{ContractCase, ExpectedItem, ExpectedResult, ItemKind};
 
@@ -373,7 +381,7 @@ mod api_fixtures {
 }
 
 mod cli_fixtures {
-    use super::{CliAction, CliArgumentCase, CliCommandCase};
+    use super::{CliAction, CliArgumentCase, CliCommandCase, CliRelationshipCase};
 
     include!("../tests/fixtures/v0_2_cli.rs");
 }
@@ -878,6 +886,16 @@ struct ObservedCliArgument {
     possible_values: Vec<String>,
 }
 
+fn cli_relationships(
+    command: &str,
+    long: &str,
+) -> (&'static [&'static str], &'static [&'static str]) {
+    cli_fixtures::RELATIONSHIPS
+        .iter()
+        .find(|case| case.command == command && case.long == long)
+        .map_or((&[], &[]), |case| (case.requires, case.conflicts))
+}
+
 fn observed_cli_action(action: &ArgAction) -> CliAction {
     match action {
         ArgAction::SetTrue => CliAction::Flag,
@@ -927,6 +945,162 @@ fn observe_cli_arguments(command_name: &str, command: &clap::Command) -> Vec<Obs
             })
         })
         .collect()
+}
+
+fn cli_argument_value(case: &CliArgumentCase) -> &'static str {
+    if let Some(value) = case.possible_values.first() {
+        return value;
+    }
+
+    match case.value_name {
+        Some("DEPTH") => "1",
+        Some("INDENT") => "2",
+        Some("ROOT") => ".",
+        Some("GUIDE") => "AGENTIC_NAVIGATION_GUIDE.md",
+        Some("GUIDE_NAME") => "AGENTIC_NAVIGATION_GUIDE.md",
+        Some(_) => "fixture",
+        None => panic!("flag '{}' does not accept a value", case.long),
+    }
+}
+
+fn push_cli_argument(tokens: &mut Vec<String>, case: &CliArgumentCase) {
+    tokens.push(format!("--{}", case.long));
+    if case.action != CliAction::Flag {
+        tokens.push(cli_argument_value(case).to_string());
+    }
+}
+
+fn parse_cli_case(
+    case: &CliArgumentCase,
+    additional_arguments: &[&str],
+) -> Result<crate::cli::Cli, clap::Error> {
+    let mut tokens = vec!["agentic-navigation-guide".to_string()];
+    if case.command != "global" {
+        tokens.push(case.command.to_string());
+    }
+
+    for required in cli_fixtures::ARGUMENTS.iter().filter(|candidate| {
+        candidate.command == case.command && candidate.required && candidate.long != case.long
+    }) {
+        push_cli_argument(&mut tokens, required);
+    }
+
+    push_cli_argument(&mut tokens, case);
+    for long in additional_arguments {
+        let related = cli_fixtures::ARGUMENTS
+            .iter()
+            .find(|candidate| {
+                candidate.long == *long
+                    && (candidate.command == case.command || candidate.command == "global")
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "relationship target '--{long}' is not declared for '{}'",
+                    case.command
+                )
+            });
+        push_cli_argument(&mut tokens, related);
+    }
+
+    if case.command == "global" {
+        tokens.push("dump".to_string());
+    }
+
+    <crate::cli::Cli as clap::Parser>::try_parse_from(tokens)
+}
+
+fn assert_cli_relationship_metadata() {
+    let relationship_keys = cli_fixtures::RELATIONSHIPS
+        .iter()
+        .map(|case| (case.command, case.long))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        relationship_keys.len(),
+        cli_fixtures::RELATIONSHIPS.len(),
+        "CLI relationship fixture keys must be unique"
+    );
+    let argument_keys = cli_fixtures::ARGUMENTS
+        .iter()
+        .map(|case| (case.command, case.long))
+        .collect::<BTreeSet<_>>();
+    assert!(
+        relationship_keys.is_subset(&argument_keys),
+        "every CLI relationship fixture must name a declared argument"
+    );
+
+    let mut command = crate::cli::Cli::command();
+    command.build();
+
+    for case in cli_fixtures::ARGUMENTS {
+        let (requires, conflicts) = cli_relationships(case.command, case.long);
+        let scope = if case.command == "global" {
+            &command
+        } else {
+            command
+                .find_subcommand(case.command)
+                .unwrap_or_else(|| panic!("missing built command '{}'", case.command))
+        };
+        let argument = scope
+            .get_arguments()
+            .find(|argument| argument.get_long() == Some(case.long))
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing built argument '--{}' for '{}'",
+                    case.long, case.command
+                )
+            });
+        let actual_conflicts = scope
+            .get_arg_conflicts_with(argument)
+            .into_iter()
+            .filter_map(|conflict| conflict.get_long())
+            .collect::<BTreeSet<_>>();
+        let expected_conflicts = conflicts.iter().copied().collect::<BTreeSet<_>>();
+        assert_eq!(
+            actual_conflicts, expected_conflicts,
+            "Clap conflicts drifted for '{} --{}'",
+            case.command, case.long
+        );
+
+        let without_requirements = parse_cli_case(case, &[]);
+        if requires.is_empty() {
+            assert!(
+                without_requirements.is_ok(),
+                "unexpected Clap requirement for '{} --{}': {without_requirements:?}",
+                case.command,
+                case.long
+            );
+            continue;
+        }
+
+        assert_eq!(
+            without_requirements.unwrap_err().kind(),
+            clap::error::ErrorKind::MissingRequiredArgument,
+            "'{} --{}' must require the fixture-declared arguments",
+            case.command,
+            case.long
+        );
+        assert!(
+            parse_cli_case(case, requires).is_ok(),
+            "fixture requirements do not satisfy '{} --{}'",
+            case.command,
+            case.long
+        );
+        for omitted in requires {
+            let incomplete = requires
+                .iter()
+                .copied()
+                .filter(|required| required != omitted)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                parse_cli_case(case, &incomplete).unwrap_err().kind(),
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "'{} --{}' no longer requires '--{}'",
+                case.command,
+                case.long,
+                omitted
+            );
+        }
+    }
 }
 
 #[test]
@@ -985,6 +1159,7 @@ fn issue_67_cli_fixture_matches_the_complete_declared_clap_surface() {
         actual_arguments, expected_arguments,
         "the complete declared CLI argument surface drifted from its normative fixture"
     );
+    assert_cli_relationship_metadata();
 }
 
 #[test]

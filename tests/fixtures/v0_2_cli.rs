@@ -466,3 +466,106 @@ pub(super) const ARGUMENTS: &[CliArgumentCase] = &[
         documentation: "Select GitHub Actions rendering and failure status `1`; conflicts with other CLI execution selectors.",
     },
 ];
+
+pub(super) const RELATIONSHIPS: &[CliRelationshipCase] = &[
+    CliRelationshipCase {
+        command: "global",
+        long: "verbose",
+        requires: &[],
+        conflicts: &["log-level", "quiet"],
+    },
+    CliRelationshipCase {
+        command: "global",
+        long: "quiet",
+        requires: &[],
+        conflicts: &["log-level", "verbose"],
+    },
+    CliRelationshipCase {
+        command: "global",
+        long: "log-level",
+        requires: &[],
+        conflicts: &["quiet", "verbose"],
+    },
+    CliRelationshipCase {
+        command: "check",
+        long: "post-tool-use-hook",
+        requires: &[],
+        conflicts: &[
+            "execution-mode",
+            "github-actions-check",
+            "pre-commit-hook",
+        ],
+    },
+    CliRelationshipCase {
+        command: "check",
+        long: "pre-commit-hook",
+        requires: &[],
+        conflicts: &[
+            "execution-mode",
+            "github-actions-check",
+            "post-tool-use-hook",
+        ],
+    },
+    CliRelationshipCase {
+        command: "check",
+        long: "github-actions-check",
+        requires: &[],
+        conflicts: &["execution-mode", "post-tool-use-hook", "pre-commit-hook"],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "guide",
+        requires: &[],
+        conflicts: &["recursive"],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "recursive",
+        requires: &[],
+        conflicts: &["guide"],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "guide-name",
+        requires: &["recursive"],
+        conflicts: &[],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "exclude",
+        requires: &["recursive"],
+        conflicts: &[],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "allow-empty",
+        requires: &["recursive"],
+        conflicts: &[],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "post-tool-use-hook",
+        requires: &[],
+        conflicts: &[
+            "execution-mode",
+            "github-actions-check",
+            "pre-commit-hook",
+        ],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "pre-commit-hook",
+        requires: &[],
+        conflicts: &[
+            "execution-mode",
+            "github-actions-check",
+            "post-tool-use-hook",
+        ],
+    },
+    CliRelationshipCase {
+        command: "verify",
+        long: "github-actions-check",
+        requires: &[],
+        conflicts: &["execution-mode", "post-tool-use-hook", "pre-commit-hook"],
+    },
+];
