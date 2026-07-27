@@ -99,6 +99,17 @@ class PerformanceBaselineTests(unittest.TestCase):
         self.assertTrue(any("deep invalid" in item for item in failures))
         self.assertTrue(any("self verification median" in item for item in failures))
 
+    def test_reference_regression_allows_measurement_resolution_only(self):
+        reference = passing_report()
+        report = passing_report()
+        report["cases"]["flat"][0]["median_seconds"] = 0.121
+        report["cases"]["recursive"][0]["max_rss_mib"] = 40.01
+
+        failures = BASELINE.compare_to_reference(report, reference)
+
+        self.assertTrue(any("flat size 10000 median" in item for item in failures))
+        self.assertTrue(any("recursive size 200 RSS" in item for item in failures))
+
 
 if __name__ == "__main__":
     unittest.main()

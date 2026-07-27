@@ -525,4 +525,123 @@ mod tests {
         let result = validator.validate_syntax(&guide);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_validate_rejects_empty_and_rooted_paths() {
+        for path in ["", "/absolute", "\\windows-rooted"] {
+            let mut guide = NavigationGuide::new();
+            guide.items.push(NavigationGuideLine {
+                line_number: 7,
+                indent_level: 0,
+                item: FilesystemItem::File {
+                    path: path.to_string(),
+                    comment: None,
+                },
+            });
+
+            let result = Validator::new().validate_syntax(&guide);
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::errors::AppError::Syntax(
+                        SyntaxError::InvalidPathFormat { line: 7, .. }
+                    ))
+                ),
+                "path {path:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_allows_leading_backslash_below_root() {
+        let mut guide = NavigationGuide::new();
+        guide.items = vec![NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "root".to_string(),
+                comment: None,
+                children: vec![NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 1,
+                    item: FilesystemItem::File {
+                        path: "\\literal-name".to_string(),
+                        comment: None,
+                    },
+                }],
+            },
+        }];
+
+        assert!(Validator::new().validate_syntax(&guide).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_inconsistent_indentation_unit() {
+        let mut guide = NavigationGuide::new();
+        guide.items = vec![NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "root".to_string(),
+                comment: None,
+                children: vec![NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 2,
+                    item: FilesystemItem::Directory {
+                        path: "child".to_string(),
+                        comment: None,
+                        children: vec![NavigationGuideLine {
+                            line_number: 3,
+                            indent_level: 3,
+                            item: FilesystemItem::File {
+                                path: "leaf".to_string(),
+                                comment: None,
+                            },
+                        }],
+                    },
+                }],
+            },
+        }];
+
+        let result = Validator::new().validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InconsistentIndentation {
+                    line: 3,
+                    expected: 4,
+                    found: 3
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_skipped_nesting_level() {
+        let mut guide = NavigationGuide::new();
+        guide.items = vec![NavigationGuideLine {
+            line_number: 1,
+            indent_level: 0,
+            item: FilesystemItem::Directory {
+                path: "root".to_string(),
+                comment: None,
+                children: vec![NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 2,
+                    item: FilesystemItem::File {
+                        path: "child".to_string(),
+                        comment: None,
+                    },
+                }],
+            },
+        }];
+
+        let result = Validator::new().validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 2 }
+            ))
+        ));
+    }
 }

@@ -213,6 +213,13 @@ complete and the final candidate is revalidated.
   filesystem names use bounded, control-safe rendering in default, hook, and
   GitHub Actions output.
 
+### Quality and performance gates
+
+- CI now enforces clean all-target line and branch coverage, an 85% overall
+  and correctness-critical line floor, an 80% overall branch floor, a reviewed
+  original-blocker mutation sentinel set, exact audit-regression traceability,
+  and fixed release timing/RSS baselines through 100,000 flat entries.
+
 ### Packaging, documentation, and licensing
 
 - Current source and the prepared package declare `MIT OR Apache-2.0` and

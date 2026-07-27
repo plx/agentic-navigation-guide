@@ -15,7 +15,7 @@ def metric(count, covered):
         "count": count,
         "covered": covered,
         "notcovered": count - covered,
-        "percent": covered / count * 100,
+        "percent": covered / count * 100 if count else 0,
     }
 
 

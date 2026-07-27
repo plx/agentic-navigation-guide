@@ -1,0 +1,100 @@
+{
+  "cases": {
+    "deep": [
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.0036456249945331365,
+        "p95_seconds": 0.0038317910220939666,
+        "size": 256,
+        "success": true,
+        "variant": "valid"
+      },
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.0030678750190418214,
+        "p95_seconds": 0.0034699590178206563,
+        "size": 257,
+        "success": false,
+        "variant": "invalid"
+      }
+    ],
+    "flat": [
+      {
+        "max_rss_mib": 7.390625,
+        "median_seconds": 0.008035625010961667,
+        "p95_seconds": 0.008104791981168091,
+        "size": 10000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 12.078125,
+        "median_seconds": 0.012537957984022796,
+        "p95_seconds": 0.013009749993216246,
+        "size": 20000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 15.921875,
+        "median_seconds": 0.020744624984217808,
+        "p95_seconds": 0.020841124991420656,
+        "size": 40000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.04579712499980815,
+        "p95_seconds": 0.046153250004863366,
+        "size": 100000,
+        "success": true
+      }
+    ],
+    "placeholders": [
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.00979345798259601,
+        "p95_seconds": 0.010250166989862919,
+        "size": 500,
+        "success": true
+      },
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.01669454199145548,
+        "p95_seconds": 0.01714491701568477,
+        "size": 1000,
+        "success": true
+      },
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.03096612499211915,
+        "p95_seconds": 0.031832333013881,
+        "size": 2000,
+        "success": true
+      }
+    ],
+    "recursive": [
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.034749292011838406,
+        "p95_seconds": 0.03547454098588787,
+        "size": 200,
+        "success": true
+      }
+    ],
+    "self_verify": [
+      {
+        "max_rss_mib": 36.484375,
+        "median_seconds": 0.005325375008396804,
+        "p95_seconds": 0.005612584005575627,
+        "size": 1,
+        "success": true
+      }
+    ]
+  },
+  "metadata": {
+    "binary_sha256": "edecef16c252eaf862d0060299a438b4c4f51b6a8e3e8bfe4503e8a4786098e5",
+    "filesystem": "Darwin",
+    "fixture_seed": "fixed-sequential-v1",
+    "os": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "toolchain": "rustc 1.90.0 (1159e78c4 2025-09-14)"
+  }
+}

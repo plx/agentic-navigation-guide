@@ -77,6 +77,8 @@
 - release/
   - identity.toml # Machine-readable prepared version and pinned baseline evidence
   - maintainer-continuity.toml # Machine-readable public owner, missing-control, and exception-expiry record
+- benchmarks/
+  - issue-59-baseline.json # Versioned fixed-fixture release performance reference
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
 - about.hbs # handlebars template for THIRD_PARTY_LICENSES.md
 - .cargo/
@@ -91,8 +93,11 @@
 - LICENSE-APACHE
 - justfile # Repository task aliases, including production-readiness work selection
 - scripts/
+  - check_coverage.py # Fail-closed overall and critical-module branch-aware coverage policy
+  - check_mutation_report.py # Reviewed blocker-mutation completeness and survivor gate
   - check_release_identity.py # Fail-closed version/tag/changelog/baseline checker
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
+  - run_performance_baseline.py # Fixed-fixture release timing and resource regression harness
 - tests/
   - support/
     - assert_cli.rs # Hermetic assert_cmd wrapper with owned default root and cleared guide environment
@@ -115,8 +120,11 @@
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
   - issue_66_readme_examples.rs # Cross-platform README, package lifecycle, and immutable-CI smoke contract
   - issue_58_test_hermeticity.rs # Subprocess isolation, transient owner, and empty-facade acceptance contract
+  - test_check_coverage.py # Coverage report floor and missing-instrumentation regressions
+  - test_check_mutation_report.py # Mutation report completeness and survivor regressions
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
+  - test_performance_baseline.py # Performance matrix, scaling, metadata, and reference regressions
 - audits/ # Production-readiness records
   - 2026-07-25-production-readiness-audit.md # Due-diligence findings
   - 2026-07-26-issue-30-supported-rust-api-gate.md # Rust API/SemVer gate proof
@@ -132,6 +140,7 @@
   - 2026-07-27-issue-28-cli-reliability-gate.md # Dump, init, and CLI reliability component-gate proof
   - 2026-07-27-issue-66-readme-examples.md # Concise onboarding, package lifecycle, and immutable-CI evidence
   - 2026-07-27-issue-58-hermetic-tests.md # Owned test roots, child-only environment, and binary-boundary evidence
+  - 2026-07-27-issue-59-coverage-performance.md # Branch coverage, mutation sentinels, blocker traceability, and fixed performance evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure
