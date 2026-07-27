@@ -76,7 +76,9 @@
 - about.toml # cargo-about config: accepted licenses, targets, clarifications
 - about.hbs # handlebars template for THIRD_PARTY_LICENSES.md
 - .cargo/
-  - config.toml # project-local cargo aliases (e.g. `cargo licenses`)
+  - config.toml # project-local aliases and rust-version-aware dependency resolution
+- .github/
+  - dependabot.yml # Weekly review-only Cargo and GitHub Actions update proposals
 - THIRD_PARTY_LICENSES.md # generated bundled-dependency attributions (CI-gated)
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
@@ -93,6 +95,7 @@
     - v0_2_trust.rs # Machine-readable v0.2 filesystem trust and adversarial fixture ledger
     - v0_2_api.rs # Frozen #36 Rust export disposition ledger
   - issue_54_binary_only_package.rs # Workspace/package binary-only target-shape regression
+  - issue_60_msrv_dependency_policy.rs # MSRV, CI, install, and update-policy drift regression
   - issue_64_release_identity.rs # Published API and exact package/install identity proof
   - test_check_release_identity.py # Release-identity checker mutation regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite

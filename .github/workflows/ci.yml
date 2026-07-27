@@ -9,6 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 # Third-party actions are pinned to immutable commit SHAs (with the version
 # tag in a trailing comment) so a compromised upstream tag cannot silently
 # swap in malicious code. Bump SHAs intentionally when upgrading.
@@ -20,7 +23,53 @@ jobs:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
     - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
     - name: Run tests
-      run: cargo test
+      run: cargo test --locked
+
+  rust-support:
+    name: Rust ${{ matrix.rust }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - rust: "1.85.0"
+          msrv: true
+        - rust: "1.96.1"
+          msrv: false
+        - rust: "1.97.1"
+          msrv: false
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: clippy
+    - name: Check every target and feature
+      run: cargo check --locked --all-targets --all-features
+    - name: Test every target and feature
+      run: cargo test --locked --all-targets --all-features
+    - name: Lint the MSRV graph
+      if: matrix.msrv
+      run: cargo clippy --locked --all-targets --all-features -- -D warnings
+    - name: Package on the MSRV
+      if: matrix.msrv
+      run: cargo package --locked
+    - name: Install the packaged CLI on the MSRV
+      if: matrix.msrv
+      run: cargo install --path . --locked --root "$RUNNER_TEMP/msrv-install"
+
+  rust-beta:
+    name: Rust beta (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+    - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6  # v1.16.1
+      with:
+        toolchain: beta
+    - name: Check the next Rust toolchain
+      run: cargo check --locked --all-targets --all-features
+    - name: Test the next Rust toolchain
+      run: cargo test --locked --all-targets --all-features
 
   issue-selector:
     name: Production-readiness issue selector

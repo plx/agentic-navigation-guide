@@ -5,3 +5,8 @@
 # `cargo install --locked cargo-about@0.9.0`. CI runs the same command and
 # fails if the resulting file differs from what is committed.
 licenses = "about generate about.hbs --output-file THIRD_PARTY_LICENSES.md"
+
+[resolver]
+# Prefer dependency releases that remain buildable on the package's declared
+# rust-version when Cargo resolves or refreshes the lockfile.
+incompatible-rust-versions = "fallback"

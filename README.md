@@ -33,6 +33,25 @@ The docs.rs badge above still describes the published `0.1.4` artifact; #66
 owns removing or retargeting it and setting maintained documentation metadata
 before release.
 
+### Rust and installation support
+
+Rust `1.85.0` is the minimum supported toolchain for the complete CLI,
+including locked dependency resolution, tests, packaging, and installation.
+CI also tests the current and immediately previous stable Rust releases; beta
+is an informational compatibility signal. The detailed maintenance policy and
+exact pinned toolchains are in the [release policy](docs/release-policy.md).
+
+For a reproducible install of the prepared release, select both its exact
+version and committed dependency graph:
+
+```sh
+cargo install agentic-navigation-guide --version 0.2.0 --locked
+```
+
+For a source checkout, use `cargo install --path . --locked`. Omitting
+`--locked` asks Cargo to resolve a new dependency graph and is outside the
+reproducible installation policy.
+
 ## Docs and Implementation Alignment Policy
 
 ### Source-of-Truth Precedence
@@ -664,7 +683,7 @@ verify-navigation-guide:
     - uses: actions/checkout@v4
     - uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Install agentic-navigation-guide
-      run: cargo install agentic-navigation-guide
+      run: cargo install agentic-navigation-guide --version 0.2.0 --locked
     - name: Verify installation
       run: agentic-navigation-guide --version
     - name: Verify navigation guide
