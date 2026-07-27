@@ -139,7 +139,7 @@ jobs:
     - name: Audit GitHub Actions workflows
       env:
         GH_TOKEN: ${{ github.token }}
-      run: zizmor --pedantic --no-ignores .github/workflows/
+      run: zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml
     - name: Lint README Markdown
       run: rumdl check --disable MD010,MD013,MD038 README.md
     - name: Check README links

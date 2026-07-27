@@ -288,7 +288,9 @@ fn workflow_lint_is_fail_closed_and_checksum_pins_every_tool() {
     );
     assert!(lint.contains("actionlint .github/workflows/*.yml .github/examples/*.yml"));
     assert!(lint.contains("GH_TOKEN: ${{ github.token }}"));
-    assert!(lint.contains("zizmor --pedantic --no-ignores .github/workflows/"));
+    assert!(lint.contains(
+        "zizmor --pedantic --no-ignores .github/workflows/ .github/examples/readme-verify.yml"
+    ));
     assert!(lint.contains("rumdl check --disable MD010,MD013,MD038 README.md"));
     assert!(lint.contains("lychee --no-progress README.md .github/examples/readme-verify.yml"));
     assert!(!lint.contains("continue-on-error"));

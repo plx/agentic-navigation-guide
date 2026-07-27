@@ -263,6 +263,8 @@ fn issue_66_package_install_upgrade_and_uninstall_are_executable() {
     let root = repository_root();
     let temp = TempDir::new().expect("isolated README package lifecycle");
     let package_target = temp.path().join("package-target");
+    // This contract owns lifecycle behavior from Cargo's package output. Issue
+    // #62 separately owns the clean-tree package-content allowlist.
     run_command(
         cargo_command(root, Some(&package_target)).args([
             "package",
