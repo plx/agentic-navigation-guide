@@ -41,7 +41,7 @@ fn issue_67_contract_is_the_complete_versioned_support_reference() {
         "There are zero supported Rust symbols in v0.2",
         "not a sandbox",
         "hostile concurrent replacement",
-        "ordinary public GitHub issues are not a private vulnerability-report channel",
+        "Ordinary public GitHub issues are not a private vulnerability-report channel",
     ] {
         let normalized_required = required.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(

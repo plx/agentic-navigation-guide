@@ -268,11 +268,12 @@ jobs:
     - name: Lint maintained Markdown
       run: |
         rumdl check --disable MD010,MD013,MD038 README.md
+        rumdl check SECURITY.md docs/security-response-runbook.md
         rumdl check --disable MD010,MD013,MD018,MD031,MD038 docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
     - name: Check maintained documentation links
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: lychee --no-progress README.md .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
+      run: lychee --no-progress README.md SECURITY.md .github/examples/readme-verify.yml docs/v0.2-contract.md docs/release-policy.md docs/security-response-runbook.md docs/maintainer-continuity.md docs/repository-protections.md docs/history/README.md
 
   issue-selector:
     name: Production-readiness issue selector

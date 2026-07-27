@@ -50,7 +50,7 @@ The 2026-07-27 inventory established the following non-secret facts:
 | GitHub organization | None |
 | Protected release environment | `release` is tag-scoped and owner-approved; issue #65 |
 | crates.io Trusted Publishing | Not configured; issue #63 owns it |
-| Public security-report route | Not present; issue #69 owns it |
+| Public security-report route | GitHub private vulnerability reporting is enabled; issue #69 |
 | Homebrew tap | None |
 | Independent recovery runbook | Not established |
 | Independent recovery drill | Not run |
@@ -118,8 +118,10 @@ private record must cover GitHub, crates.io, the release environment,
 provenance or signing systems, the security-report route, and any future
 Homebrew tap without containing secrets in this repository.
 
-Issue #69 owns the public security-report route. Until that route lands,
-ordinary public GitHub issues are not a private vulnerability-report channel.
+Issue #69 owns the public security-report route. GitHub private vulnerability
+reporting is enabled, and [`SECURITY.md`](../SECURITY.md) directs sensitive
+reports there. Ordinary public GitHub issues are not a private
+vulnerability-report channel.
 No Homebrew tap exists. If one is introduced, its ownership, credentials,
 offboarding, and recovery controls must be added here before publication
 through that channel.
