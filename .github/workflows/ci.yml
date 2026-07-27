@@ -57,7 +57,11 @@ jobs:
       run: cargo package --locked
     - name: Install the packaged CLI on the MSRV
       if: matrix.msrv
-      run: cargo install --path . --locked --root "$RUNNER_TEMP/msrv-install"
+      run: >-
+        cargo install
+        --path target/package/agentic-navigation-guide-0.2.0
+        --locked
+        --root "$RUNNER_TEMP/msrv-install"
 
   rust-beta:
     name: Rust beta (informational)
@@ -160,10 +164,22 @@ jobs:
       run: python3 scripts/check_release_identity.py --tag v0.2.0
     - name: Prove published baseline and exact packaged install identity
       run: cargo test --locked --test issue_64_release_identity -- --nocapture
+    - name: Assert the package allowlist
+      run: >-
+        cargo test --locked --test issue_62_package_boundary
+        issue_62_package_manifest_is_the_exact_reviewed_allowlist
+        -- --exact --nocapture
+    - name: Smoke-test the exact packaged CLI
+      run: >-
+        cargo test --locked --test issue_62_package_boundary
+        issue_62_exact_package_installs_smokes_and_rejects_library_consumers
+        -- --exact --ignored --nocapture
     - name: Require clean package source
       run: git diff --exit-code
     - name: Build the prepared package without publishing
       run: cargo package --locked
+    - name: Dry-run the prepared package publication
+      run: cargo publish --dry-run --locked
 
   fmt:
     name: Rustfmt

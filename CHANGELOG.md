@@ -32,6 +32,11 @@ complete and the final candidate is revalidated.
 - The exact release inputs and future baseline rule are machine-readable in
   [`release/identity.toml`](release/identity.toml) and explained in the
   [release identity and compatibility policy](docs/release-policy.md).
+- The source crate now uses a root-anchored 33-path package allowlist. It ships
+  only normalized Cargo metadata and lockfile, production Rust sources,
+  maintained user/contract documentation, and intentional license, notice,
+  and attribution files; repository workflows, site sources, agent material,
+  audits, remediations, and internal test fixtures are excluded.
 
 ### CLI and automation changes from `0.1.4`
 
