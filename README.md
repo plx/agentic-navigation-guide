@@ -611,6 +611,13 @@ anchor; guide-path link or reparse ancestors below that anchor are rejected.
 An explicitly selected external regular guide may use its stable external
 ancestor chain because the exact configured path grants read authority.
 
+An unresolved `..` in a path that starts beneath the anchor does not
+automatically grant external authority. The path is reduced in order: every
+component removed by `..` must first be a real directory, and an in-anchor
+result still rejects every link or reparse ancestor. Real-directory reductions
+such as `padding/../real/guide.md` remain valid, as do explicitly selected
+regular paths proven to remain outside the anchor.
+
 Recursive discovery does not traverse descendant links or reparse points. An
 explicit exclusion is applied before an unsafe matching entry is classified;
 without that exclusion, an unsafe match is an error rather than an empty

@@ -183,6 +183,11 @@ complete and the final candidate is revalidated.
   reparse entry. This applies to implicit, recursive, and explicitly selected
   guides. Exclusions are applied before unsafe matching entries are
   classified, and nonmatching descendant links are not traversed.
+- Parent-containing explicit guide paths no longer gain external authority
+  merely because their in-anchor tail cannot be reduced lexically. Components
+  erased by `..` are checked in order, in-anchor results retain every
+  link/reparse-ancestor rejection, and real-directory reductions plus paths
+  proven genuinely external remain supported.
 - On Windows, guide reads reject alternate streams, named-pipe/device
   namespaces, reserved DOS aliases, and unsupported verbatim forms. Output
   destinations reject the corresponding stream/device forms and validate a
