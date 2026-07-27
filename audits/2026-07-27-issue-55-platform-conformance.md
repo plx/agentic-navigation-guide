@@ -115,6 +115,26 @@ contract requires that future workflow to depend on or invoke this same
 locked matrix. This issue does not create a tag, release, package publication,
 organization, or environment.
 
+## First hosted gap discovery
+
+The first expanded [hosted matrix run][first-matrix-run] passed Linux and
+failed the [Windows job][first-windows-job] in
+`windows_output_reparse_matrix`. The Windows unit suite had executed 203
+tests with two intentional ignores; the CLI suite then executed 94 tests and
+failed one rather than merely compiling.
+
+The failure exposed cross-case fixture contamination in the Windows
+regression. Its first subcase intentionally placed an unsafe directory link
+inside the selected input root and proved that an output beneath it was
+rejected. The later subcase reused that root while proving that an explicitly
+selected external output link is permitted. Source generation correctly
+rejected the unsafe link that the first subcase had left behind.
+
+The regression now removes only that directory-link fixture after the
+rejection assertions. The external target remains alive, and the later
+external-output case runs against a clean input root. No production path,
+parser input, trust classification, or expected output changed.
+
 ## Hosted evidence
 
 The pull request must retain:
@@ -137,3 +157,6 @@ does not certify network shares, userspace filesystems, foreign filesystem
 drivers, privileged device-node construction, or safety against hostile
 concurrent replacement. The product remains a stable-filesystem consistency
 checker, not a sandbox or access-control boundary.
+
+[first-matrix-run]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161
+[first-windows-job]: https://github.com/plx/agentic-navigation-guide/actions/runs/30276524161/job/90011882496

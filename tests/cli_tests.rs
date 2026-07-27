@@ -2337,6 +2337,7 @@ fn windows_output_reparse_matrix() {
         );
         assert!(!result.status.success());
         assert!(!external.path().join("must-not-be-created.md").exists());
+        fs::remove_dir(&in_root_link).expect("remove in-root directory-link fixture");
 
         let external_link = output_parent
             .path()
