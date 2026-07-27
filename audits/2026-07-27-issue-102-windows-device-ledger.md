@@ -84,6 +84,16 @@ construction or any namespace, metadata, or guide access.
 The three-platform CI build matrix has a Windows-only `issue_102` step. A
 cross-target build or an unavailable runner cannot satisfy this evidence.
 
+Hosted GitHub Actions
+[run 30272766923](https://github.com/plx/agentic-navigation-guide/actions/runs/30272766923),
+Windows job
+[89999163659](https://github.com/plx/agentic-navigation-guide/actions/runs/30272766923/job/89999163659),
+passed on executable/test head
+`eab151a06d14193d98fe5bae9c4ec4705cda6f37`. The focused step passed the
+portable ledger assertion, the Windows binary-internal precedence test, and
+the Windows CLI/environment surface matrix: two binary tests and one
+integration test, with no failures.
+
 ## Active handoff disposition
 
 The closed #49 issue body is historical handoff evidence and retains the
@@ -95,4 +105,6 @@ Merged PR #85 review history remains unchanged.
 
 The focused portable contract, complete debug/release suites, strict Clippy,
 formatting, workflow lint/security audit, guide self-verification, exact
-package boundary, and real Windows `issue_102` run are required before merge.
+package boundary, and real Windows `issue_102` run passed. The final PR head
+must repeat the protected full check set after this evidence-only audit
+update.
