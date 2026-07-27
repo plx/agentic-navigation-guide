@@ -174,8 +174,7 @@ fn canonicalize_root_preserving_parent_order(path: &Path) -> io::Result<PathBuf>
             Component::ParentDir => {
                 let resolved_prefix = std::fs::canonicalize(&pending)?;
                 if !std::fs::metadata(&resolved_prefix)?.is_dir() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
+                    return Err(io::Error::other(
                         "a verification-root component before '..' is not a directory",
                     ));
                 }
@@ -802,8 +801,7 @@ fn windows_handle_identity(file: &std::fs::File) -> io::Result<FileIdentity> {
     let legacy = unsafe { legacy.assume_init() };
     let file_index = (u64::from(legacy.nFileIndexHigh) << 32) | u64::from(legacy.nFileIndexLow);
     if file_index == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "the filesystem supplied no reliable entry identity",
         ));
     }

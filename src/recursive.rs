@@ -533,8 +533,7 @@ mod tests {
                 .strip_prefix(root.path())
                 .expect("enumerated path beneath fixture root");
             if relative == Path::new("project/target") {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     "excluded directory reached the enumeration seam",
                 ));
             }

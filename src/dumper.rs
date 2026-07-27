@@ -863,8 +863,7 @@ mod tests {
                 .unwrap_or("<root>")
                 .to_string();
             if name == "target" {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     "excluded directory reached the enumeration seam",
                 ));
             }

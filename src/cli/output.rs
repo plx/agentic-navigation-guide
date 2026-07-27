@@ -387,8 +387,7 @@ impl PreparedOutput {
                 return Err(OutputError::CleanupFailed {
                     path: self.requested_path.clone(),
                     failure,
-                    cleanup: CleanupFailure::IdentityUnavailable(io::Error::new(
-                        io::ErrorKind::Other,
+                    cleanup: CleanupFailure::IdentityUnavailable(io::Error::other(
                         "the created handle had no stable filesystem identity",
                     )),
                 });
@@ -434,19 +433,13 @@ impl PreparedOutput {
             if completed_identity != created_identity {
                 return Err(delivery_failure(
                     DeliveryStage::ValidateCompletedHandle,
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "the created handle's filesystem identity changed",
-                    ),
+                    io::Error::other("the created handle's filesystem identity changed"),
                 ));
             }
             let expected_length = u64::try_from(bytes.len()).map_err(|_| {
                 delivery_failure(
                     DeliveryStage::ValidateCompletedHandle,
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "the output buffer is too large to validate",
-                    ),
+                    io::Error::other("the output buffer is too large to validate"),
                 )
             })?;
             let actual_length = file
@@ -456,12 +449,9 @@ impl PreparedOutput {
             if actual_length != expected_length {
                 return Err(delivery_failure(
                     DeliveryStage::ValidateCompletedHandle,
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!(
-                            "the completed file length was {actual_length}, expected {expected_length}"
-                        ),
-                    ),
+                    io::Error::other(format!(
+                        "the completed file length was {actual_length}, expected {expected_length}"
+                    )),
                 ));
             }
 
@@ -762,8 +752,7 @@ fn path_identity(path: &Path) -> io::Result<Option<FileIdentity>> {
         Err(error) => return Err(error),
     };
     if !metadata.file_type().is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "the current output entry is not a regular file",
         ));
     }
@@ -778,10 +767,7 @@ fn validate_regular_handle(file: &File) -> io::Result<()> {
     if file.metadata()?.file_type().is_file() {
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "the created handle is not a regular file",
-        ))
+        Err(io::Error::other("the created handle is not a regular file"))
     }
 }
 
@@ -865,8 +851,7 @@ fn windows_handle_information(file: &File) -> io::Result<(FileIdentity, u32, u32
             let file_index =
                 (u64::from(legacy.nFileIndexHigh) << 32) | u64::from(legacy.nFileIndexLow);
             if file_index == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     "the filesystem supplied no reliable file identity",
                 ));
             }
@@ -917,8 +902,7 @@ fn path_identity(path: &Path) -> io::Result<Option<FileIdentity>> {
         Err(error) => return Err(error),
     };
     if is_link_like(&metadata) || !metadata.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "the current output entry is not a regular non-reparse file",
         ));
     }
@@ -943,8 +927,7 @@ fn validate_regular_handle(file: &File) -> io::Result<()> {
         || attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) != 0
         || !file.metadata()?.is_file()
     {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "the created handle is not a regular non-reparse disk file",
         ));
     }
@@ -1314,10 +1297,7 @@ mod tests {
             if stage == DeliveryStage::Write {
                 file.write_all(b"partial")?;
             }
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("injected {stage} failure"),
-            ))
+            Err(io::Error::other(format!("injected {stage} failure")))
         }
 
         fn before_cleanup(&mut self, path: &Path) -> Result<(), CleanupFailure> {
