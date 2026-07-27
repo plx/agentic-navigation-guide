@@ -241,3 +241,9 @@ fn issue_55_capability_results_are_visible_in_hosted_logs() {
         "guide trust capability result is not visible"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn issue_55_deliberate_windows_gate_proof() {
+    panic!("issue #55 deliberate Windows-only conformance gate proof");
+}
