@@ -69,7 +69,7 @@
 - README.md
 - docs/ # Maintained user and contract documentation
   - v0.2-contract.md # Normative v0.2 guide language and filesystem mapping
-  - release-policy.md # Version/tag identity and compatibility baseline rules
+  - release-policy.md # Release DAG, artifact, OIDC, recovery, version, and compatibility rules
   - maintainer-continuity.md # Time-bounded sole-maintainer exception, authority, and recovery policy
   - repository-protections.md # Required checks, release-tag rules, protected environment, and audit procedure
   - history/ # Clearly non-normative retained design records
@@ -77,6 +77,7 @@
     - Specification.md # Original specification (docs/history/Specification.md), retained as non-normative evidence
 - release/
   - identity.toml # Machine-readable prepared version and pinned baseline evidence
+  - pipeline.toml # Exact workflow, artifact, and personal Trusted Publisher identity
   - maintainer-continuity.toml # Machine-readable public owner, missing-control, and exception-expiry record
 - benchmarks/
   - issue-59-baseline.json # Versioned fixed-fixture release performance reference
@@ -98,6 +99,7 @@
     - ci.yml # Cross-platform, release-quality, and stable required-CI aggregate
     - claude.yml # Trusted-maintainer interactive Claude workflow
     - claude-code-review.yml # Internal pull-request review workflow
+    - release.yml # Non-publishing rehearsal and protected tag-only Trusted Publishing DAG
     - repository-protection-audit.yml # Weekly public GitHub-control drift audit
     - site-check.yml # Pull-request site validation
     - site-publish.yml # GitHub Pages publication
@@ -111,6 +113,7 @@
   - check_coverage.py # Fail-closed overall and critical-module branch-aware coverage policy
   - check_mutation_report.py # Reviewed blocker-mutation completeness and survivor gate
   - check_release_identity.py # Fail-closed version/tag/changelog/baseline checker
+  - release_artifacts.py # Deterministic archives, smoke, checksums, SPDX, provenance, and recovery checks
   - audit_github_protections.py # Live ruleset, tag, environment, and secret-name policy audit
   - get_next_production_readiness_issue.py # Select the next remediation issue from live GitHub state
   - run_performance_baseline.py # Fixed-fixture release timing and resource regression harness
@@ -140,6 +143,7 @@
   - test_check_coverage.py # Coverage report floor and missing-instrumentation regressions
   - test_check_mutation_report.py # Mutation report completeness and survivor regressions
   - test_check_release_identity.py # Release-identity checker mutation regressions
+  - test_release_artifacts.py # Release artifact, provenance, failure-injection, and DAG regressions
   - test_audit_github_protections.py # Offline GitHub-control comparison and pagination regressions
   - test_get_next_production_readiness_issue.py # Offline selector regression suite
   - test_performance_baseline.py # Performance matrix, scaling, metadata, and reference regressions
@@ -164,6 +168,7 @@
   - 2026-07-27-issue-102-windows-device-ledger.md # Windows namespace pre-access oracle and real-platform precedence evidence
   - 2026-07-27-issue-29-filesystem-safety-gate.md # Verification, discovery, and filesystem-safety component-gate proof
   - 2026-07-27-issue-55-platform-conformance.md # Full-suite platform matrix, capability audit, and red-gate evidence
+  - 2026-07-27-issue-63-release-pipeline.md # Hosted release DAG, artifact, reproducibility, and fail-closed evidence
   - production-readiness-remediation-goal.md # End-to-end next-session execution runbook
   - production-readiness-work-selection.md # Remediation burndown ordering and selector contract
   - production-readiness-reassessment-playbook.md # Reassessment procedure

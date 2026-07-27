@@ -99,12 +99,17 @@ Self-review is an explicit single-maintainer exception, not independent
 approval. The approval still creates a deliberate, auditable pause between a
 tag-triggered workflow and access to the environment.
 
-Issue #63 owns the future release workflow and crates.io Trusted Publisher.
-It must scope the OIDC identity to exactly
+Issue #63's reviewed release workflow scopes the intended OIDC identity to
+exactly
 `plx/agentic-navigation-guide`, that reviewed workflow filename, and the
-`release` environment. Until that identity exists, the absence of publication
-credentials fails closed: this issue does not install a token or publish
-anything.
+`release` environment. Until the matching crates.io Trusted Publisher is
+registered, the absence of a short-lived publication credential fails closed.
+No long-lived token is installed.
+
+GitHub's repository-level immutable-release setting was enabled and verified
+through the repository API on 2026-07-27. It applies to future releases and
+does not require a GitHub organization. The issue #63 workflow independently
+checks the created release's API state before it requests crates.io identity.
 
 ## Inspection and recurring audit
 

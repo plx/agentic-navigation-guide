@@ -53,6 +53,13 @@ complete and the final candidate is revalidated.
   owner approval with administrator bypass disabled. The zero independent
   review count and allowed self-review are explicit consequences of the dated
   single-maintainer exception.
+- A manual non-publishing release rehearsal now runs every identity, supported
+  platform, MSRV, quality, package/install, native rebuild/archive/smoke,
+  checksum, SPDX, provenance, and downloaded-bundle gate behind one aggregate.
+  Real publication is tag-only, owner-approved, OIDC-based, and ordered so an
+  API-verified immutable GitHub Release exists before crates.io publication.
+  Recovery reuses the same tag and exact checksums; it never moves a tag or
+  replaces an asset.
 - `docs/v0.2-contract.md` is mechanically enforced as the sole normative v0.2
   specification. The original root `Specification.md` is preserved with its
   Git history under `docs/history/`, where an unmistakable dated banner and

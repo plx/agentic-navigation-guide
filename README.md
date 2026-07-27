@@ -72,10 +72,11 @@ cargo uninstall agentic-navigation-guide
 ```
 
 Omitting `--locked` asks Cargo to resolve a different dependency graph.
-Homebrew packages and prebuilt GitHub Release archives are not currently
-supported installation channels. If the release pipeline in issue #63 adds a
-channel, its exact install, upgrade, uninstall, checksum, and smoke commands
-must be added here and to the README test before publication.
+Homebrew is not a supported installation channel. The release workflow also
+builds native GitHub Release archives, verifies their SHA-256 checksums, and
+extracts and smoke-tests each archive on its target operating system. Those
+archives are portable release artifacts, not a package-manager install or
+upgrade channel; Cargo remains the supported managed lifecycle.
 
 ## Quickstart
 
