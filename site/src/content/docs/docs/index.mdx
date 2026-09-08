@@ -2,47 +2,79 @@
 title: "Overview"
 sidebar:
   label: "Overview"
-description: "How agentic-navigation-guide keeps repository route maps accurate for coding agents."
+description: "Install the CLI and check a small repository guide."
 ---
 
-`agentic-navigation-guide` is a Rust CLI for authoring, checking, dumping, and verifying compact repository navigation guides.
+`agentic-navigation-guide` checks the paths in hand-maintained repository maps
+for coding agents. You choose which files to mention and write the comments;
+the CLI checks guide syntax, path names, and file and directory types.
 
-Coding assistants can spend unnecessary time searching for files in large repositories. A maintained navigation guide gives them a route map, while this CLI verifies that the map still matches the filesystem.
-
-## Suggested workflow
-
-1. Generate a starting guide with `init` or `dump`.
-2. Edit it by hand so comments identify the useful landmarks.
-3. Keep omissions explicit with placeholder entries.
-4. Run `verify` locally or in CI before guide drift reaches an agent session.
+It does not check whether comments describe the code correctly, require a
+complete listing, or update a guide when files move.
 
 ## Install
 
-`0.2.0` is prepared but not published. Until publication, install from a
-trusted source checkout:
+These docs describe the prepared **v0.2.0 CLI**. The repository marks this
+version as unpublished. From the root of a trusted source checkout, with
+Rust 1.85 or later installed:
 
 ```sh
 cargo install --path . --locked
 ```
 
-After `0.2.0` is published, install the exact reviewed release graph:
+After v0.2.0 is published on crates.io:
 
 ```sh
 cargo install agentic-navigation-guide --version 0.2.0 --locked
 ```
 
-## Minimal example
+v0.2 provides an executable, with no Rust library API. For upgrades, uninstalling,
+and migration from v0.1.4, see the
+[repository README](https://github.com/plx/agentic-navigation-guide#install-upgrade-and-uninstall).
+
+## Create a guide
+
+Run this from the project directory you want to describe:
+
+```sh
+agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md
+```
+
+`init` creates a starting guide from the directory tree. It requires an explicit
+output path and refuses to overwrite an existing file.
+
+Edit the result to keep the paths and comments that help someone find their way
+around. For example, a guide for this repository could contain just:
 
 ```md
 <agentic-navigation-guide>
 - src/
-  - main.rs # Main entry point
-  - lib.rs # Core logic
-  - parser.rs # Parse guides from markdown
+  - parser.rs # Guide syntax
+  - verifier.rs # Filesystem checks
 - Cargo.toml
-- README.md
-- ... # Additional project files
 </agentic-navigation-guide>
 ```
 
-The guide does not have to list everything. It does need to be accurate.
+Other files may exist. You do not need to list them or add a placeholder.
+
+## Check it
+
+From the same project directory:
+
+```sh
+agentic-navigation-guide verify
+```
+
+If the guide is valid and its listed paths match the filesystem, the output is:
+
+```text
+✓ Navigation guide is valid and matches filesystem
+```
+
+A missing path or a file listed as a directory makes verification fail. Run it
+after editing a guide, or add it to [CI](./ci/).
+
+See [Commands](./commands/) for other invocations and
+[Guide format](./guide-format/) for syntax. The
+[full reference](https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md)
+covers all options, platform support, and filesystem limitations.
