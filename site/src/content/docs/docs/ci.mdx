@@ -38,8 +38,13 @@ verification failure. It does not reject ignored guides on its own.
 The repository maintains a
 [complete workflow example](https://github.com/plx/agentic-navigation-guide/blob/main/.github/examples/readme-verify.yml)
 with pinned actions and an exact CLI version. Its crates.io installation step
-requires v0.2.0 to be published. Until then, use the
-[source-checkout installation](../#install).
+requires v0.2.0 to be published. `0.2.0` is prepared but not published. Until
+then, use the [source-checkout installation](../#install). After publication,
+install the reviewed release graph with:
+
+```sh
+cargo install agentic-navigation-guide --version 0.2.0 --locked
+```
 
 ## Local hooks
 
