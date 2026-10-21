@@ -1,73 +1,102 @@
 ---
-title: "Guide Format"
+title: "Guide format"
 sidebar:
-  label: "Guide Format"
-description: "Syntax rules for agentic navigation guide blocks."
+  label: "Guide format"
+description: "Paths, comments, omissions, and filename shorthand."
 ---
 
-A navigation guide is a markdown block with one list item per file, directory, or placeholder.
+A guide is a Markdown file containing one list between these markers.
+Ordinary prose may appear before or after the block.
 
 ```md
 <agentic-navigation-guide>
 - src/
-  - main.rs # Main entry point
-  - lib.rs # Core logic
-  - cli/
-    - verify.rs # verify subcommand
+  - parser.rs # Guide syntax
+  - verifier.rs # Filesystem checks
 - Cargo.toml
-- README.md
-- ... # Additional project files
 </agentic-navigation-guide>
 ```
 
-## Rules
+This is a partial map of this repository. Files omitted from the guide are
+allowed, with or without a placeholder. Comments are for readers; the CLI
+does not check their accuracy.
 
-- Each entry starts with `-`.
-- Indentation expresses nesting.
-- A trailing `/` marks a directory.
-- Comments start at the first unescaped `#`.
-- Use `\#` to include a literal hash in a path.
-- Blank lines are not allowed inside a guide block.
-- Paths must be relative and cannot contain `.`, `..`, or empty path components.
+## Entries and paths
 
-## Ignored bodies
+- Start each entry with `- ` (a dash and one space).
+- Use spaces for indentation, with a consistent indent for each level. The
+  examples here use two spaces.
+- End directory paths with `/`. Only directories can have indented children.
+- Use relative paths with `/` separators. Absolute paths, `.`, `..`, and empty
+  path components are invalid.
+- Include at least one entry and no blank lines inside an active block.
+- Use the exact marker spelling shown above, on separate lines.
 
-An opening marker may contain exactly one `ignore=true` or `ignore="true"`
-attribute:
+A listed file must be a regular file, and a listed directory must be a
+directory. Symlinks are not valid listed entries.
+
+## Comments and special characters
+
+An unescaped `#` starts a comment outside a quoted path. Use `\#` in an
+unquoted path to represent a literal hash, or quote the whole path:
 
 ```md
-<agentic-navigation-guide ignore=true>
-This body is intentionally opaque and need not be a list.
-</agentic-navigation-guide>
+- notes\#1.md # A file named notes#1.md
+- "draft [old].md" # Brackets are part of the filename
+- "..." # A file literally named ...
 ```
 
-The exact one-block envelope, marker grammar, closing marker, and
-full-document marker-candidate scan are still enforced. Once that envelope is
-valid, the UTF-8 body may be arbitrary or empty; list, indentation, path,
-choice, placeholder, and filesystem rules do not apply. A malformed opening
-marker can never activate ignore.
+Quotes are required for leading or trailing spaces in a name. See the
+[path reference](https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md#path-expressions)
+for all quoting and escape rules.
 
-The CLI reports ignored separately from checked or verified work. Ignored
-guides are allowed by default; pass `--deny-ignored` to `check` or `verify`
-when they must make the command fail.
+## Optional placeholders
 
-## Placeholders
-
-Use `...` to indicate omitted entries.
+Use `...` when you want to call attention to omitted entries:
 
 ```md
 - src/
-  - main.rs
-  - ... # Other source files
+  - parser.rs
+  - ...
 ```
 
-A commented placeholder can also reserve room for future files. An uncommented placeholder must correspond to at least one currently unlisted item.
-
-## Choice lists
-
-Small filename alternatives can be grouped with one choice list.
+A bare placeholder requires at least one unlisted item in that directory.
+A placeholder with a nonempty comment can also describe planned entries,
+even when there are no unlisted files:
 
 ```md
-- FooCoordinator[.h, .cpp] # Coordinates foo interactions
-- Config[, .local].json
+- ... # Future modules
 ```
+
+Placeholders cannot have children or appear on adjacent lines. They do not
+make the rest of a listing exhaustive.
+
+## Filename shorthand
+
+One choice list can expand to multiple sibling files:
+
+```md
+- parser[.rs, _test.rs]
+- config[, .local].json
+```
+
+The first line lists both `parser.rs` and `parser_test.rs`; the second lists
+both `config.json` and `config.local.json`. All expanded files must exist.
+Choice lists cannot represent directories.
+
+## Ignoring a guide
+
+Add `ignore=true` or `ignore="true"` to skip the body:
+
+```md
+<agentic-navigation-guide ignore=true>
+This example is not checked against the filesystem.
+</agentic-navigation-guide>
+```
+
+The document must still have valid markers and exactly one block. The body
+may be arbitrary or empty. The CLI reports it as ignored and succeeds unless
+`check` or `verify` receives `--deny-ignored`.
+
+The [full format reference](https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md#document-and-marker-grammar)
+defines the complete grammar and edge cases.

@@ -1,62 +1,65 @@
 ---
-title: "CI and Hooks"
+title: "CI and hooks"
 sidebar:
-  label: "CI and Hooks"
-description: "Using agentic-navigation-guide in automation."
+  label: "CI and hooks"
+description: "Run verification as a required check or local hook."
 ---
 
-Use `verify` in CI to prevent stale navigation guides from merging.
-
-This example pins third-party actions to immutable commit SHAs. Update them intentionally when upgrading those actions.
-`0.2.0` is prepared but not published, so this exact crates.io install becomes
-runnable only after publication. Before then, validate from a trusted source
-checkout with `cargo install --path . --locked`.
-
-```yaml
-name: Verify Navigation Guide
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
-      - run: cargo install agentic-navigation-guide --version 0.2.0 --locked
-      - run: agentic-navigation-guide verify --github-actions-check --deny-ignored
-```
-
-The repository also uses a local verification workflow that builds the crate and runs:
+With the CLI installed, run this from the repository root to require a valid
+guide:
 
 ```sh
-cargo run --release -- verify --github-actions-check --deny-ignored
+agentic-navigation-guide verify --deny-ignored
 ```
 
-For a monorepo, require recursive discovery as part of the gate:
+For repositories with multiple guides:
+
+```sh
+agentic-navigation-guide verify --recursive --deny-ignored
+```
+
+Each discovered guide is verified relative to its parent directory. The run
+fails if any guide fails, is ignored, or no guides are found. Leave out
+`--deny-ignored` only if your check intentionally permits ignored guides;
+use `--allow-empty` only for optional searches.
+
+## GitHub Actions
+
+Add this step after checkout and CLI installation:
 
 ```yaml
-- run: agentic-navigation-guide verify --recursive --github-actions-check --deny-ignored
+- name: Verify navigation guides
+  run: agentic-navigation-guide verify --recursive --github-actions-check --deny-ignored
 ```
 
-These required checks pass `--deny-ignored` explicitly. An ignored guide is a
-successful, separately reported outcome by default, and selecting a hook or CI
-execution mode does not silently change that policy. Omit the flag only when
-the workflow intentionally permits ignored examples or templates.
+`--github-actions-check` selects file-and-line diagnostics and exits `1` on a
+verification failure. It does not reject ignored guides on its own.
 
-Do not add `--allow-empty` to a required CI check. Recursive verification
-fails when it discovers zero guides, which keeps a wrong root or guide name,
-an overly broad exclusion, or deletion of the final guide from turning the gate
-into a successful no-op. `--allow-empty` is reserved for searches the workflow
-intentionally treats as optional.
+The repository maintains a
+[complete workflow example](https://github.com/plx/agentic-navigation-guide/blob/main/.github/examples/readme-verify.yml)
+with pinned actions and an exact CLI version. Its crates.io installation step
+requires v0.2.0 to be published. `0.2.0` is prepared but not published. Until
+then, use the [source-checkout installation](../#install). After publication,
+install the reviewed release graph with:
 
-`--allow-empty` does not suppress an unsafe entry whose name matches the guide
-selector. Guide-file links and link-like Windows reparse entries are rejected
-before their targets are read; recursive discovery never traverses descendant
-links. An explicit exclusion is applied before unsafe-match classification.
+```sh
+cargo install agentic-navigation-guide --version 0.2.0 --locked
+```
 
-For agent workflows, the same verification can run after file-writing tools so navigation drift is caught while the work is still fresh.
+## Local hooks
+
+A pre-commit hook can run:
+
+```sh
+agentic-navigation-guide verify --pre-commit-hook --deny-ignored
+```
+
+For a post-tool-use hook:
+
+```sh
+agentic-navigation-guide verify --post-tool-use-hook --deny-ignored
+```
+
+Post-tool-use mode exits `2` on verification failure. The
+[README hook example](https://github.com/plx/agentic-navigation-guide#claude-code-post-tool-use-hook)
+shows how to attach it to Claude Code tools that may change files.

@@ -2,146 +2,113 @@
 title: "Commands"
 sidebar:
   label: "Commands"
-description: "CLI commands provided by agentic-navigation-guide."
+description: "Create, print, check, and verify guides."
 ---
 
-The CLI exposes four main commands.
+| Command  | What it does                                                  |
+| -------- | ------------------------------------------------------------- |
+| `init`   | Generate a guide in a new file.                               |
+| `dump`   | Print a generated guide to stdout.                            |
+| `check`  | Validate guide syntax.                                        |
+| `verify` | Validate syntax and compare listed paths with the filesystem. |
+
+Use `agentic-navigation-guide <command> --help` for all options.
 
 ## `init`
 
-Create a starting `AGENTIC_NAVIGATION_GUIDE.md` from the current repository tree.
+Create a starting guide from the current directory tree:
 
 ```sh
 agentic-navigation-guide init --output AGENTIC_NAVIGATION_GUIDE.md
 ```
 
+`--output` is required. The destination must not already exist, and its parent
+directory must exist. Edit the generated guide to select useful paths and add
+comments.
+
+## `dump`
+
+Preview a generated guide without writing a file:
+
+```sh
+agentic-navigation-guide dump --depth 2 --exclude target --exclude .git
+```
+
+To write it to a new file:
+
+```sh
+agentic-navigation-guide dump --output tree.md
+```
+
+Like `init`, `dump --output` refuses to overwrite an existing destination.
+
 ## `check`
 
-Validate guide syntax without comparing paths against the filesystem.
+Validate syntax without comparing listed paths to the filesystem:
 
 ```sh
 agentic-navigation-guide check
+agentic-navigation-guide check --guide path/to/guide.md
 ```
+
+The default guide is `AGENTIC_NAVIGATION_GUIDE.md` in the current directory.
 
 ## `verify`
 
-Validate syntax and verify that listed paths match the current filesystem.
+Check syntax, path names, file and directory types, and placeholders:
 
 ```sh
 agentic-navigation-guide verify
 ```
 
-For GitHub Actions annotations and CI-friendly output:
+By default, the root is the current directory and the guide is
+`AGENTIC_NAVIGATION_GUIDE.md` beneath it. You can select both explicitly:
 
 ```sh
-agentic-navigation-guide verify --github-actions-check
+agentic-navigation-guide verify --guide path/to/guide.md --root path/to/project
 ```
 
-For a monorepo, discover and verify every matching guide recursively:
+To discover guides beneath a root and verify each relative to its own parent
+directory:
 
 ```sh
 agentic-navigation-guide verify --recursive
 ```
 
-Recursive verification fails when it discovers zero guides. This prevents a
-wrong root or name, an overly broad exclusion, or deletion of the final guide from
-silently disabling a required check. Only a deliberately optional search
-should opt in to empty success:
-
-```sh
-agentic-navigation-guide verify --recursive --allow-empty
-```
-
-Non-quiet output reports the zero count even when it is allowed. The flag
-cannot suppress a missing or non-directory root, an invalid exclusion pattern,
-a traversal error, an unsafe matching guide entry, or a failure from a
-discovered guide. Exclusions are applied before unsafe-entry classification;
-non-matching descendant links are not traversed.
+A recursive run fails if no guides are found. Use `--allow-empty` only when an
+empty search is an acceptable result; it does not suppress other failures.
 
 ## Ignored guides
 
-After the exact document envelope is validated, an `ignore=true` body is
-opaque and may be empty. `check`, single-guide `verify`, and recursive
-`verify` report a distinct ignored outcome and succeed by default. Quiet mode
-suppresses ordinary ignored diagnostics without changing that outcome.
-
-Use the explicit policy flag when ignored guides must fail a run:
+A guide marked `ignore=true` is reported as ignored and succeeds by default.
+Its body is not checked. To make an ignored guide fail the command:
 
 ```sh
 agentic-navigation-guide check --deny-ignored
 agentic-navigation-guide verify --recursive --deny-ignored
 ```
 
-Recursive output keeps ignored guides in `Total` and `Discovered`, counts them
-under `Ignored`, and excludes them from `Passed`, `Failed`, and `Absent`.
-Denial changes the exit status without changing those categories. Execution
-modes do not enable this policy implicitly.
+This policy is separate from output modes such as `--github-actions-check`.
+See [CI and hooks](../ci/) for automation examples.
 
-## Guide-input safety
+## Configuration and exit status
 
-Default `check` anchors its implicit guide at the current working directory.
-Default single-guide `verify` resolves it from the effective verification
-root, and recursive discovery uses the selected search root. An implicit guide
-name must be one nonempty filename component.
+Command-line options take precedence over environment variables, which take
+precedence over built-in defaults. See the
+[configuration reference](https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md#command-line-and-environment-configuration)
+for the five supported environment settings.
 
-The final guide entry must be a regular file. A symbolic link or link-like
-Windows reparse entry is rejected without reading its target, even when it was
-selected explicitly or resolves in-root. Hard-linked regular files are
-allowed. A caller may directly select an external regular guide, and a
-caller-selected root alias is accepted, but guide-path link or reparse
-ancestors below an anchor are rejected.
+In the default mode, success exits `0`, a failed check exits `1`, and an invalid
+invocation exits `2`. An allowed ignored guide also exits `0`. Post-tool-use
+mode uses `2` for verification failures. See the
+[output reference](https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md#stable-streams-and-exit-statuses)
+for every mode and outcome.
 
-Guide-opening errors use a bounded, control-safe logical path without exposing
-rejected bytes or the resolved guide-link target. CLI parse and validation
-errors do not echo complete guide source lines. These checks assume a stable
-filesystem and are not a sandbox against hostile concurrent replacement.
+## Filesystem limits
 
-On Windows, guide paths additionally reject alternate data streams, reserved
-device aliases, device or named-pipe namespaces, and unsupported prefixes.
-Implicit names must exactly match an enumerated directory entry.
+Guides describe regular files and directories. Guide files and listed entries
+cannot be symbolic links; recursive discovery does not traverse descendant
+links. The checks assume a stable filesystem while the command runs.
 
-## `dump`
-
-Print the current directory structure in navigation-guide format.
-
-```sh
-agentic-navigation-guide dump
-```
-
-To create a new output file instead of writing to stdout:
-
-```sh
-agentic-navigation-guide dump --output tree.md
-```
-
-## File-output safety
-
-`init --output` and `dump --output` only create a destination whose final name
-is absent. They never overwrite or follow an existing file, directory, link or
-reparse entry, dangling link, or special entry, and there is no force mode. The
-parent directory must already exist and be writable.
-
-An output beneath the selected generation root cannot traverse a link or
-reparse ancestor. An explicitly selected external output may use a stable
-resolved link ancestor. The full guide is generated before one exclusive
-create; writes, flush, and data synchronization complete before success.
-Identity-safe cleanup removes a failed command's own artifact without deleting
-an entry whose observed identity differs from the one it created.
-
-These checks assume a stable filesystem while the command runs; they are not a
-sandbox against hostile ancestor or identity replacement, including a
-replacement between the cleanup identity check and removal.
-
-Exclusive creation protects ownership of the final name, not atomic content
-publication: a concurrent reader can see in-progress content. The parent
-directory is not synchronized, so immediate-failure crash durability is not
-promised.
-
-Unix and macOS use non-following classification and exclusive no-follow
-creation. A parent with no declared write bit or search bit is treated as
-read-only even when a privileged identity could bypass discretionary access
-control, and an otherwise eligible parent must pass the current identity's
-access check. Windows additionally rejects reparse descendants, alternate
-data streams, device/named-pipe namespaces, reserved DOS device aliases, and
-unsupported verbatim prefixes, then validates that the new handle is a regular
-disk file.
+For exact path, platform, and file-writing guarantees, see the
+[filesystem reference](https://github.com/plx/agentic-navigation-guide/blob/main/docs/v0.2-contract.md#filesystem-trust-and-containment).

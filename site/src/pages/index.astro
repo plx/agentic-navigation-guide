@@ -16,7 +16,6 @@ const externalRel = (href: string) =>
   isExternal(href) ? "noopener noreferrer" : undefined;
 const externalTarget = (href: string) =>
   isExternal(href) ? "_blank" : undefined;
-const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
 ---
 
 <!doctype html>
@@ -68,24 +67,18 @@ const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
           }
         </div>
 
-        <div class="site-nav__actions">
-          <a
-            class="button button--ghost button--sm"
-            href={resolveHref(docsHref)}>Docs</a
-          >
-          <button
-            class="site-nav__toggle"
-            type="button"
-            aria-label="Open navigation"
-            aria-controls="mobile-nav"
-            aria-expanded="false"
-            data-nav-toggle
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16M4 12h16M4 17h16"></path>
-            </svg>
-          </button>
-        </div>
+        <button
+          class="site-nav__toggle"
+          type="button"
+          aria-label="Open navigation"
+          aria-controls="mobile-nav"
+          aria-expanded="false"
+          data-nav-toggle
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16"></path>
+          </svg>
+        </button>
       </nav>
 
       <div class="mobile-nav" id="mobile-nav" data-nav-panel hidden>
@@ -108,21 +101,20 @@ const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
     <main id="main">
       <section class="hero section-shell" aria-labelledby="hero-title">
         <div class="hero__copy">
-          <p class="eyebrow">{siteConfig.project.category}</p>
           <div class="hero__brand-line">
             <img src={markUrl} alt="" width="64" height="64" />
             <h1 id="hero-title">{siteConfig.project.title}</h1>
           </div>
           <p class="hero__lede">{siteConfig.project.tagline}</p>
-          <p class="hero__body">{siteConfig.project.description}</p>
-
-          <div class="badge-row" aria-label="Project highlights">
-            {
-              siteConfig.landing.badges.map((badge) => (
-                <span class="badge">{badge}</span>
-              ))
-            }
-          </div>
+          <p class="hero__body">
+            A small CLI for hand-maintained Markdown maps of a codebase. List
+            the paths that help a coding agent find its way around; verify that
+            they exist and have the right file or directory type.
+          </p>
+          <p class="hero__body">
+            Guides can omit files. Comments are for readers; the CLI does not
+            check their accuracy.
+          </p>
 
           <div class="hero__actions" id="install">
             <a
@@ -148,12 +140,11 @@ const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
         <div class="command-card" id="cli" aria-labelledby="command-card-title">
           <div class="command-card__header">
             <div>
-              <p class="eyebrow">Terminal</p>
+              <p class="eyebrow">Example</p>
               <h2 id="command-card-title">
                 {siteConfig.landing.terminal.title}
               </h2>
             </div>
-            <span>{siteConfig.landing.terminal.meta}</span>
           </div>
           <pre
             class="command-card__body"><code>{siteConfig.landing.terminal.lines.join("\n")}</code></pre>
@@ -167,39 +158,9 @@ const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
               <rect x="8" y="8" width="11" height="12" rx="2"></rect>
               <path d="M5 15V6a2 2 0 0 1 2-2h9"></path>
             </svg>
-            <span>Copy</span>
+            <span>Copy verify command</span>
             <span class="sr-only" data-copy-status aria-live="polite"></span>
           </button>
-        </div>
-      </section>
-
-      <section
-        class="section section--muted"
-        id="features"
-        aria-labelledby="features-title"
-      >
-        <div class="section-shell">
-          <div class="section-heading">
-            <p class="eyebrow">Route discipline</p>
-            <h2 id="features-title">Validate the facts a guide depends on.</h2>
-          </div>
-          <div class="feature-grid">
-            {
-              siteConfig.landing.features.map((feature, index) => (
-                <article class="feature-card">
-                  <span class="feature-card__index" aria-hidden="true">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <p class="feature-card__eyebrow">{feature.eyebrow}</p>
-                  <h3>{feature.title}</h3>
-                  <p>{feature.body}</p>
-                  <a class="text-link" href={resolveHref(feature.href)}>
-                    Learn more
-                  </a>
-                </article>
-              ))
-            }
-          </div>
         </div>
       </section>
 
@@ -208,18 +169,25 @@ const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
         aria-labelledby="docs-title"
       >
         <div class="section-heading">
-          <p class="eyebrow">Documentation</p>
-          <h2 id="docs-title">Install the CLI. Verify the guide.</h2>
+          <h2 id="docs-title">Documentation</h2>
+          <p>
+            These docs cover the prepared v0.2.0 CLI. See the{" "}
+            <a class="text-link" href={sitePath("docs/#install")}
+              >install notes</a
+            >
+            {" "}for availability and setup.
+          </p>
         </div>
         <div class="docs-grid">
           {
             siteConfig.docs.pages.map((page) => (
               <article class="doc-card">
-                <h3>{page.title}</h3>
+                <h3>
+                  <a class="text-link" href={resolveHref(page.href)}>
+                    {page.title}
+                  </a>
+                </h3>
                 <p>{page.description}</p>
-                <a class="text-link" href={resolveHref(page.href)}>
-                  Open page
-                </a>
               </article>
             ))
           }
@@ -229,7 +197,7 @@ const docsHref = siteConfig.docs.pages[0]?.href || "docs/";
 
     <footer class="site-footer">
       <div class="section-shell site-footer__inner">
-        <p>{siteConfig.project.title} / {siteConfig.project.category}</p>
+        <p>{siteConfig.project.title}</p>
         <nav aria-label="Footer">
           {
             siteConfig.landing.footerLinks.map((link) => (
