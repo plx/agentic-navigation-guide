@@ -12,7 +12,7 @@ at your option; see LICENSE-MIT and LICENSE-APACHE in this repository.
 
 ## Overview
 
-- **MIT License** (48 crates, SPDX `MIT`)
+- **MIT License** (42 crates, SPDX `MIT`)
 - **Unicode License v3** (1 crate, SPDX `Unicode-3.0`)
 
 Some crates are dual-licensed and therefore appear under more than one
@@ -25,12 +25,7 @@ required to appear under both).
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [windows-sys 0.60.2](https://github.com/microsoft/windows-rs)
 - [windows-sys 0.61.2](https://github.com/microsoft/windows-rs)
-- [windows-targets 0.53.5](https://github.com/microsoft/windows-rs)
-- [windows_aarch64_msvc 0.53.1](https://github.com/microsoft/windows-rs)
-- [windows_x86_64_gnu 0.53.1](https://github.com/microsoft/windows-rs)
-- [windows_x86_64_msvc 0.53.1](https://github.com/microsoft/windows-rs)
 
 ```
     MIT License
@@ -60,7 +55,7 @@ Used by:
 ### MIT License (SPDX `MIT`)
 
 Used by:
-- [log 0.4.33](https://github.com/rust-lang/log)
+- [log 0.4.34](https://github.com/rust-lang/log)
 - [regex-automata 0.4.16](https://github.com/rust-lang/regex)
 - [regex-syntax 0.8.11](https://github.com/rust-lang/regex)
 - [regex 1.13.1](https://github.com/rust-lang/regex)
@@ -170,8 +165,8 @@ Used by:
 - [anstyle-query 1.1.5](https://github.com/rust-cli/anstyle.git)
 - [anstyle-wincon 3.0.11](https://github.com/rust-cli/anstyle.git)
 - [anstyle 1.0.14](https://github.com/rust-cli/anstyle.git)
-- [clap 4.6.4](https://github.com/clap-rs/clap)
-- [clap_builder 4.6.2](https://github.com/clap-rs/clap)
+- [clap 4.6.6](https://github.com/clap-rs/clap)
+- [clap_builder 4.6.6](https://github.com/clap-rs/clap)
 - [clap_derive 4.6.4](https://github.com/clap-rs/clap)
 - [clap_lex 1.1.0](https://github.com/clap-rs/clap)
 - [colorchoice 1.0.5](https://github.com/rust-cli/anstyle.git)
@@ -272,10 +267,9 @@ Used by:
 - [serde 1.0.229](https://github.com/serde-rs/serde)
 - [serde_core 1.0.229](https://github.com/serde-rs/serde)
 - [serde_derive 1.0.229](https://github.com/serde-rs/serde)
-- [syn 2.0.119](https://github.com/dtolnay/syn)
 - [syn 3.0.3](https://github.com/dtolnay/syn)
-- [thiserror-impl 1.0.69](https://github.com/dtolnay/thiserror)
-- [thiserror 1.0.69](https://github.com/dtolnay/thiserror)
+- [thiserror-impl 2.0.19](https://github.com/dtolnay/thiserror)
+- [thiserror 2.0.19](https://github.com/dtolnay/thiserror)
 - [unicode-ident 1.0.24](https://github.com/dtolnay/unicode-ident)
 
 ```
