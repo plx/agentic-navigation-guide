@@ -47,7 +47,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-thiserror = "1.0"
+thiserror = "2.0"
 walkdir = "2.5"
 globset = "0.4"
 regex = "1.10"
@@ -59,7 +59,7 @@ log = "0.4"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
 ] }
@@ -68,4 +68,4 @@ windows-sys = { version = "0.60", features = [
 tempfile = "3.10"
 assert_cmd = "2.0"
 predicates = "3.1"
-syn = { version = "2.0", features = ["full", "visit"] }
+syn = { version = "3.0", features = ["full", "visit"] }

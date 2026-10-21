@@ -107,12 +107,12 @@ fn every_remote_action_is_immutable_and_checkout_drops_credentials() {
             if repository == "actions/checkout" {
                 assert_eq!(
                     action,
-                    "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd",
+                    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
                     "{}:{} must use the reviewed Node 24 checkout release",
                     path.display(),
                     index + 1
                 );
-                assert_eq!(review_comment, Some("v5.0.1"));
+                assert_eq!(review_comment, Some("v7.0.1"));
                 let block = step_block(&lines, index);
                 assert!(
                     block.contains("persist-credentials: false"),
