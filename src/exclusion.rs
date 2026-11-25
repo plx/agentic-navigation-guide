@@ -52,6 +52,15 @@ impl ExclusionMatcher {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // `Path::components` yields only nonempty normal components that
+        // contain no `/` (every other component kind is rejected above). That
+        // is the hypothesis `path_components_normal` under which the kernel
+        // proves that `*`, `?`, and classes never match across a separator
+        // (`theorem_wildcards_never_cross_separators`). The kernel's segment
+        // semantics alone would let `*`, `?`, a negated class such as `[!a]`,
+        // or a range straddling `/` such as `[.-0]` accept the scalar `/`;
+        // that cannot happen here because no component contains one.
+
         // The traversal root itself is never excluded. The verified kernel
         // makes the same decision (`theorem_empty_path_never_excluded`).
         if components.is_empty() {
