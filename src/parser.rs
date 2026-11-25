@@ -5,7 +5,9 @@ use crate::path_codec::render_utf8_component;
 use crate::proven::choice::{ChoiceError, MAX_CHOICE_ALTERNATIVES, MIN_CHOICE_ALTERNATIVES};
 use crate::proven::document::{self, EnvelopeError, EnvelopeScan};
 use crate::proven::entry::{self, EntryErrorKind, EntryFailure, EntryShape, ParsedEntry};
+use crate::proven::hierarchy;
 use crate::proven::layout::{self, IndentState, LayoutError};
+use crate::proven::lines::{self, split_lines};
 use crate::proven::marker::{self, MarkerClass};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 
@@ -120,7 +122,7 @@ impl Parser {
     /// opaque and may be empty; the returned guide has no parsed items.
     pub(crate) fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
-        let (prologue, guide_content, epilogue, line_offset, ignore) =
+        let (prologue, body_lines, epilogue, line_offset, ignore) =
             self.extract_guide_block(content)?;
 
         // The exact envelope and global marker-candidate scan above always
@@ -129,7 +131,7 @@ impl Parser {
         let items = if ignore {
             Vec::new()
         } else {
-            self.parse_guide_content(&guide_content, line_offset)?
+            self.parse_guide_content(&body_lines, line_offset)?
         };
 
         Ok(NavigationGuide {
@@ -140,15 +142,20 @@ impl Parser {
         })
     }
 
-    /// Extract the guide block from the markdown content
+    /// Extract the guide block from the markdown content: the joined
+    /// prologue, the physical body lines, the joined epilogue, the number of
+    /// lines before the body, and the ignore flag.
     #[allow(clippy::type_complexity)]
-    fn extract_guide_block(
+    fn extract_guide_block<'a>(
         &self,
-        content: &str,
-    ) -> Result<(Option<String>, String, Option<String>, usize, bool)> {
+        content: &'a str,
+    ) -> Result<(Option<String>, Vec<&'a str>, Option<String>, usize, bool)> {
         Self::validate_line_endings(content)?;
 
-        let lines: Vec<&str> = content.lines().collect();
+        // The Verus-verified splitter is exactly `str::lines` (see
+        // `crate::proven::lines`); after the lone-CR check above, no line
+        // contains CR or LF.
+        let lines = split_lines(content);
 
         // Find and validate opening/closing markers across the full document.
         // The Verus-verified envelope scan requires exactly one opening marker
@@ -181,7 +188,7 @@ impl Parser {
             None
         };
 
-        let guide_content = lines[start + 1..end].join("\n");
+        let body_lines = lines[start + 1..end].to_vec();
 
         let epilogue = if end + 1 < lines.len() {
             Some(lines[end + 1..].join("\n"))
@@ -192,7 +199,7 @@ impl Parser {
         // Calculate line offset: prologue lines + opening tag line
         let line_offset = start + 1;
 
-        Ok((prologue, guide_content, epilogue, line_offset, ignore))
+        Ok((prologue, body_lines, epilogue, line_offset, ignore))
     }
 
     /// Reject lone carriage returns before line-oriented parsing.
@@ -226,25 +233,26 @@ impl Parser {
         }
     }
 
-    /// Parse the guide content into navigation guide lines
+    /// Parse the physical body lines into navigation guide lines
     fn parse_guide_content(
         &self,
-        content: &str,
+        body_lines: &[&str],
         line_offset: usize,
     ) -> Result<Vec<NavigationGuideLine>> {
-        if layout::is_blank(content) {
+        // A body with no line, or only whitespace lines, is empty. Verus
+        // proves this per-line check equal to the whitespace-only test of the
+        // body joined with LF (see `crate::proven::lines::is_blank_body`).
+        if lines::is_blank_body(body_lines) {
             return Err(SyntaxError::EmptyGuideBlock.into());
         }
 
         let mut items = Vec::new();
         let mut indentation = IndentState::new();
-        // `content` joins the physical body lines with "\n", so splitting on
-        // "\n" recovers exactly those lines. `str::lines` would drop an empty
-        // last body line and let a blank line before the closing marker
-        // bypass the layout kernel's blank-line rule.
-        let lines: Vec<&str> = content.split('\n').collect();
 
-        for (idx, line) in lines.iter().enumerate() {
+        // Every physical body line, an empty last line included, reaches the
+        // layout kernel, so a blank line before the closing marker is
+        // rejected by its blank-line rule.
+        for (idx, line) in body_lines.iter().enumerate() {
             // Calculate the actual line number in the file
             let line_number = idx + 1 + line_offset;
 
@@ -336,23 +344,20 @@ impl Parser {
 
         for item in items {
             observer.observe(HierarchyEvent::VisitItem);
-            let depth = item.indent_level;
-            if depth > MAX_LOGICAL_DEPTH {
+            // The Verus-verified plan rejects a depth above 256 or beyond the
+            // open directories, and otherwise closes exactly the directories
+            // deeper than the item, so it is attached to its preorder parent
+            // (see `crate::proven::hierarchy`).
+            let Some(closes) = hierarchy::plan_item(open_directories.len(), item.indent_level)
+            else {
                 return Err(SyntaxError::InvalidIndentationLevel {
                     line: item.line_number,
                 }
                 .into());
-            }
+            };
 
-            while open_directories.len() > depth {
+            for _ in 0..closes {
                 Self::close_directory(&mut roots, &mut open_directories, observer)?;
-            }
-
-            if open_directories.len() != depth {
-                return Err(SyntaxError::InvalidIndentationLevel {
-                    line: item.line_number,
-                }
-                .into());
             }
 
             if item.is_directory() {
@@ -805,6 +810,170 @@ mod tests {
             )
             .is_err());
         assert_eq!(over_limit_metrics.max_stack_depth, MAX_LOGICAL_DEPTH + 1);
+    }
+
+    /// Every observer event, in order.
+    #[derive(Default)]
+    struct HierarchyEventLog(Vec<(u8, usize)>);
+
+    impl HierarchyObserver for HierarchyEventLog {
+        fn observe(&mut self, event: HierarchyEvent) {
+            self.0.push(match event {
+                HierarchyEvent::VisitItem => (0, 0),
+                HierarchyEvent::AppendItem => (1, 0),
+                HierarchyEvent::CloseDirectory => (2, 0),
+                HierarchyEvent::OpenDirectory { stack_depth } => (3, stack_depth),
+            });
+        }
+    }
+
+    /// The hierarchy loop as it was before the verified plan.
+    fn reference_build_hierarchy<O: HierarchyObserver>(
+        items: Vec<NavigationGuideLine>,
+        observer: &mut O,
+    ) -> Result<Vec<NavigationGuideLine>> {
+        let mut roots = Vec::new();
+        let mut open_directories = Vec::with_capacity(MAX_LOGICAL_DEPTH + 1);
+        for item in items {
+            observer.observe(HierarchyEvent::VisitItem);
+            let depth = item.indent_level;
+            if depth > MAX_LOGICAL_DEPTH {
+                return Err(SyntaxError::InvalidIndentationLevel {
+                    line: item.line_number,
+                }
+                .into());
+            }
+            while open_directories.len() > depth {
+                Parser::close_directory(&mut roots, &mut open_directories, observer)?;
+            }
+            if open_directories.len() != depth {
+                return Err(SyntaxError::InvalidIndentationLevel {
+                    line: item.line_number,
+                }
+                .into());
+            }
+            if item.is_directory() {
+                open_directories.push(item);
+                observer.observe(HierarchyEvent::OpenDirectory {
+                    stack_depth: open_directories.len(),
+                });
+            } else {
+                Parser::append_hierarchy_item(&mut roots, &mut open_directories, item, observer)?;
+            }
+        }
+        while !open_directories.is_empty() {
+            Parser::close_directory(&mut roots, &mut open_directories, observer)?;
+        }
+        Ok(roots)
+    }
+
+    /// Items whose path is their index, at the given depths and kinds.
+    fn indexed_items(shape: &[(usize, bool)]) -> Vec<NavigationGuideLine> {
+        shape
+            .iter()
+            .enumerate()
+            .map(|(index, &(depth, directory))| NavigationGuideLine {
+                line_number: index + 2,
+                indent_level: depth,
+                item: if directory {
+                    FilesystemItem::Directory {
+                        path: index.to_string(),
+                        comment: None,
+                        children: Vec::new(),
+                    }
+                } else {
+                    FilesystemItem::File {
+                        path: index.to_string(),
+                        comment: None,
+                    }
+                },
+            })
+            .collect()
+    }
+
+    /// The first item that breaks the contract's depth rules, if any.
+    fn first_depth_rule_violation(shape: &[(usize, bool)]) -> Option<usize> {
+        shape.iter().enumerate().position(|(index, &(depth, _))| {
+            let within_bound = depth <= MAX_LOGICAL_DEPTH;
+            let follows = match index.checked_sub(1).map(|previous| shape[previous]) {
+                None => depth == 0,
+                Some((previous, directory)) => {
+                    depth <= previous || (depth == previous + 1 && directory)
+                }
+            };
+            !(within_bound && follows)
+        })
+    }
+
+    /// Record each node's parent index (`None` for roots), checking that
+    /// children appear in source order.
+    fn record_parents(
+        nodes: &[NavigationGuideLine],
+        parent: Option<usize>,
+        parents: &mut Vec<Option<Option<usize>>>,
+    ) {
+        let mut previous = None;
+        for node in nodes {
+            let index: usize = node.path().parse().unwrap();
+            assert!(previous < Some(index), "children out of source order");
+            previous = Some(index);
+            assert_eq!(parents[index], None, "item {index} placed twice");
+            parents[index] = Some(parent);
+            if let Some(children) = node.children() {
+                record_parents(children, Some(index), parents);
+            }
+        }
+    }
+
+    #[test]
+    fn test_hierarchy_plan_matches_previous_loop_and_preorder_parents() {
+        const DEPTHS: usize = 3;
+        let options: Vec<(usize, bool)> = (0..DEPTHS)
+            .flat_map(|depth| [(depth, false), (depth, true)])
+            .collect();
+        let parser = Parser::new();
+        let mut shape = Vec::new();
+        for len in 0..=7u32 {
+            for mut code in 0..options.len().pow(len) {
+                shape.clear();
+                for _ in 0..len {
+                    shape.push(options[code % options.len()]);
+                    code /= options.len();
+                }
+                let mut log = HierarchyEventLog::default();
+                let result = parser.build_hierarchy_with_observer(indexed_items(&shape), &mut log);
+                let mut reference_log = HierarchyEventLog::default();
+                let reference =
+                    reference_build_hierarchy(indexed_items(&shape), &mut reference_log);
+                assert_eq!(format!("{result:?}"), format!("{reference:?}"), "{shape:?}");
+                assert_eq!(log.0, reference_log.0, "{shape:?}");
+
+                match (result, first_depth_rule_violation(&shape)) {
+                    (
+                        Err(AppError::Syntax(SyntaxError::InvalidIndentationLevel { line })),
+                        Some(index),
+                    ) => {
+                        assert_eq!(line, index + 2, "{shape:?}");
+                    }
+                    (Ok(roots), None) => {
+                        let mut parents = vec![None; shape.len()];
+                        record_parents(&roots, None, &mut parents);
+                        for (index, recorded) in parents.into_iter().enumerate() {
+                            let depth = shape[index].0;
+                            // The preorder parent: the latest earlier item one
+                            // level shallower.
+                            let expected = depth.checked_sub(1).map(|level| {
+                                (0..index).rev().find(|&p| shape[p].0 == level).unwrap()
+                            });
+                            assert_eq!(recorded, Some(expected), "{shape:?} item {index}");
+                        }
+                    }
+                    (other, violation) => {
+                        panic!("{shape:?}: {other:?} but first violation {violation:?}")
+                    }
+                }
+            }
+        }
     }
 
     #[test]
