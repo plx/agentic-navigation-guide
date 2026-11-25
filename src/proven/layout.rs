@@ -873,10 +873,12 @@ pub(crate) fn is_blank(text: &str) -> bool {
         exists|n: int| leading_white_space_run(line@, n) && r == encode_utf8(line@.take(n)).len(),
 ))]
 fn leading_white_space(line: &str) -> usize {
-    // Verification-only binding: the slice length bounds the encoded length
-    // by `usize::MAX`, which rules out overflow below.
-    #[cfg(verus_keep_ghost)]
-    let total_len = line.as_bytes().len();
+    // The slice length bounds the encoded length by `usize::MAX`, which rules
+    // out overflow below. Only the proof reads it; it is computed in every
+    // build so verified and shipped code stay identical. `str::len` would not
+    // do: Verus specifies it as a truncating cast of the encoded length.
+    #[allow(clippy::needless_as_bytes)]
+    let _total_len = line.as_bytes().len();
     let mut chars = line.chars();
     let mut byte_len: usize = 0;
     #[cfg(verus_keep_ghost)]
@@ -887,7 +889,7 @@ fn leading_white_space(line: &str) -> usize {
             chars.remaining() == line@.skip(count),
             forall|k: int| 0 <= k < count ==> is_white_space(#[trigger] line@[k]),
             byte_len == encode_utf8(line@.take(count)).len(),
-            total_len == encode_utf8(line@).len(),
+            _total_len == encode_utf8(line@).len(),
         decreases line@.len() - count
     ))]
     loop {
