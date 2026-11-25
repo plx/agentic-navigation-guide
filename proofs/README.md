@@ -83,7 +83,95 @@ No kernel uses `assume`, `admit`, `external_body`, or
 
 ## What is verified
 
-<!-- The kernel inventory is completed with the verification work. -->
+Each row names the production decision, where it lives, and the main
+theorems. Every kernel's executable code is proven equal to its
+specification; the theorems then state the contract-level properties of
+that specification. Theorem names are searchable in the source.
+
+### Guide language (`check` and `verify`)
+
+| Decision | Code | What Verus proves |
+|---|---|---|
+| Line endings | `src/proven/document.rs` | `first_lone_cr_line` returns no line exactly when every CR is followed by LF, and otherwise reports the first lone CR's line. |
+| Marker lines | `src/proven/marker.rs` | `marker_class` restates the contract's marker productions as existential decompositions of the line; the scanner is proven equal to it on every byte sequence, including the outer-whitespace, `ignore=true`, and BOM rules. |
+| Guide envelope | `src/proven/document.rs` | `theorem_envelope_accepts_exactly`: a document is accepted exactly when it has one opening marker, one later closing marker, and otherwise only ordinary lines; `theorem_envelope_reports_first_offense` and the missing-marker theorems fix which line is reported. |
+| List items and indentation | `src/proven/layout.rs` | The list-item splitter matches `^(\s*)- (.+)$` with Unicode `White_Space` and exact byte offsets. `theorem_layout_sound`, `theorem_layout_complete`, and `theorem_layout_first_error`: the line fold accepts exactly the bodies that satisfy the indentation rules (unit 1–16, multiples of the unit, depth at most 256, first line at depth 0, one level deeper only below a line that can own children) and rejects at the first failing line. |
+| Entry text | `src/proven/entry.rs`, `src/proven/choice.rs` | `parse_entry` equals `entry_spec`. `theorem_placeholder_iff_bare_ellipsis`; `theorem_bare_paths_are_contained` (every bare or choice path the parser accepts is one the validator accepts); `theorem_choice_list_shape` (2–256 pairwise-distinct sibling expansions); `theorem_quoted_path_decoder`; `theorem_comment_is_normalized`. |
+| Path validation | `src/proven/path_rules.rs` | `check_path_structure` carries the validator's exact precedence. `theorem_valid_iff_contained`: a path is valid exactly when it is a non-empty `/`-join of non-empty, non-dot, control-free components (with the root-level backslash and drive-prefix rules); `theorem_valid_path_stays_below`: no prefix of a valid path names its root or an ancestor of it. |
+| Name codec and diagnostics | `src/path_codec.rs` (in place) | `serialize_component` meets the exact quoting rules; `theorem_serialize_injective`, `theorem_quoted_component_decodes`. The diagnostic renderers are proven delimited, decodable, injective, and free of C0 controls and DEL (`theorem_rendered_*`). |
+| Dump → parse round trip | `proofs/round_trip.rs` | See [Round trip](#round-trip). |
+
+### Generation (`dump` and `init`)
+
+| Decision | Code | What Verus proves |
+|---|---|---|
+| Configuration and depth limits | `src/proven/generation.rs` | `theorem_configuration_table`; `theorem_explicit_depth_is_exact` (an explicit `--depth` never errors and bounds the logical depth); `theorem_default_depth_fails_closed`. |
+| Guide lines | `src/proven/generation.rs` | `format_entry_line` emits exactly indentation, `- `, the name, an optional `/`, and a newline (`entry_line_spec`). |
+| Name admission and integers | `src/proven/generation.rs` | `host_name_verdict` is the shared representability rule; `parse_unsigned_decimal` equals `str::parse::<usize>`. |
+
+### Filesystem decisions (`verify`, recursive discovery)
+
+| Decision | Code | What Verus proves |
+|---|---|---|
+| Entry types | `src/entry_type.rs` (in place) | `theorem_fail_closed`: a supported kind is returned exactly when there is no reparse, link, FIFO, socket, or device evidence and exactly one of the file and directory flags is set. |
+| Placeholders and resolution | `src/proven/placeholder.rs` | `theorem_placeholder_acceptance`; `theorem_resolution_descends_only_through_directories`. |
+| Recursive discovery | `src/proven/discovery.rs` | Excluded entries are pruned before any metadata access, links are never descended, guide-named entries are always validated and never descended, and the worklist holds only non-link, non-excluded directories. |
+| Guide-path reduction | `src/proven/anchor.rs` | The reduction is an ordered plan that the glue executes. `theorem_plan_follows_components`, `theorem_every_erased_component_is_inspected`, `theorem_reduction_tracks_lexical_depth`, `theorem_left_path_is_never_in_anchor`. |
+| Windows spellings | `src/proven/windows_names.rs` | Namespace prefixes and the component verdict in its exact order; `theorem_accepted_component_is_ordinary`. Unicode uppercasing stays a trusted `std` input. |
+| Exclusion patterns | `src/proven/glob.rs` | The matcher equals a declarative glob semantics; `*` and `?` never cross a component, a literal pattern matches only itself, `**` matches every non-empty path, and the compiler emits only well-formed patterns. |
+| Outcomes and exit status | `src/proven/outcome.rs` | `theorem_exit_status_table`, `theorem_denied_ignored_never_succeeds`, `theorem_recursive_run_succeeds`. |
+
+### Round trip
+
+[`round_trip.rs`](round_trip.rs) proves the textual half of the contract's
+Core invariant by composing the kernels' specifications:
+
+- `theorem_entry_line_round_trip`: for every name that `dump` accepts at a
+  level (representable, non-empty, not `.` or `..`, no `/`), every depth, and
+  every indentation, the emitted line is not a marker candidate, is a list
+  item of exactly that indentation, parses back to exactly that name and
+  kind with no comment, and passes path validation.
+- `theorem_body_round_trip` and `theorem_parse_recovers_emission`: a
+  preorder emission (first depth 0, at most 256, one level deeper only
+  below a directory) is accepted by the layout fold with exactly those
+  depths, and every line yields its original name and kind.
+- `theorem_tree_round_trip` and `theorem_tree_emission_injective`: a tree's
+  preorder emission satisfies those conditions, and distinct trees never
+  produce the same emission, so the parsed items determine the tree.
+- `theorem_dump_round_trip` and `theorem_init_round_trip`: the complete
+  `dump` and `init` documents contain no carriage return, split into exactly
+  the expected lines, and the envelope accepts them with the body between
+  the markers.
+
+Some kernel mutations, such as emitting `#` unquoted or capping the
+indentation unit at 8, still verify on their own and are caught only by
+these theorems.
+
+The theorems model, rather than verify, this glue: the dumper's traversal,
+sorting, and recursion in `format_tree`; `str::lines` and `join`; the
+parser's per-line loop, item assembly, and `build_hierarchy`; validator
+checks other than path rules (duplicate full paths, nesting); file I/O and
+UTF-8 decoding; and the filesystem half of `verify`. The module
+documentation in `round_trip.rs` states each correspondence.
+
+### Measuring coverage
+
+About a quarter of the product's executable lines (excluding tests,
+comments, and ghost code) sit inside verified functions. Those lines are
+the pure decisions above; most of the remainder performs filesystem I/O,
+argument parsing, and output.
+
+### Keeping the proofs honest
+
+[`tests/verus_kernel_discipline.rs`](../tests/verus_kernel_discipline.rs)
+runs in ordinary `cargo test`, without Verus, and fails if:
+
+- `cfg(verus_keep_ghost)` gates anything other than proof syntax, so the
+  verified and the shipped executable code can never differ;
+- any source file uses a proof escape (`assume`, `admit`,
+  `external_body`, `assume_specification`, `external`, or an exemption from
+  termination checking); or
+- a file carries specifications but is unreachable from `verus_root.rs`.
 
 ## What is not verified, and why
 

@@ -223,6 +223,13 @@ An unresolved `..` in a path that starts beneath the anchor does not automatical
 and only a spelling proven to remain outside the anchor receives the external
 authority explicitly granted by its configured guide path.
 
+The guide-language, generation, and filesystem decisions behind these rules
+run through kernels that are formally verified with Verus against the
+contract, including the dump-to-parse round trip. The
+[formal verification notes](proofs/README.md) list what is proven and what is
+trusted; the proofs complement the test suite and do not extend the
+stable-filesystem guarantee above.
+
 Use these maintained references rather than copying detailed rules from this
 README:
 
