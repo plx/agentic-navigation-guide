@@ -251,13 +251,15 @@ complete and the final candidate is revalidated.
   and correctness-critical line floor, an 80% overall branch floor, a reviewed
   original-blocker mutation sentinel set, exact audit-regression traceability,
   and fixed release timing/RSS baselines through 100,000 flat entries.
-- The guide-language decisions (line endings, markers, the guide envelope,
-  list items and indentation, entry text, choice lists, the name codec, and
-  path validation), generation limits and line formatting, entry-type
-  classification, placeholder accounting, recursive discovery, guide-path
-  reduction, Windows name rules, exclusion matching, and exit-status policy
-  now run through kernels that Verus proves against the contract, including
-  the dump-to-parse round trip. Specifications compile only for Verus, so
+- The guide-language decisions (line endings, physical lines, markers, the
+  guide envelope, list items and indentation, entry text, choice lists, the
+  name codec, path validation, duplicate full paths, placeholder siblings,
+  and hierarchy assembly), generation limits, line formatting, and output
+  destinations, entry-type classification, placeholder accounting,
+  recursive discovery, guide-path authority and reduction, Windows name
+  rules, exclusion pattern compilation and matching, configuration
+  precedence, and exit-status policy now run through kernels that Verus
+  proves against the contract, including the dump-to-parse round trip. Specifications compile only for Verus, so
   the product gains no dependency. An advisory `Verus Proofs` workflow
   re-checks the proofs, and ordinary `cargo test` rejects gated executable
   code, proof escapes, and unchecked specifications. See
