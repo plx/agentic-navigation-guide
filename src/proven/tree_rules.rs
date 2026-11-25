@@ -1,15 +1,22 @@
-//! Verified tree-level guide rules: unique full paths and placeholder siblings.
+//! Verified tree-level guide rules: unique full paths, no entry below a
+//! regular file, and placeholder siblings.
 //!
 //! These kernels make the decisions of `Validator::validate_syntax` that look
 //! at more than one entry (`docs/v0.2-contract.md`, "Path expressions" and
 //! "Placeholders and listing completeness"; contract cases
-//! `path-duplicate-decoded`, `placeholder-adjacent`, and `placeholder-child`):
+//! `path-duplicate-decoded`, `path-entry-below-file`, `placeholder-adjacent`,
+//! and `placeholder-child`):
 //!
 //! - [`first_repeated_full_path`] receives the guide's entries in preorder,
 //!   each with the index of the directory entry that owns it, and reports the
 //!   first non-placeholder entry whose full path (its owner's full path, `/`,
 //!   and its own decoded path) equals the full path of an earlier
 //!   non-placeholder entry, together with that full path;
+//! - [`first_entry_below_file`] receives the same listing, with each entry's
+//!   kind, and reports the first entry whose full path continues a regular
+//!   file entry's full path with `/` (an entry listed below a regular file,
+//!   which no filesystem can satisfy), together with the shortest such
+//!   regular-file path;
 //! - [`check_placeholder_siblings`] receives the shapes of one sibling list
 //!   and reports, in list order, the first placeholder that is followed by
 //!   another placeholder (as the index of the second) or that owns children.
@@ -41,6 +48,9 @@
 //!   otherwise reports the first entry in preorder that repeats an earlier
 //!   entry's component sequence; `theorem_path_rules_give_nonempty_paths`
 //!   discharges the condition for entries that `path_rules` accepts;
+//! - `theorem_below_file_is_component_prefix`: under the same condition, an
+//!   entry lies below a regular file exactly when some regular file entry's
+//!   decoded component sequence is a proper prefix of the entry's;
 //! - `theorem_repeated_path_outcome_unique` and
 //!   `theorem_placeholder_outcome_unique`: each specification determines its
 //!   outcome, so the production glue's mapping to an error is fixed;
@@ -89,6 +99,9 @@ pub(crate) struct PathEntry<'a> {
     pub(crate) path: &'a str,
     /// Whether the entry is a placeholder, which has no full path.
     pub(crate) placeholder: bool,
+    /// Whether the entry is a directory rather than a regular file (ignored
+    /// for a placeholder).
+    pub(crate) directory: bool,
 }
 
 /// Keys for the duplicate index's hash. Any values give the same outcome.
@@ -116,6 +129,23 @@ pub(crate) enum DuplicateCheck {
         index: usize,
         /// The shared full path.
         full_path: String,
+    },
+}
+
+/// Outcome of the rule that no entry is listed below a regular file.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ParentCheck {
+    /// No entry's full path continues a regular file's full path with `/`.
+    Consistent,
+    /// The entry at `index` is the first, in preorder, whose full path
+    /// continues a regular file's full path with `/`
+    /// (`SyntaxError::EntryBelowFile`).
+    BelowFile {
+        /// The entry's preorder index.
+        index: usize,
+        /// The shortest such regular file's full path.
+        file_path: String,
     },
 }
 
@@ -512,6 +542,188 @@ pub(crate) proof fn theorem_repeated_path_outcome_unique(
             assert(!repeats_earlier(entries, b as int));
         },
         _ => {},
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Entries below regular files
+// ---------------------------------------------------------------------------
+
+/// Entry `i` is a listed regular file.
+pub(crate) open spec fn is_listed_file(entries: Seq<PathEntry>, i: int) -> bool {
+    is_listed(entries, i) && !entries[i].directory
+}
+
+/// Some listed regular file has the full path `p`.
+pub(crate) open spec fn is_file_path(entries: Seq<PathEntry>, p: Seq<char>) -> bool {
+    exists|i: int| is_listed_file(entries, i) && #[trigger] entry_full_path(entries, i) == p
+}
+
+/// `q[j]` is a `/` and `q[..j]` is a listed regular file's full path.
+pub(crate) open spec fn file_prefix_at(entries: Seq<PathEntry>, q: Seq<char>, j: int) -> bool {
+    0 <= j < q.len() && q[j] == '/' && is_file_path(entries, q.take(j))
+}
+
+/// Entry `k` is listed and its full path continues a listed regular file's
+/// full path with `/`: the guide places it below a regular file, which no
+/// filesystem can satisfy.
+pub(crate) open spec fn below_file(entries: Seq<PathEntry>, k: int) -> bool {
+    is_listed(entries, k) && exists|j: int|
+        #[trigger] file_prefix_at(entries, entry_full_path(entries, k), j)
+}
+
+/// The outcome of the below-a-file rule: success exactly when no entry lies
+/// below a regular file, and otherwise the first entry that does, with the
+/// shortest regular-file path it continues.
+pub(crate) open spec fn below_file_outcome(entries: Seq<PathEntry>, r: ParentCheck) -> bool {
+    match r {
+        ParentCheck::Consistent => forall|k: int|
+            0 <= k < entries.len() ==> !#[trigger] below_file(entries, k),
+        ParentCheck::BelowFile { index, file_path } => {
+            &&& below_file(entries, index as int)
+            &&& forall|k: int| 0 <= k < index ==> !#[trigger] below_file(entries, k)
+            &&& exists|j: int|
+                {
+                    &&& #[trigger] file_prefix_at(entries, entry_full_path(entries, index as int), j)
+                    &&& file_path@ == entry_full_path(entries, index as int).take(j)
+                    &&& forall|m: int|
+                        0 <= m < j ==> !#[trigger] file_prefix_at(
+                            entries,
+                            entry_full_path(entries, index as int),
+                            m,
+                        )
+                }
+        },
+    }
+}
+
+/// The components before the `m`th are joined, and a `/` follows them, at
+/// the start of the whole join.
+proof fn lemma_join_prefix(c: Seq<Seq<char>>, m: int)
+    requires
+        1 <= m < c.len(),
+    ensures
+        join_components(c.take(m)).len() < join_components(c).len(),
+        join_components(c)[join_components(c.take(m)).len() as int] == '/',
+        join_components(c).take(join_components(c.take(m)).len() as int) == join_components(
+            c.take(m),
+        ),
+{
+    let a = c.take(m);
+    let b = c.skip(m);
+    assert(c =~= a + b);
+    lemma_join_append(a, b);
+    let ja = join_components(a);
+    assert(join_components(c).take(ja.len() as int) =~= ja);
+}
+
+/// For `/`-free components, every `/` in their join ends the join of a
+/// nonempty proper prefix of the components.
+proof fn lemma_slash_ends_prefix(c: Seq<Seq<char>>, j: int)
+    requires
+        c.len() >= 1,
+        forall|i: int| 0 <= i < c.len() ==> !(#[trigger] c[i]).contains('/'),
+        0 <= j < join_components(c).len(),
+        join_components(c)[j] == '/',
+    ensures
+        exists|m: int|
+            1 <= m < c.len() && join_components(c).take(j) == #[trigger] join_components(c.take(m)),
+    decreases c.len(),
+{
+    let q = join_components(c);
+    if c.len() == 1 {
+        assert(q == c[0]);
+        assert(c[0].contains('/'));
+    } else {
+        let init = c.drop_last();
+        let last = c.last();
+        let ji = join_components(init);
+        assert(q == ji + seq!['/'] + last);
+        if j < ji.len() {
+            assert(q[j] == ji[j]);
+            assert forall|i: int| 0 <= i < init.len() implies !(#[trigger] init[i]).contains('/') by {
+                assert(init[i] == c[i]);
+            }
+            lemma_slash_ends_prefix(init, j);
+            let m = choose|m: int|
+                1 <= m < init.len() && ji.take(j) == #[trigger] join_components(init.take(m));
+            assert(init.take(m) =~= c.take(m));
+            assert(q.take(j) =~= ji.take(j));
+        } else if j == ji.len() {
+            assert(init =~= c.take(c.len() - 1));
+            assert(q.take(j) =~= ji);
+        } else {
+            assert(q[j] == last[j - ji.len() - 1]);
+            assert(!c[c.len() - 1].contains('/'));
+            assert(last.contains('/'));
+        }
+    }
+}
+
+/// Contract rule "no entry below a regular file": when every listed path is
+/// nonempty (in particular when every path passes `path_rules`), an entry
+/// lies below a regular file exactly when some listed regular file's
+/// decoded component sequence is a proper prefix of the entry's, whatever
+/// hierarchy spelling either uses.
+pub(crate) proof fn theorem_below_file_is_component_prefix(entries: Seq<PathEntry>, k: int)
+    requires
+        nonempty_paths(entries),
+        is_listed(entries, k),
+    ensures
+        below_file(entries, k) == exists|i: int|
+            {
+                &&& is_listed_file(entries, i)
+                &&& entry_components(entries, i).len() < entry_components(entries, k).len()
+                &&& entry_components(entries, k).take(entry_components(entries, i).len() as int)
+                    == #[trigger] entry_components(entries, i)
+            },
+{
+    let b = entry_components(entries, k);
+    let q = entry_full_path(entries, k);
+    theorem_full_path_is_join(entries, k);
+    let prefixed = exists|i: int|
+        {
+            &&& is_listed_file(entries, i)
+            &&& entry_components(entries, i).len() < b.len()
+            &&& b.take(entry_components(entries, i).len() as int) == #[trigger] entry_components(
+                entries,
+                i,
+            )
+        };
+    if below_file(entries, k) {
+        let j = choose|j: int| #[trigger] file_prefix_at(entries, q, j);
+        let i = choose|i: int|
+            is_listed_file(entries, i) && #[trigger] entry_full_path(entries, i) == q.take(j);
+        lemma_slash_ends_prefix(b, j);
+        let m = choose|m: int| 1 <= m < b.len() && q.take(j) == #[trigger] join_components(b.take(m));
+        theorem_full_path_is_join(entries, i);
+        let a = entry_components(entries, i);
+        assert forall|x: int| 0 <= x < b.take(m).len() implies !(#[trigger] b.take(m)[x]).contains(
+            '/',
+        ) by {
+            assert(b.take(m)[x] == b[x]);
+        }
+        theorem_join_identity(a, b.take(m));
+        assert(a == b.take(m));
+        assert(prefixed);
+    }
+    if prefixed {
+        let i = choose|i: int|
+            {
+                &&& is_listed_file(entries, i)
+                &&& entry_components(entries, i).len() < b.len()
+                &&& b.take(entry_components(entries, i).len() as int) == #[trigger] entry_components(
+                    entries,
+                    i,
+                )
+            };
+        let a = entry_components(entries, i);
+        theorem_full_path_is_join(entries, i);
+        let m = a.len() as int;
+        lemma_join_prefix(b, m);
+        let j = join_components(b.take(m)).len() as int;
+        assert(entry_full_path(entries, i) == q.take(j));
+        assert(file_prefix_at(entries, q, j));
     }
 }
 
@@ -966,6 +1178,317 @@ pub(crate) fn first_repeated_full_path(
     DuplicateCheck::Unique
 }
 
+/// The full path text of entry `k`, given the full paths of the entries
+/// before it: its owner's full path, `/`, and its own path, or its own path
+/// alone at the guide root or below an owner whose full path is empty; a
+/// placeholder's is empty.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        k < entries@.len(),
+        full@.len() == k,
+        forall|i: int| 0 <= i < k ==> (#[trigger] full@[i])@ == entry_full_path(entries@, i),
+    ensures
+        r@ == entry_full_path(entries@, k as int),
+))]
+fn full_path_of(entries: &[PathEntry<'_>], full: &[String], k: usize) -> String {
+    let entry = &entries[k];
+    let mut text = String::new();
+    if entry.placeholder {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(text@ =~= entry_full_path(entries@, k as int));
+        }
+        return text;
+    }
+    if let Some(parent) = entry.parent {
+        if parent < k {
+            let parent_text = &full[parent];
+            if !parent_text.is_empty() {
+                text.push_str(parent_text.as_str());
+                text.push('/');
+            }
+        }
+    }
+    text.push_str(entry.path);
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert(text@ =~= entry_full_path(entries@, k as int));
+    }
+    text
+}
+
+/// Find the first entry, in preorder, whose full path continues a regular
+/// file entry's full path with `/`: an entry listed below a regular file.
+///
+/// Full paths are built as in [`first_repeated_full_path`]. The regular
+/// files' full paths go into a chained hash index; then every `/`-ended
+/// prefix of every entry's full path is looked up, shortest first. `keys`
+/// only affects running time, which is linear in the total length of the
+/// full paths plus the length of the chains walked.
+// Verus checks iterator loops written as `loop` over `match next()`.
+#[allow(clippy::while_let_loop)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        below_file_outcome(entries@, r),
+))]
+pub(crate) fn first_entry_below_file(entries: &[PathEntry<'_>], keys: HashKeys) -> ParentCheck {
+    let count = entries.len();
+    if count == 0 {
+        return ParentCheck::Consistent;
+    }
+    let base = keys.base % HASH_MODULUS;
+    let scale = keys.scale % (HASH_MODULUS - 1) + 1;
+    let shift = keys.shift % HASH_MODULUS;
+
+    // `full[i]` is entry `i`'s full path. For a regular file, `hashes[i]` is
+    // its hash, and chain `b` starts at `head[b]` and continues through
+    // `next`, visiting the files in bucket `b` from the latest to the
+    // earliest.
+    let mut full: Vec<String> = Vec::with_capacity(count);
+    let mut hashes: Vec<u64> = Vec::with_capacity(count);
+    let mut next: Vec<usize> = Vec::with_capacity(count);
+    let mut head: Vec<usize> = vec![NO_ENTRY; count];
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost mut bs: Seq<int> = Seq::<int>::empty();
+    }
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            count == entries@.len(),
+            count > 0,
+            0 <= k <= count,
+            base < HASH_MODULUS,
+            scale < HASH_MODULUS,
+            shift < HASH_MODULUS,
+            full@.len() == k,
+            hashes@.len() == k,
+            next@.len() == k,
+            bs.len() == k,
+            head@.len() == count,
+            forall|i: int| 0 <= i < k ==> (#[trigger] full@[i])@ == entry_full_path(entries@, i),
+            forall|i: int|
+                0 <= i < k && is_listed_file(entries@, i) ==> #[trigger] hashes@[i] as int
+                    == poly_hash(base as int, entry_full_path(entries@, i)),
+            forall|i: int|
+                0 <= i < k && is_listed_file(entries@, i) ==> #[trigger] bs[i] == bucket_of(
+                    hashes@[i] as int,
+                    scale as int,
+                    shift as int,
+                    count as int,
+                ),
+            forall|i: int| 0 <= i < k && !is_listed_file(entries@, i) ==> #[trigger] bs[i] == -1,
+            forall|i: int|
+                0 <= i < k && is_listed_file(entries@, i) ==> #[trigger] next@[i] == link(
+                    prev_in(bs, i, bs[i]),
+                ),
+            forall|b: int| 0 <= b < count ==> #[trigger] head@[b] == link(prev_in(bs, k as int, b)),
+        decreases count - k
+    ))]
+    while k < count {
+        let text = full_path_of(entries, full.as_slice(), k);
+        let entry = &entries[k];
+        if !entry.placeholder && !entry.directory {
+            let hash = hash_extend(0, text.as_str(), base);
+            let bucket = bucket_index(hash, scale, shift, count);
+            next.push(head[bucket]);
+            head[bucket] = k;
+            hashes.push(hash);
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let old_bs = bs;
+                bs = bs.push(bucket as int);
+                assert forall|i: int|
+                    0 <= i < k + 1 && is_listed_file(entries@, i) implies #[trigger] next@[i]
+                    == link(prev_in(bs, i, bs[i])) by {
+                    if i < k {
+                        lemma_prev_in_push(old_bs, bucket as int, i, old_bs[i]);
+                    } else {
+                        lemma_prev_in_push(old_bs, bucket as int, k as int, bucket as int);
+                    }
+                }
+                assert forall|b: int| 0 <= b < count implies #[trigger] head@[b] == link(
+                    prev_in(bs, k + 1, b),
+                ) by {
+                    lemma_prev_in_push(old_bs, bucket as int, k as int, b);
+                }
+            }
+        } else {
+            next.push(NO_ENTRY);
+            hashes.push(0);
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let old_bs = bs;
+                bs = bs.push(-1);
+                assert forall|i: int|
+                    0 <= i < k && is_listed_file(entries@, i) implies #[trigger] next@[i] == link(
+                    prev_in(bs, i, bs[i]),
+                ) by {
+                    lemma_prev_in_push(old_bs, -1, i, old_bs[i]);
+                }
+                assert forall|b: int| 0 <= b < count implies #[trigger] head@[b] == link(
+                    prev_in(bs, k + 1, b),
+                ) by {
+                    lemma_prev_in_push(old_bs, -1, k as int, b);
+                }
+            }
+        }
+        full.push(text);
+        k += 1;
+    }
+
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            count == entries@.len(),
+            0 <= k <= count,
+            full@.len() == count,
+            hashes@.len() == count,
+            next@.len() == count,
+            bs.len() == count,
+            head@.len() == count,
+            forall|j: int| 0 <= j < k ==> !#[trigger] below_file(entries@, j),
+        decreases count - k
+    ))]
+    while k < count {
+        if !entries[k].placeholder {
+            let text = &full[k];
+            let mut chars = text.as_str().chars();
+            let mut prefix = String::new();
+            let mut hash: u64 = 0;
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                let ghost mut index: int = 0int;
+            }
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert(text@.take(0) =~= Seq::<char>::empty());
+                assert(prefix@ =~= Seq::<char>::empty());
+            }
+            #[cfg_attr(verus_keep_ghost, verus_spec(
+                invariant
+                    0 <= index <= text@.len(),
+                    text@ == entry_full_path(entries@, k as int),
+                    chars.remaining() == text@.skip(index),
+                    prefix@ == text@.take(index),
+                    hash < HASH_MODULUS,
+                    hash as int == poly_hash(base as int, prefix@),
+                    forall|m: int| 0 <= m < index ==> !#[trigger] file_prefix_at(entries@, text@, m),
+                decreases text@.len() - index
+            ))]
+            loop {
+                match chars.next() {
+                    Some(ch) => {
+                        #[cfg(verus_keep_ghost)]
+                        proof! {
+                            assert(text@.skip(index)[0] == text@[index]);
+                        }
+                        if ch == '/' {
+                            let bucket = bucket_index(hash, scale, shift, count);
+                            let mut candidate = head[bucket];
+                            #[cfg(verus_keep_ghost)]
+                            proof_decl! {
+                                let ghost mut at: int = prev_in(bs, count as int, bucket as int);
+                            }
+                            #[cfg(verus_keep_ghost)]
+                            proof! {
+                                lemma_prev_in(bs, count as int, bucket as int);
+                            }
+                            #[cfg_attr(verus_keep_ghost, verus_spec(
+                                invariant
+                                    candidate == link(at),
+                                    -1 <= at < count,
+                                    at >= 0 ==> bs[at] == bucket as int,
+                                    forall|j: int|
+                                        at < j < count && #[trigger] bs[j] == bucket as int
+                                            ==> entry_full_path(entries@, j) != prefix@,
+                                decreases at + 1
+                            ))]
+                            while candidate != NO_ENTRY {
+                                #[cfg(verus_keep_ghost)]
+                                proof! {
+                                    assert(is_listed_file(entries@, at)) by {
+                                        if !is_listed_file(entries@, at) {
+                                            assert(bs[at] == -1);
+                                        }
+                                    }
+                                }
+                                if hashes[candidate] == hash && full[candidate] == prefix {
+                                    #[cfg(verus_keep_ghost)]
+                                    proof! {
+                                        assert(entry_full_path(entries@, at) == prefix@);
+                                        assert(is_file_path(entries@, text@.take(index)));
+                                        assert(file_prefix_at(entries@, text@, index));
+                                        assert(below_file(entries@, k as int));
+                                    }
+                                    return ParentCheck::BelowFile {
+                                        index: k,
+                                        file_path: prefix,
+                                    };
+                                }
+                                #[cfg(verus_keep_ghost)]
+                                proof! {
+                                    lemma_prev_in(bs, at, bucket as int);
+                                    assert(entry_full_path(entries@, at) != prefix@);
+                                    at = prev_in(bs, at, bucket as int);
+                                }
+                                candidate = next[candidate];
+                            }
+                            #[cfg(verus_keep_ghost)]
+                            proof! {
+                                assert(!is_file_path(entries@, prefix@)) by {
+                                    if is_file_path(entries@, prefix@) {
+                                        let i = choose|i: int|
+                                            is_listed_file(entries@, i) && #[trigger] entry_full_path(
+                                                entries@,
+                                                i,
+                                            ) == prefix@;
+                                        assert(bs[i] == bucket as int);
+                                    }
+                                }
+                                assert(!file_prefix_at(entries@, text@, index));
+                            }
+                        }
+                        #[cfg(verus_keep_ghost)]
+                        proof_decl! {
+                            let ghost before: Seq<char> = prefix@;
+                        }
+                        prefix.push(ch);
+                        hash = hash_step(hash, ch, base);
+                        #[cfg(verus_keep_ghost)]
+                        proof! {
+                            lemma_hash_concat(base as int, 0, before, seq![ch]);
+                            assert(before + seq![ch] =~= before.push(ch));
+                            assert(text@.take(index + 1) =~= text@.take(index).push(ch));
+                            index = index + 1;
+                        }
+                    }
+                    None => {
+                        #[cfg(verus_keep_ghost)]
+                        proof! {
+                            assert(index == text@.len());
+                            assert(!below_file(entries@, k as int)) by {
+                                if below_file(entries@, k as int) {
+                                    let j = choose|j: int| #[trigger] file_prefix_at(
+                                        entries@,
+                                        entry_full_path(entries@, k as int),
+                                        j,
+                                    );
+                                    assert(!file_prefix_at(entries@, text@, j));
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        k += 1;
+    }
+    ParentCheck::Consistent
+}
+
 #[cfg(verus_keep_ghost)]
 verus! {
 
@@ -1145,11 +1668,23 @@ mod tests {
         shift: 0x0F0F_0F0F_0F0F_0F0F,
     };
 
+    /// A directory entry.
     fn entry(parent: Option<usize>, path: &str) -> PathEntry<'_> {
         PathEntry {
             parent,
             path,
             placeholder: false,
+            directory: true,
+        }
+    }
+
+    /// A regular-file entry.
+    fn file(parent: Option<usize>, path: &str) -> PathEntry<'_> {
+        PathEntry {
+            parent,
+            path,
+            placeholder: false,
+            directory: false,
         }
     }
 
@@ -1158,7 +1693,60 @@ mod tests {
             parent,
             path: "...",
             placeholder: true,
+            directory: false,
         }
+    }
+
+    fn below(index: usize, file_path: &str) -> ParentCheck {
+        ParentCheck::BelowFile {
+            index,
+            file_path: file_path.to_string(),
+        }
+    }
+
+    /// Every entry's full path, as the kernels define it.
+    fn reference_full_paths(entries: &[PathEntry<'_>]) -> Vec<String> {
+        let mut full: Vec<String> = Vec::new();
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.placeholder {
+                full.push(String::new());
+                continue;
+            }
+            let parent = match entry.parent {
+                Some(parent) if parent < index => full[parent].as_str(),
+                _ => "",
+            };
+            full.push(if parent.is_empty() {
+                entry.path.to_string()
+            } else {
+                format!("{parent}/{}", entry.path)
+            });
+        }
+        full
+    }
+
+    /// The below-a-file rule by brute force: the first entry with a
+    /// `/`-ended prefix equal to some regular file's full path, shortest
+    /// prefix first.
+    fn reference_below_file(entries: &[PathEntry<'_>]) -> ParentCheck {
+        let full = reference_full_paths(entries);
+        let files: Vec<&str> = entries
+            .iter()
+            .zip(&full)
+            .filter(|(entry, _)| !entry.placeholder && !entry.directory)
+            .map(|(_, path)| path.as_str())
+            .collect();
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.placeholder {
+                continue;
+            }
+            for (at, ch) in full[index].char_indices() {
+                if ch == '/' && files.contains(&&full[index][..at]) {
+                    return below(index, &full[index][..at]);
+                }
+            }
+        }
+        ParentCheck::Consistent
     }
 
     fn duplicate(index: usize, full_path: &str) -> DuplicateCheck {
@@ -1325,6 +1913,102 @@ mod tests {
                 "{entries:?}"
             );
         }
+    }
+
+    #[test]
+    fn entries_below_regular_files_are_reported() {
+        assert_eq!(first_entry_below_file(&[], KEYS), ParentCheck::Consistent);
+        // Directories may own entries, at any spelling.
+        let entries = [
+            entry(None, "src"),
+            file(Some(0), "main.rs"),
+            file(None, "src/lib.rs"),
+            file(None, "src/cli/mod.rs"),
+            placeholder(Some(0)),
+            file(None, "README.md"),
+        ];
+        assert_eq!(
+            first_entry_below_file(&entries, KEYS),
+            ParentCheck::Consistent
+        );
+        // A file before or after the entry below it.
+        let entries = [file(None, "a"), file(None, "a/b")];
+        assert_eq!(first_entry_below_file(&entries, KEYS), below(1, "a"));
+        let entries = [file(None, "a/b"), file(None, "a")];
+        assert_eq!(first_entry_below_file(&entries, KEYS), below(0, "a"));
+        // Through a directory entry and a multi-component path.
+        let entries = [entry(None, "x"), file(Some(0), "y/z"), file(None, "x/y")];
+        assert_eq!(first_entry_below_file(&entries, KEYS), below(1, "x/y"));
+        // The shortest file prefix is named.
+        let entries = [file(None, "a"), file(None, "a/b"), file(None, "a/b/c")];
+        assert_eq!(first_entry_below_file(&entries, KEYS), below(1, "a"));
+        let entries = [file(None, "a/b/c"), file(None, "a/b"), file(None, "a")];
+        assert_eq!(first_entry_below_file(&entries, KEYS), below(0, "a"));
+        // Only a whole component counts as a parent.
+        let entries = [file(None, "a"), file(None, "ab/c"), file(None, "a.d")];
+        assert_eq!(
+            first_entry_below_file(&entries, KEYS),
+            ParentCheck::Consistent
+        );
+        // Placeholders are not files.
+        let entries = [placeholder(None), file(None, ".../x")];
+        assert_eq!(
+            first_entry_below_file(&entries, KEYS),
+            ParentCheck::Consistent
+        );
+    }
+
+    #[test]
+    fn below_file_search_matches_the_brute_force_reference() {
+        const NAMES: [&str; 6] = ["a", "b", "a/b", "b/a", "a/b/a", "\u{e9}"];
+        let mut state: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut step = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut reported = 0;
+        for round in 0..4000 {
+            let length = (step() % 9) as usize;
+            let mut entries = Vec::with_capacity(length);
+            for index in 0..length {
+                let roll = step();
+                let parent = if index == 0 || roll % 3 == 0 {
+                    None
+                } else {
+                    Some((roll / 3) as usize % (index + 1))
+                };
+                let name = NAMES[(roll / 21) as usize % NAMES.len()];
+                entries.push(match roll % 11 {
+                    0 => placeholder(parent),
+                    1..=5 => file(parent, name),
+                    _ => entry(parent, name),
+                });
+            }
+            let keys = HashKeys {
+                base: step(),
+                scale: step(),
+                shift: if round % 2 == 0 { 0 } else { step() },
+            };
+            let expected = reference_below_file(&entries);
+            if expected != ParentCheck::Consistent {
+                reported += 1;
+            }
+            assert_eq!(
+                first_entry_below_file(&entries, keys),
+                expected,
+                "{entries:?}"
+            );
+            // Hash collisions never change the outcome.
+            let zero = HashKeys {
+                base: 0,
+                scale: 0,
+                shift: 0,
+            };
+            assert_eq!(first_entry_below_file(&entries, zero), expected);
+        }
+        assert!(reported > 500, "the corpus must reach the rejection");
     }
 
     #[test]

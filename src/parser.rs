@@ -84,11 +84,16 @@ fn choice_message(error: ChoiceError) -> String {
 }
 
 /// Map a verified entry-text error on `line` to its diagnostic. The kernel
-/// supplies the exact text each diagnostic renders: the whole entry for a
-/// malformed quoted path, the bare expression for a choice error, the
-/// decoded path for a bare-path rule, or empty text.
+/// supplies the exact text each diagnostic renders: the decoded path for a
+/// bare-path rule, empty text, or a bounded excerpt of raw entry text (a
+/// malformed quoted path through its first offending scalar, never its
+/// comment, or the bare expression of a choice error). A cut excerpt is
+/// marked with `…` after its closing quote, outside the reversible form.
 fn entry_syntax_error(failure: EntryFailure, line: usize) -> SyntaxError {
-    let path = render_utf8_component(&failure.subject);
+    let mut path = render_utf8_component(&failure.subject);
+    if failure.truncated {
+        path.push('…');
+    }
     match failure.kind {
         EntryErrorKind::InvalidPath => SyntaxError::InvalidPathFormat { line, path },
         EntryErrorKind::SpecialDirectory => SyntaxError::InvalidSpecialDirectory { line, path },
@@ -1847,12 +1852,39 @@ More prose mentions </agentic-navigation-guides>."#;
             }
         }
 
-        // A malformed quoted path renders the whole entry text.
+        // A malformed quoted path renders its text through the first
+        // offending scalar: never the comment after it.
         assert_eq!(
-            error(r#""a\q" # c"#),
+            error(r#""a\q" # private note"#),
             SyntaxError::InvalidPathFormat {
                 line: 7,
-                path: render_utf8_component(r#""a\q" # c"#),
+                path: render_utf8_component(r#""a\q"#),
+            }
+        );
+        assert_eq!(
+            error("\"a\"x # private note"),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: render_utf8_component("\"a\"x"),
+            }
+        );
+        // Raw-text excerpts are cut to 256 scalars, marked after the
+        // reversible form.
+        let long = format!("\"{}", "a".repeat(400));
+        assert_eq!(
+            error(&long),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: format!("{}…", render_utf8_component(&long[..256])),
+            }
+        );
+        let choice = format!("x[{}, a, a]", "b".repeat(300));
+        assert_eq!(
+            error(&choice),
+            SyntaxError::InvalidWildcardSyntax {
+                line: 7,
+                path: format!("{}…", render_utf8_component(&choice[..256])),
+                message: "choice expansions must be unique".to_string(),
             }
         );
         // An empty path renders empty text.

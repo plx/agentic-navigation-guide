@@ -548,6 +548,13 @@ pub(super) const CASES: &[ContractCase] = &[
         pending_issue: None,
     },
     ContractCase {
+        id: "path-entry-below-file",
+        source: "<agentic-navigation-guide>\n- docs/\n  - guide.md\n- docs/guide.md/notes.txt\n</agentic-navigation-guide>",
+        normative: ExpectedResult::Reject,
+        current: ExpectedResult::Reject,
+        pending_issue: None,
+    },
+    ContractCase {
         id: "choice-simple",
         source: "<agentic-navigation-guide>\n- FooCoordinator[.h, .cpp] # paired implementation\n</agentic-navigation-guide>",
         normative: ExpectedResult::Accept {

@@ -4,7 +4,7 @@ use crate::errors::{Result, SyntaxError};
 use crate::path_codec::render_utf8_component;
 use crate::proven::path_rules::{self, PathVerdict};
 use crate::proven::tree_rules::{
-    self, DuplicateCheck, HashKeys, PathEntry, PlaceholderVerdict, SiblingShape,
+    self, DuplicateCheck, HashKeys, ParentCheck, PathEntry, PlaceholderVerdict, SiblingShape,
 };
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::hash_map::RandomState;
@@ -40,9 +40,10 @@ impl Validator {
         self.validate_indentation(&guide.items, &mut shapes)?;
 
         // Reject duplicate decoded file/directory identities, including paths
-        // reached through different hierarchy spellings. Placeholders are
-        // structural wildcards rather than filesystem identities.
-        Self::validate_unique_full_paths(&guide.items)?;
+        // reached through different hierarchy spellings, and then any entry
+        // listed below a path the guide lists as a regular file. Placeholders
+        // are structural wildcards rather than filesystem identities.
+        Self::validate_full_paths(&guide.items)?;
 
         Ok(())
     }
@@ -131,15 +132,18 @@ impl Validator {
     }
 
     /// Reject the first entry, in preorder, whose full path repeats an
-    /// earlier file or directory entry's full path.
+    /// earlier file or directory entry's full path; then reject the first
+    /// entry, in preorder, whose full path continues a regular file entry's
+    /// full path with `/`, which no filesystem can satisfy.
     ///
-    /// The decision is the Verus-verified
-    /// [`crate::proven::tree_rules::first_repeated_full_path`] kernel over
+    /// The decisions are the Verus-verified
+    /// [`crate::proven::tree_rules::first_repeated_full_path`] and
+    /// [`crate::proven::tree_rules::first_entry_below_file`] kernels over
     /// the preorder listing that [`Self::list_preorder`] builds; a full path
     /// is the owner's full path, `/`, and the item path, and placeholders
-    /// have none. The kernel's hash keys come from [`RandomState`] and
+    /// have none. The kernels' hash keys come from [`RandomState`] and
     /// affect only running time.
-    fn validate_unique_full_paths(items: &[NavigationGuideLine]) -> Result<()> {
+    fn validate_full_paths(items: &[NavigationGuideLine]) -> Result<()> {
         let mut entries = Vec::new();
         let mut lines = Vec::new();
         Self::list_preorder(items, None, &mut entries, &mut lines);
@@ -150,13 +154,35 @@ impl Validator {
             scale: random.hash_one(1_u8),
             shift: random.hash_one(2_u8),
         };
-        match tree_rules::first_repeated_full_path(&entries, keys) {
-            DuplicateCheck::Unique => Ok(()),
-            DuplicateCheck::Duplicate { index, full_path } => Err(SyntaxError::InvalidPathFormat {
+        if let DuplicateCheck::Duplicate { index, full_path } =
+            tree_rules::first_repeated_full_path(&entries, keys)
+        {
+            return Err(SyntaxError::InvalidPathFormat {
                 line: lines[index],
                 path: render_utf8_component(&full_path),
             }
+            .into());
+        }
+        match tree_rules::first_entry_below_file(&entries, keys) {
+            ParentCheck::Consistent => Ok(()),
+            ParentCheck::BelowFile { index, file_path } => Err(SyntaxError::EntryBelowFile {
+                line: lines[index],
+                path: render_utf8_component(&Self::full_path_text(&entries, index)),
+                file: render_utf8_component(&file_path),
+            }
             .into()),
+        }
+    }
+
+    /// The full path text of listed entry `index` (its owners' paths and its
+    /// own, joined with `/`), for a diagnostic.
+    fn full_path_text(entries: &[PathEntry<'_>], index: usize) -> String {
+        let entry = &entries[index];
+        match entry.parent {
+            Some(parent) if parent < index && !entries[parent].placeholder => {
+                Self::full_path_text(entries, parent) + "/" + entry.path
+            }
+            _ => entry.path.to_string(),
         }
     }
 
@@ -175,6 +201,7 @@ impl Validator {
                 parent,
                 path: item.path(),
                 placeholder: item.is_placeholder(),
+                directory: item.is_directory(),
             });
             lines.push(item.line_number);
             if let Some(children) = item.children() {
@@ -351,7 +378,9 @@ mod tests {
         pub(super) struct Original;
 
         impl Original {
-            /// The original `Validator::validate_syntax`.
+            /// The original `Validator::validate_syntax`, with the
+            /// below-a-regular-file rule added on 2026-11-25 by brute force,
+            /// independently of the verified kernel.
             pub(super) fn check(&self, guide: &NavigationGuide) -> Result<()> {
                 // Check for empty guide
                 if guide.items.is_empty() {
@@ -372,7 +401,52 @@ mod tests {
                 let mut full_paths = HashSet::new();
                 Self::validate_unique_full_paths(&guide.items, "", &mut full_paths)?;
 
+                // Reject the first entry whose full path continues a regular
+                // file's full path with `/`, naming the shortest such file.
+                let mut listed = Vec::new();
+                Self::list_full_paths(&guide.items, "", &mut listed);
+                let files: HashSet<&str> = listed
+                    .iter()
+                    .filter(|(_, _, directory)| !directory)
+                    .map(|(_, path, _)| path.as_str())
+                    .collect();
+                for (line, path, _) in &listed {
+                    for (at, ch) in path.char_indices() {
+                        if ch == '/' && files.contains(&path[..at]) {
+                            return Err(SyntaxError::EntryBelowFile {
+                                line: *line,
+                                path: render_utf8_component(path),
+                                file: render_utf8_component(&path[..at]),
+                            }
+                            .into());
+                        }
+                    }
+                }
+
                 Ok(())
+            }
+
+            /// Every non-placeholder entry in preorder: its line, full path,
+            /// and whether it is a directory.
+            fn list_full_paths(
+                items: &[NavigationGuideLine],
+                parent: &str,
+                listed: &mut Vec<(usize, String, bool)>,
+            ) {
+                for item in items {
+                    if item.is_placeholder() {
+                        continue;
+                    }
+                    let full_path = if parent.is_empty() {
+                        item.path().to_string()
+                    } else {
+                        format!("{parent}/{}", item.path())
+                    };
+                    listed.push((item.line_number, full_path.clone(), item.is_directory()));
+                    if let Some(children) = item.children() {
+                        Self::list_full_paths(children, &full_path, listed);
+                    }
+                }
             }
 
             /// Validate a single navigation guide item
@@ -1150,6 +1224,62 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_rejects_entries_below_a_regular_file() {
+        fn error_of(items: Vec<NavigationGuideLine>) -> SyntaxError {
+            match Validator::new().validate_syntax(&guide_of(items)) {
+                Err(crate::errors::AppError::Syntax(error)) => error,
+                other => panic!("must be rejected: {other:?}"),
+            }
+        }
+        // A file and a path through it, in either order.
+        assert_eq!(
+            error_of(vec![file(1, 0, "a"), file(2, 0, "a/b")]),
+            SyntaxError::EntryBelowFile {
+                line: 2,
+                path: render_utf8_component("a/b"),
+                file: render_utf8_component("a"),
+            }
+        );
+        assert_eq!(
+            error_of(vec![file(1, 0, "a/b"), file(2, 0, "a")]),
+            SyntaxError::EntryBelowFile {
+                line: 1,
+                path: render_utf8_component("a/b"),
+                file: render_utf8_component("a"),
+            }
+        );
+        // Through a directory entry's child and another spelling.
+        assert_eq!(
+            error_of(vec![
+                directory(1, 0, "x", vec![directory(2, 1, "y/z", vec![])]),
+                file(3, 0, "x/y"),
+            ]),
+            SyntaxError::EntryBelowFile {
+                line: 2,
+                path: render_utf8_component("x/y/z"),
+                file: render_utf8_component("x/y"),
+            }
+        );
+        // A duplicate full path is still reported as a duplicate first.
+        assert!(matches!(
+            error_of(vec![
+                file(1, 0, "a"),
+                directory(2, 0, "a", vec![]),
+                file(3, 0, "a/b")
+            ]),
+            SyntaxError::InvalidPathFormat { line: 2, .. }
+        ));
+        // A directory may own entries at any spelling.
+        Validator::new()
+            .validate_syntax(&guide_of(vec![
+                directory(1, 0, "a", vec![file(2, 1, "b")]),
+                file(3, 0, "a/c"),
+                file(4, 0, "ab/c"),
+            ]))
+            .expect("entries below a directory are consistent");
+    }
+
+    #[test]
     fn test_validate_reports_first_repeating_entry_in_preorder() {
         let guide = guide_of(vec![
             directory(
@@ -1296,6 +1426,7 @@ mod tests {
             "Err Syntax InvalidPathFormat",
             "valid names: Err Syntax InvalidPathFormat",
             "valid names: Err Syntax AdjacentPlaceholders",
+            "valid names: Err Syntax EntryBelowFile",
             "valid names: Err Syntax InvalidIndentationLevel",
             "Err Syntax EmptyGuideBlock",
         ] {

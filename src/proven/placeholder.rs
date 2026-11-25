@@ -10,10 +10,10 @@
 //!   that sibling list;
 //! - [`has_meaningful_comment`]: a comment is meaningful when it contains a
 //!   scalar that is not Unicode `White_Space` (so `str::trim` leaves it
-//!   nonempty). This is wider than the parser's comment normalization, which
-//!   trims only SP and HTAB as the contract's `WSP` does: a comment of only
-//!   other white space (for example U+3000) survives parsing but does not
-//!   satisfy a placeholder. That was already the verifier's behavior;
+//!   nonempty), as the contract defines it. The parser's comment
+//!   normalization trims only SP and HTAB, so a comment of only other white
+//!   space (for example U+3000) survives parsing as comment text but is not
+//!   meaningful and does not satisfy a placeholder;
 //! - [`placeholder_satisfied`]: a placeholder is satisfied exactly when the
 //!   directory snapshot has an entry that no sibling mentions, or when the
 //!   placeholder carries a meaningful comment;

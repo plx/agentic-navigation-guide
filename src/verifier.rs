@@ -2,7 +2,8 @@
 
 use crate::entry_type::{classify_metadata, EntryClassification, SupportedEntryKind};
 use crate::errors::{AppError, Result, SemanticError};
-use crate::path_codec::{render_os_component, render_utf8_component};
+use crate::guide_input::render_path;
+use crate::path_codec::{control_safe_text, render_os_component, render_utf8_component};
 use crate::proven::generation::{host_name_verdict, HostNameVerdict};
 use crate::proven::placeholder::{
     first_component, placeholder_satisfied, resolution_step, ResolutionStep,
@@ -184,12 +185,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
                 if !placeholder_satisfied(has_unmentioned_item, item.comment()) {
                     return Err(SemanticError::PlaceholderNoUnmentionedItems {
                         line: item.line_number,
-                        parent: self
-                            .verifier
-                            .root_path
-                            .join(logical_parent)
-                            .to_string_lossy()
-                            .to_string(),
+                        parent: render_path(&self.verifier.root_path.join(logical_parent)),
                     }
                     .into());
                 }
@@ -318,7 +314,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
                         line: item.line_number,
                         expected: "directory".to_string(),
                         found: Self::classification_name(classification),
-                        path: components[..=index].join("/"),
+                        path: control_safe_text(&components[..=index].join("/")),
                     }
                     .into());
                 }
@@ -355,7 +351,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
                 Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
                     return Err(SemanticError::PermissionDenied {
                         line: item.line_number,
-                        path: item.path().to_string(),
+                        path: control_safe_text(item.path()),
                     }
                     .into());
                 }
@@ -366,8 +362,8 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
         Err(SemanticError::ItemNotFound {
             line: item.line_number,
             item_type: self.verifier.get_item_type_string(item),
-            path: item.path().to_string(),
-            full_path: full_path.to_path_buf(),
+            path: control_safe_text(item.path()),
+            full_path: render_path(full_path),
         }
         .into())
     }
@@ -389,7 +385,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
             Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
                 return Err(SemanticError::PermissionDenied {
                     line: item.line_number,
-                    path: item.path().to_string(),
+                    path: control_safe_text(item.path()),
                 }
                 .into());
             }
@@ -413,7 +409,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
     fn path_escape_error(item: &NavigationGuideLine) -> AppError {
         SemanticError::PathEscapesRoot {
             line: item.line_number,
-            path: item.path().to_string(),
+            path: control_safe_text(item.path()),
             // Keep diagnostics structurally useful inside the binary, but
             // never store resolved alias targets in an emitted error.
             root: PathBuf::from("<redacted>"),
@@ -447,7 +443,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
             }
             .to_string(),
             found: Self::classification_name(classification),
-            path: item.path().to_string(),
+            path: control_safe_text(item.path()),
         }
         .into())
     }
@@ -585,7 +581,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
                 Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
                     return Err(SemanticError::PermissionDenied {
                         line,
-                        path: utf8_name.to_string(),
+                        path: control_safe_text(utf8_name),
                     }
                     .into());
                 }
@@ -622,7 +618,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
             Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
                 Err(SemanticError::PermissionDenied {
                     line,
-                    path: logical_path.to_string(),
+                    path: control_safe_text(logical_path),
                 }
                 .into())
             }

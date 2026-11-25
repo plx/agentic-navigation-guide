@@ -17,9 +17,11 @@
 //! - [`render_utf8_component`] and the non-UTF-8 renderers `render_raw_bytes`
 //!   (Unix bytes) and `render_wide_units` (Windows code units) emit the
 //!   reversible double-quoted diagnostic forms. The `theorem_rendered_*`
-//!   theorems prove that each contains no C0 control and no DEL, that it is
-//!   delimited by double quotes, and that a decoder recovers the exact input
-//!   from it, so distinct names never share a diagnostic.
+//!   theorems prove that each contains no Unicode control character (no C0
+//!   control, no DEL, and no C1 control such as U+009B, which terminals can
+//!   treat as a control-sequence introducer), that it is delimited by double
+//!   quotes, and that a decoder recovers the exact input from it, so distinct
+//!   names never share a diagnostic.
 //!
 //! [`render_os_component`] inspects host `OsStr` representations, which
 //! Verus does not model; it only selects which verified renderer runs.
@@ -55,6 +57,20 @@ pub(crate) open spec fn is_forbidden_control(c: char) -> bool {
 /// Some scalar of `s` is a forbidden control.
 pub(crate) open spec fn has_forbidden_control(s: Seq<char>) -> bool {
     exists|i: int| 0 <= i < s.len() && #[trigger] is_forbidden_control(s[i])
+}
+
+/// The Unicode control characters (general category `Cc`): the C0 controls
+/// U+0000 through U+001F, DEL, and the C1 controls U+0080 through U+009F.
+/// A terminal may act on any of them (U+009B, for example, introduces a
+/// control sequence), so a diagnostic never emits one raw. Names may still
+/// contain C1 controls; only `is_forbidden_control` is rejected in a path.
+pub(crate) open spec fn is_control(c: char) -> bool {
+    c <= '\u{1f}' || ('\u{7f}' <= c && c <= '\u{9f}')
+}
+
+/// Some scalar of `s` is a Unicode control character.
+pub(crate) open spec fn has_control(s: Seq<char>) -> bool {
+    exists|i: int| 0 <= i < s.len() && #[trigger] is_control(s[i])
 }
 
 /// ASCII `[A-Za-z]`.
@@ -240,8 +256,8 @@ pub(crate) open spec fn byte_escape(byte: u8) -> Seq<char> {
 }
 
 /// The diagnostic rendering of one valid UTF-8 scalar: `\"`, `\\`, `\0`,
-/// `\t`, `\n`, and `\r`; uppercase `\u{XXXX}` for every other C0 control and
-/// DEL; and the scalar itself otherwise.
+/// `\t`, `\n`, and `\r`; uppercase `\u{XXXX}` for every other C0 control,
+/// DEL, and every C1 control; and the scalar itself otherwise.
 pub(crate) open spec fn render_char(c: char) -> Seq<char> {
     if c == '"' {
         seq!['\\', '"']
@@ -255,7 +271,7 @@ pub(crate) open spec fn render_char(c: char) -> Seq<char> {
         seq!['\\', 'n']
     } else if c == '\r' {
         seq!['\\', 'r']
-    } else if is_forbidden_control(c) {
+    } else if is_control(c) {
         unicode_escape(c as u16)
     } else {
         seq![c]
@@ -337,7 +353,7 @@ pub(crate) open spec fn decode_byte_escape(t: Seq<char>) -> Option<u8> {
 
 /// Decodes the text after the opening quote of a rendered UTF-8 name through
 /// its closing quote, returning the scalars and the text that follows.
-/// Raw forbidden controls are never accepted.
+/// Raw control characters are never accepted.
 pub(crate) open spec fn decode_rendered_chars(t: Seq<char>) -> Option<(Seq<char>, Seq<char>)>
     decreases t.len(),
 {
@@ -352,7 +368,7 @@ pub(crate) open spec fn decode_rendered_chars(t: Seq<char>) -> Option<(Seq<char>
                 None => None,
             }
         } else if t.len() >= 8 && decode_unicode_escape(t) is Some
-            && decode_unicode_escape(t)->0 <= 0x7Fu16
+            && decode_unicode_escape(t)->0 <= 0x9Fu16
         {
             match decode_rendered_chars(t.subrange(8, t.len() as int)) {
                 Some(r) => Some((seq![(decode_unicode_escape(t)->0 as u32) as char] + r.0, r.1)),
@@ -361,7 +377,7 @@ pub(crate) open spec fn decode_rendered_chars(t: Seq<char>) -> Option<(Seq<char>
         } else {
             None
         }
-    } else if is_forbidden_control(t[0]) {
+    } else if is_control(t[0]) {
         None
     } else {
         match decode_rendered_chars(t.drop_first()) {
@@ -494,6 +510,71 @@ pub(crate) fn contains_forbidden_control(value: &str) -> bool {
             }
             None => return false,
         }
+    }
+}
+
+/// Return whether `ch` is a Unicode control character: a C0 control, DEL,
+/// or a C1 control.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r == is_control(ch),
+))]
+pub(crate) fn is_control_char(ch: char) -> bool {
+    ch <= '\u{1f}' || ('\u{7f}'..='\u{9f}').contains(&ch)
+}
+
+/// Return whether any scalar of `value` is a Unicode control character.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r == has_control(value@),
+))]
+pub(crate) fn contains_control(value: &str) -> bool {
+    let mut chars = value.chars();
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost mut index: int = 0int;
+    }
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            0 <= index <= value@.len(),
+            chars.remaining() == value@.skip(index),
+            forall|k: int| 0 <= k < index ==> !is_control(#[trigger] value@[k]),
+        decreases value@.len() - index
+    ))]
+    loop {
+        match chars.next() {
+            Some(ch) => {
+                if is_control_char(ch) {
+                    return true;
+                }
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    index = index + 1;
+                }
+            }
+            None => return false,
+        }
+    }
+}
+
+/// Return guide text for a diagnostic that names it: the text itself when
+/// it contains no control character, and otherwise its reversible rendered
+/// form. Either way the result contains no control character.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        !has_control(r@),
+        !has_control(value@) ==> r@ == value@,
+        has_control(value@) ==> r@ == rendered_component(value@),
+))]
+pub(crate) fn control_safe_text(value: &str) -> String {
+    if contains_control(value) {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            theorem_rendered_has_no_control(value@);
+        }
+        render_utf8_component(value)
+    } else {
+        value.to_owned()
     }
 }
 
@@ -731,7 +812,7 @@ fn push_rendered_char(out: &mut String, ch: char) {
             out.push('\\');
             out.push('r');
         }
-        '\u{1}'..='\u{1f}' | '\u{7f}' => push_unicode_escape(out, ch as u16),
+        '\u{1}'..='\u{1f}' | '\u{7f}'..='\u{9f}' => push_unicode_escape(out, ch as u16),
         _ => out.push(ch),
     }
     #[cfg(verus_keep_ghost)]
@@ -1009,6 +1090,7 @@ proof fn lemma_hex_digit_value(n: u32)
     ensures
         hex_value(hex_digit(n)) == Some(n),
         !is_forbidden_control(hex_digit(n)),
+        !is_control(hex_digit(n)),
 {
 }
 
@@ -1018,6 +1100,7 @@ proof fn lemma_nibble_digit(x: u32)
         x & 0xFu32 < 16,
         hex_value(hex_digit(x & 0xFu32)) == Some(x & 0xFu32),
         !is_forbidden_control(hex_digit(x & 0xFu32)),
+        !is_control(hex_digit(x & 0xFu32)),
 {
     lemma_nibble(x);
     lemma_hex_digit_value(x & 0xFu32);
@@ -1061,13 +1144,12 @@ proof fn lemma_byte_escape_decodes(byte: u8, rest: Seq<char>)
     assert(t.subrange(4, t.len() as int) =~= rest);
 }
 
-/// No scalar of a rendered UTF-8 scalar is a forbidden control.
+/// No scalar of a rendered UTF-8 scalar is a control character.
 proof fn lemma_render_char_is_safe(c: char)
     ensures
-        forall|j: int|
-            0 <= j < render_char(c).len() ==> !is_forbidden_control(#[trigger] render_char(c)[j]),
+        forall|j: int| 0 <= j < render_char(c).len() ==> !is_control(#[trigger] render_char(c)[j]),
 {
-    if is_forbidden_control(c) && c != '\0' && c != '\t' && c != '\n' && c != '\r' {
+    if is_control(c) && c != '\0' && c != '\t' && c != '\n' && c != '\r' {
         let v = (c as u16) as u32;
         lemma_nibble_digit(v >> 12u32);
         lemma_nibble_digit(v >> 8u32);
@@ -1079,9 +1161,7 @@ proof fn lemma_render_char_is_safe(c: char)
 proof fn lemma_unicode_escape_is_safe(code: u16)
     ensures
         forall|j: int|
-            0 <= j < unicode_escape(code).len() ==> !is_forbidden_control(
-                #[trigger] unicode_escape(code)[j],
-            ),
+            0 <= j < unicode_escape(code).len() ==> !is_control(#[trigger] unicode_escape(code)[j]),
 {
     let v = code as u32;
     lemma_nibble_digit(v >> 12u32);
@@ -1092,10 +1172,7 @@ proof fn lemma_unicode_escape_is_safe(code: u16)
 
 proof fn lemma_byte_escape_is_safe(byte: u8)
     ensures
-        forall|j: int|
-            0 <= j < byte_escape(byte).len() ==> !is_forbidden_control(
-                #[trigger] byte_escape(byte)[j],
-            ),
+        forall|j: int| 0 <= j < byte_escape(byte).len() ==> !is_control(#[trigger] byte_escape(byte)[j]),
 {
     let v = byte as u32;
     lemma_nibble_digit(v >> 4u32);
@@ -1123,6 +1200,42 @@ proof fn lemma_delimited_flat_map_is_safe<A>(s: Seq<A>, f: spec_fn(A) -> Seq<cha
                     == s.flat_map(f)[k - 1];
             assert(!is_forbidden_control(f(s[i])[j]));
         }
+    }
+}
+
+/// A delimited `flat_map` whose every image is free of control characters is
+/// free of control characters.
+proof fn lemma_delimited_flat_map_has_no_control<A>(s: Seq<A>, f: spec_fn(A) -> Seq<char>)
+    requires
+        forall|i: int, j: int|
+            0 <= i < s.len() && 0 <= j < f(s[i]).len() ==> !is_control(#[trigger] f(s[i])[j]),
+    ensures
+        !has_control(seq!['"'] + s.flat_map(f) + seq!['"']),
+{
+    let t = seq!['"'] + s.flat_map(f) + seq!['"'];
+    if has_control(t) {
+        let k = choose|k: int| 0 <= k < t.len() && #[trigger] is_control(t[k]);
+        if 1 <= k < t.len() - 1 {
+            assert(t[k] == s.flat_map(f)[k - 1]);
+            lemma_flat_map_index(s, f, k - 1);
+            let (i, j) = choose|i: int, j: int|
+                0 <= i < s.len() && 0 <= j < f(s[i]).len() && #[trigger] f(s[i])[j]
+                    == s.flat_map(f)[k - 1];
+            assert(!is_control(f(s[i])[j]));
+        }
+    }
+}
+
+/// Text free of control characters is free of forbidden controls.
+pub(crate) proof fn lemma_no_control_has_no_forbidden_control(s: Seq<char>)
+    requires
+        !has_control(s),
+    ensures
+        !has_forbidden_control(s),
+{
+    if has_forbidden_control(s) {
+        let k = choose|k: int| 0 <= k < s.len() && #[trigger] is_forbidden_control(s[k]);
+        assert(is_control(s[k]));
     }
 }
 
@@ -1176,7 +1289,7 @@ proof fn lemma_render_char_decodes(c: char, after: Seq<char>)
     let t = render_char(c) + after;
     if c == '"' || c == '\\' || c == '\0' || c == '\t' || c == '\n' || c == '\r' {
         assert(t.subrange(2, t.len() as int) =~= after);
-    } else if is_forbidden_control(c) {
+    } else if is_control(c) {
         lemma_unicode_escape_decodes(c as u16, after);
         assert(((c as u16) as u32) == c as u32);
         assert((((c as u16) as u32) as char) == c);
@@ -1350,18 +1463,21 @@ pub(crate) proof fn theorem_serialized_form_shape(s: Seq<char>)
     }
 }
 
-/// The rendered form of a valid UTF-8 name contains no C0 control and no DEL.
+/// The rendered form of a valid UTF-8 name contains no control character:
+/// no C0 control, no DEL, and no C1 control.
 pub(crate) proof fn theorem_rendered_has_no_control(s: Seq<char>)
     ensures
+        !has_control(rendered_component(s)),
         !has_forbidden_control(rendered_component(s)),
 {
     assert forall|i: int, j: int|
-        0 <= i < s.len() && 0 <= j < render_char_fn()(s[i]).len() implies !is_forbidden_control(
+        0 <= i < s.len() && 0 <= j < render_char_fn()(s[i]).len() implies !is_control(
         #[trigger] render_char_fn()(s[i])[j],
     ) by {
         lemma_render_char_is_safe(s[i]);
     }
-    lemma_delimited_flat_map_is_safe(s, render_char_fn());
+    lemma_delimited_flat_map_has_no_control(s, render_char_fn());
+    lemma_no_control_has_no_forbidden_control(rendered_component(s));
 }
 
 /// Every rendered form is delimited by double quotes.
@@ -1395,17 +1511,19 @@ pub(crate) proof fn theorem_rendered_injective(a: Seq<char>, b: Seq<char>)
     theorem_rendered_decodes(b, Seq::empty());
 }
 
-/// The rendered form of raw Unix bytes contains no C0 control and no DEL.
+/// The rendered form of raw Unix bytes contains no control character.
 pub(crate) proof fn theorem_rendered_bytes_have_no_control(bytes: Seq<u8>)
     ensures
+        !has_control(rendered_bytes(bytes)),
         !has_forbidden_control(rendered_bytes(bytes)),
 {
     assert forall|i: int, j: int|
         0 <= i < bytes.len() && 0 <= j < byte_escape_fn()(bytes[i]).len()
-        implies !is_forbidden_control(#[trigger] byte_escape_fn()(bytes[i])[j]) by {
+        implies !is_control(#[trigger] byte_escape_fn()(bytes[i])[j]) by {
         lemma_byte_escape_is_safe(bytes[i]);
     }
-    lemma_delimited_flat_map_is_safe(bytes, byte_escape_fn());
+    lemma_delimited_flat_map_has_no_control(bytes, byte_escape_fn());
+    lemma_no_control_has_no_forbidden_control(rendered_bytes(bytes));
 }
 
 /// The rendered form of raw Unix bytes decodes to exactly those bytes.
@@ -1429,17 +1547,19 @@ pub(crate) proof fn theorem_rendered_bytes_injective(a: Seq<u8>, b: Seq<u8>)
     theorem_rendered_bytes_decode(b, Seq::empty());
 }
 
-/// The rendered form of Windows code units contains no C0 control and no DEL.
+/// The rendered form of Windows code units contains no control character.
 pub(crate) proof fn theorem_rendered_units_have_no_control(units: Seq<u16>)
     ensures
+        !has_control(rendered_units(units)),
         !has_forbidden_control(rendered_units(units)),
 {
     assert forall|i: int, j: int|
         0 <= i < units.len() && 0 <= j < unit_escape_fn()(units[i]).len()
-        implies !is_forbidden_control(#[trigger] unit_escape_fn()(units[i])[j]) by {
+        implies !is_control(#[trigger] unit_escape_fn()(units[i])[j]) by {
         lemma_unicode_escape_is_safe(units[i]);
     }
-    lemma_delimited_flat_map_is_safe(units, unit_escape_fn());
+    lemma_delimited_flat_map_has_no_control(units, unit_escape_fn());
+    lemma_no_control_has_no_forbidden_control(rendered_units(units));
 }
 
 /// The rendered form of Windows code units decodes to exactly those units.
@@ -1483,7 +1603,7 @@ mod tests {
                 '\t' => rendered.push_str("\\t"),
                 '\n' => rendered.push_str("\\n"),
                 '\r' => rendered.push_str("\\r"),
-                '\u{1}'..='\u{1f}' | '\u{7f}' => {
+                '\u{1}'..='\u{1f}' | '\u{7f}'..='\u{9f}' => {
                     write!(rendered, "\\u{{{:04X}}}", ch as u32).unwrap();
                 }
                 _ => rendered.push(ch),
@@ -1644,10 +1764,35 @@ mod tests {
         assert_eq!(render_utf8_component("\u{1}"), "\"\\u{0001}\"");
         assert_eq!(render_utf8_component("\u{7f}"), "\"\\u{007F}\"");
         assert_eq!(render_utf8_component("\u{1b}"), "\"\\u{001B}\"");
+        // C1 controls, such as the 8-bit control-sequence introducer U+009B,
+        // are escaped like C0 controls; the scalars around them are not.
+        assert_eq!(render_utf8_component("\u{80}"), "\"\\u{0080}\"");
+        assert_eq!(render_utf8_component("\u{9b}"), "\"\\u{009B}\"");
+        assert_eq!(render_utf8_component("\u{9f}"), "\"\\u{009F}\"");
+        assert_eq!(render_utf8_component("\u{a0}é"), "\"\u{a0}é\"");
+        assert!(render_utf8_component("a\u{9b}31mb")
+            .chars()
+            .all(|ch| !ch.is_control()));
         assert_eq!(
             render_utf8_component("\"\\\0\t\n\r"),
             "\"\\\"\\\\\\0\\t\\n\\r\""
         );
+    }
+
+    #[test]
+    fn control_safe_text_renders_only_text_that_needs_it() {
+        for code in 0u32..=0x10FFFF {
+            if let Some(ch) = char::from_u32(code) {
+                assert_eq!(is_control_char(ch), ch.is_control(), "U+{code:04X}");
+            }
+        }
+        assert!(!contains_control("plain é 😀 \u{a0}"));
+        assert!(contains_control("a\u{9b}b"));
+        assert!(contains_control("a\u{7f}"));
+        assert_eq!(control_safe_text("src/main.rs"), "src/main.rs");
+        assert_eq!(control_safe_text("a \"b\" \\c"), "a \"b\" \\c");
+        assert_eq!(control_safe_text("a\u{9b}b"), "\"a\\u{009B}b\"");
+        assert_eq!(control_safe_text("x\ty"), "\"x\\ty\"");
     }
 
     #[test]

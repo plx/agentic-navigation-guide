@@ -29,6 +29,7 @@ A navigation guide is a markdown block with one list item per file, directory, o
 - Use `\#` to include a literal hash in a path.
 - Blank lines are not allowed inside a guide block.
 - Paths must be relative and cannot contain `.`, `..`, or empty path components.
+- Each path may appear only once, and nothing may be listed below a path that the guide lists as a file.
 
 ## Ignored bodies
 
@@ -61,7 +62,7 @@ Use `...` to indicate omitted entries.
   - ... # Other source files
 ```
 
-A commented placeholder can also reserve room for future files. An uncommented placeholder must correspond to at least one currently unlisted item.
+A commented placeholder can also reserve room for future files. An uncommented placeholder must correspond to at least one currently unlisted item. A comment that contains only whitespace counts as no comment.
 
 ## Choice lists
 

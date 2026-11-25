@@ -14,9 +14,14 @@
 //! - an entry that starts with `"` is a whole quoted path, decoded with the
 //!   contract decoder `crate::path_codec::decode_quoted_chars`, followed by
 //!   an optional directory `/`, spaces, and nothing or a comment;
-//! - any other entry is split at its first unescaped `#`, loses its trailing
-//!   unquoted spaces, and is then the placeholder when it is exactly `...`,
-//!   or a bare path expression (`crate::proven::choice`).
+//! - any other entry is split at its first unescaped `#`, loses its
+//!   `line-padding` (its trailing unescaped spaces; an escaped `\ ` stays),
+//!   and is then the placeholder when it is exactly `...`, or a bare path
+//!   expression (`crate::proven::choice`).
+//!
+//! A rejection renders a decoded path exactly, or an excerpt of the raw
+//! entry text of at most 256 scalars: a malformed quoted path through its
+//! first offending scalar (never a comment), or a choice expression.
 //!
 //! The theorems at the end of this file state what an accepted entry means:
 //!
@@ -42,6 +47,17 @@
 //!   `]`, or double quote) to the bare single-path rules;
 //! - `theorem_comment_is_normalized`: a returned comment is nonempty and has
 //!   no leading or trailing space or tab;
+//! - `theorem_padding_is_trailing_spaces` and
+//!   `theorem_escaped_space_is_not_padding`: line padding removes only a
+//!   trailing run of spaces, and never an escaped space, so `foo\ ` is the
+//!   edge-space path `foo `;
+//! - `theorem_failure_excerpts_are_bounded`: a quoted entry's diagnostic text
+//!   is a prefix of the entry of at most 256 scalars, and a choice error's is
+//!   a prefix of the text before the comment of at most 256 scalars;
+//!   `theorem_quoted_escape_excerpt_ignores_later_text` and
+//!   `theorem_quoted_tail_excerpt_ignores_later_text`: for an invalid escape
+//!   or an invalid scalar after the closing quote, the diagnostic is the same
+//!   whatever text, a comment included, follows the offending scalar;
 //! - `theorem_quoted_paths_defer_containment`: the parser accepts every
 //!   nonempty quoted name without CR or LF, including absolute, parent,
 //!   repeated-separator, drive, and control-bearing names, so containment of
@@ -94,14 +110,22 @@ pub(crate) enum EntryErrorKind {
     Choice(ChoiceError),
 }
 
+/// The most scalars of raw guide text that one diagnostic excerpt shows.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+pub(crate) const MAX_EXCERPT_SCALARS: usize = 256;
+
 /// A rejected entry: the diagnostic and the text it renders.
 #[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct EntryFailure {
     pub(crate) kind: EntryErrorKind,
-    /// The whole entry text, the bare expression, a decoded path, or empty
-    /// text, as the diagnostic requires.
+    /// A decoded path or empty text, rendered exactly; or an excerpt of raw
+    /// entry text (a malformed quoted path through its first offending
+    /// scalar, or a choice expression), cut to at most
+    /// [`MAX_EXCERPT_SCALARS`] scalars.
     pub(crate) subject: String,
+    /// Whether the excerpt was cut, so the diagnostic marks the elision.
+    pub(crate) truncated: bool,
 }
 
 /// What an accepted entry denotes.
@@ -148,6 +172,7 @@ pub(crate) struct EntryView {
 pub(crate) struct FailureView {
     pub(crate) kind: EntryErrorKind,
     pub(crate) subject: Seq<char>,
+    pub(crate) truncated: bool,
 }
 
 pub(crate) open spec fn shape_view(s: EntryShape) -> ShapeView {
@@ -159,7 +184,7 @@ pub(crate) open spec fn shape_view(s: EntryShape) -> ShapeView {
 }
 
 pub(crate) open spec fn failure_view(f: EntryFailure) -> FailureView {
-    FailureView { kind: f.kind, subject: f.subject@ }
+    FailureView { kind: f.kind, subject: f.subject@, truncated: f.truncated }
 }
 
 pub(crate) open spec fn entry_view(e: ParsedEntry) -> EntryView {
@@ -186,8 +211,21 @@ pub(crate) open spec fn shape_result_view(r: Result<EntryShape, EntryFailure>) -
     }
 }
 
+/// A failure that renders `subject` exactly: a decoded path or empty text.
 pub(crate) open spec fn failure(kind: EntryErrorKind, subject: Seq<char>) -> FailureView {
-    FailureView { kind, subject }
+    FailureView { kind, subject, truncated: false }
+}
+
+/// A failure that renders an excerpt of raw entry text: `text` itself when
+/// it has at most 256 scalars, and otherwise its first 256 scalars, marked
+/// as cut ("Diagnostic confidentiality": a bounded representation of the
+/// specific token).
+pub(crate) open spec fn excerpt(kind: EntryErrorKind, text: Seq<char>) -> FailureView {
+    if text.len() <= 256 {
+        FailureView { kind, subject: text, truncated: false }
+    } else {
+        FailureView { kind, subject: text.take(256), truncated: true }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -243,21 +281,29 @@ pub(crate) open spec fn trim_start_spaces(s: Seq<char>) -> Seq<char>
     }
 }
 
-/// `s` without its trailing U+0020 spaces, including escaped ones.
-///
-/// This is the production behavior, and it differs from the contract's
-/// `line-padding`, which removes only unescaped spaces after escape
-/// tokenization: `foo\ ` loses its escaped space here and is then rejected
-/// as an incomplete escape instead of as an invalid edge-space path. Both
-/// reject the line; only the diagnostic differs.
-pub(crate) open spec fn trim_end_spaces(s: Seq<char>) -> Seq<char>
-    decreases s.len(),
+/// Where the contract's `line-padding` of `t` begins: the start of the
+/// maximal run of unescaped U+0020 spaces that ends `t`, after escape
+/// tokenization. Scanning resumes at the token start `i`, where `run` is the
+/// start of the run of unescaped spaces that ends at `i`. A backslash and
+/// the scalar after it form one token, so an escaped space (`\ `) is never
+/// padding and ends any run before it.
+pub(crate) open spec fn padding_start(t: Seq<char>, i: int, run: int) -> int
+    decreases t.len() - i,
 {
-    if s.len() > 0 && s.last() == ' ' {
-        trim_end_spaces(s.drop_last())
+    if i >= t.len() {
+        run
+    } else if t[i] == ' ' {
+        padding_start(t, i + 1, run)
+    } else if t[i] == '\\' && i + 1 < t.len() {
+        padding_start(t, i + 2, i + 2)
     } else {
-        s
+        padding_start(t, i + 1, i + 1)
     }
+}
+
+/// `t` without its `line-padding`: its trailing unescaped U+0020 spaces.
+pub(crate) open spec fn trim_padding(t: Seq<char>) -> Seq<char> {
+    t.take(padding_start(t, 0, 0))
 }
 
 /// The index of the first unescaped `#` at or after the token start `i`
@@ -284,17 +330,24 @@ pub(crate) open spec fn comment_start(s: Seq<char>, i: int) -> int
 // Quoted paths
 // ---------------------------------------------------------------------------
 
+/// What follows a quoted path's closing quote, its optional directory `/`,
+/// and its spaces: empty, a comment that starts with `#`, or text whose
+/// first scalar makes the entry invalid.
+pub(crate) open spec fn tail_remainder(rest: Seq<char>) -> Seq<char> {
+    let after = if rest.len() > 0 && rest[0] == '/' {
+        rest.drop_first()
+    } else {
+        rest
+    };
+    trim_start_spaces(after)
+}
+
 /// The text after a quoted path's closing quote: an optional directory `/`,
 /// then spaces, then nothing or a comment. Returns the directory flag and
 /// the normalized comment.
 pub(crate) open spec fn quoted_tail(rest: Seq<char>) -> Option<(bool, Option<Seq<char>>)> {
     let directory = rest.len() > 0 && rest[0] == '/';
-    let after = if directory {
-        rest.drop_first()
-    } else {
-        rest
-    };
-    let r = trim_start_spaces(after);
+    let r = tail_remainder(rest);
     if r.len() == 0 {
         Some((directory, None))
     } else if r[0] == '#' {
@@ -304,16 +357,58 @@ pub(crate) open spec fn quoted_tail(rest: Seq<char>) -> Option<(bool, Option<Seq
     }
 }
 
-/// A whole quoted path entry. Malformed quoting or tails render the whole
-/// entry; an empty decoded path renders empty text.
+/// How many scalars of `t`, the text after an opening quote, the quoted-path
+/// decoder reads: through the closing quote; through the first offending
+/// scalar (an escape other than `\"` or `\\` with the scalar after its
+/// backslash, a dangling backslash, a CR, or an LF); or all of `t` when the
+/// closing quote is missing.
+pub(crate) open spec fn quoted_read_len(t: Seq<char>) -> int
+    decreases t.len(),
+{
+    if t.len() == 0 {
+        0
+    } else if t[0] == '"' {
+        1
+    } else if t[0] == '\\' {
+        if t.len() >= 2 && (t[1] == '"' || t[1] == '\\') {
+            2 + quoted_read_len(t.subrange(2, t.len() as int))
+        } else if t.len() >= 2 {
+            2
+        } else {
+            1
+        }
+    } else if t[0] == '\r' || t[0] == '\n' {
+        1
+    } else {
+        1 + quoted_read_len(t.drop_first())
+    }
+}
+
+/// A whole quoted path entry. A malformed one renders an excerpt of the
+/// entry from its opening quote through its first offending scalar: the
+/// invalid escape, CR, or LF; the end of the entry when the closing quote is
+/// missing; or the first scalar after the closing quote, directory marker,
+/// and spaces that does not begin a comment. Nothing after that scalar is
+/// rendered, so a comment never is. An empty decoded path renders empty
+/// text.
 pub(crate) open spec fn quoted_entry_spec(content: Seq<char>) -> Result<EntryView, FailureView> {
     match decode_quoted_chars(content.drop_first()) {
-        None => Err(failure(EntryErrorKind::InvalidPath, content)),
+        None => Err(
+            excerpt(
+                EntryErrorKind::InvalidPath,
+                content.take(1 + quoted_read_len(content.drop_first())),
+            ),
+        ),
         Some((decoded, rest)) => if decoded.len() == 0 {
             Err(failure(EntryErrorKind::InvalidPath, Seq::empty()))
         } else {
             match quoted_tail(rest) {
-                None => Err(failure(EntryErrorKind::InvalidPath, content)),
+                None => Err(
+                    excerpt(
+                        EntryErrorKind::InvalidPath,
+                        content.take(content.len() - tail_remainder(rest).len() + 1),
+                    ),
+                ),
                 Some((directory, comment)) => Ok(
                     EntryView { shape: ShapeView::Single { path: decoded, directory }, comment },
                 ),
@@ -362,13 +457,14 @@ pub(crate) open spec fn single_path_spec(p: Seq<char>, at_root: bool) -> Result<
 }
 
 /// A nonempty bare expression: the scan, then either the decoded single
-/// path or the choice list. Choice-list errors render the expression.
+/// path or the choice list. Choice-list errors render an excerpt of the
+/// expression.
 pub(crate) open spec fn expression_spec(expr: Seq<char>, at_root: bool) -> Result<
     ShapeView,
     FailureView,
 > {
     match scan_expression_spec(expr) {
-        Err(e) => Err(failure(EntryErrorKind::Choice(e), expr)),
+        Err(e) => Err(excerpt(EntryErrorKind::Choice(e), expr)),
         Ok(ScanView::Plain) => single_path_spec(decode_escapes(expr), at_root),
         Ok(ScanView::Choice { open, close }) => match choice_list_spec(
             expr.take(open),
@@ -376,16 +472,16 @@ pub(crate) open spec fn expression_spec(expr: Seq<char>, at_root: bool) -> Resul
             expr.skip(close + 1),
             at_root,
         ) {
-            Err(e) => Err(failure(EntryErrorKind::Choice(e), expr)),
+            Err(e) => Err(excerpt(EntryErrorKind::Choice(e), expr)),
             Ok(paths) => Ok(ShapeView::Choice { paths }),
         },
     }
 }
 
 /// The bare expression of an unquoted entry: the text before the first
-/// unescaped `#` without its trailing spaces.
+/// unescaped `#` without its `line-padding` (trailing unescaped spaces).
 pub(crate) open spec fn bare_expression(content: Seq<char>) -> Seq<char> {
-    trim_end_spaces(content.take(comment_start(content, 0)))
+    trim_padding(content.take(comment_start(content, 0)))
 }
 
 /// The normalized comment of an unquoted entry.
@@ -620,6 +716,74 @@ fn find_comment_start(s: &[char]) -> usize {
     n
 }
 
+/// The failure that renders an excerpt of the raw text `s[..end]`.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        end <= s@.len(),
+    ensures
+        failure_view(r) == excerpt(kind, s@.take(end as int)),
+))]
+fn excerpt_failure(kind: EntryErrorKind, s: &[char], end: usize) -> EntryFailure {
+    if end <= MAX_EXCERPT_SCALARS {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(s@.subrange(0, end as int) =~= s@.take(end as int));
+        }
+        EntryFailure {
+            kind,
+            subject: string_from_chars(&s[0..end]),
+            truncated: false,
+        }
+    } else {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(s@.subrange(0, 256) =~= s@.take(end as int).take(256));
+        }
+        EntryFailure {
+            kind,
+            subject: string_from_chars(&s[0..MAX_EXCERPT_SCALARS]),
+            truncated: true,
+        }
+    }
+}
+
+/// Return where the `line-padding` of `s[..end]` begins: the start of its
+/// trailing run of unescaped spaces.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        end <= s@.len(),
+    ensures
+        r == padding_start(s@.take(end as int), 0, 0),
+        r <= end,
+))]
+fn find_padding_start(s: &[char], end: usize) -> usize {
+    let mut i: usize = 0;
+    let mut run: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            run <= i <= end,
+            end <= s@.len(),
+            padding_start(s@.take(end as int), 0, 0) == padding_start(
+                s@.take(end as int),
+                i as int,
+                run as int,
+            ),
+        decreases end - i
+    ))]
+    while i < end {
+        if s[i] == ' ' {
+            i += 1;
+        } else if s[i] == '\\' && i + 1 < end {
+            i += 2;
+            run = i;
+        } else {
+            i += 1;
+            run = i;
+        }
+    }
+    run
+}
+
 /// Parse a quoted entry; `s` starts with `"`.
 #[cfg_attr(verus_keep_ghost, verus_spec(r =>
     requires
@@ -650,6 +814,7 @@ fn parse_quoted_entry(s: &[char]) -> Result<ParsedEntry, EntryFailure> {
                 decoded@,
                 decode_quoted_chars(s@.skip(i as int)),
             ),
+            quoted_read_len(s@.drop_first()) == (i - 1) + quoted_read_len(s@.skip(i as int)),
         decreases n - i
     ))]
     while i < n && s[i] != '"' {
@@ -666,10 +831,9 @@ fn parse_quoted_entry(s: &[char]) -> Result<ParsedEntry, EntryFailure> {
         }
         if c == '\\' {
             if i + 1 >= n || !(s[i + 1] == '"' || s[i + 1] == '\\') {
-                return Err(EntryFailure {
-                    kind: EntryErrorKind::InvalidPath,
-                    subject: string_from_chars(s),
-                });
+                // The excerpt ends with the offending escape.
+                let end = if i + 1 >= n { n } else { i + 2 };
+                return Err(excerpt_failure(EntryErrorKind::InvalidPath, s, end));
             }
             let escaped = s[i + 1];
             #[cfg(verus_keep_ghost)]
@@ -684,10 +848,7 @@ fn parse_quoted_entry(s: &[char]) -> Result<ParsedEntry, EntryFailure> {
             decoded.push(escaped);
             i += 2;
         } else if c == '\r' || c == '\n' {
-            return Err(EntryFailure {
-                kind: EntryErrorKind::InvalidPath,
-                subject: string_from_chars(s),
-            });
+            return Err(excerpt_failure(EntryErrorKind::InvalidPath, s, i + 1));
         } else {
             #[cfg(verus_keep_ghost)]
             proof! {
@@ -703,14 +864,12 @@ fn parse_quoted_entry(s: &[char]) -> Result<ParsedEntry, EntryFailure> {
         }
     }
     if i >= n {
+        // Without a closing quote, the whole entry is the attempted path.
         #[cfg(verus_keep_ghost)]
         proof! {
             assert(s@.skip(i as int).len() == 0);
         }
-        return Err(EntryFailure {
-            kind: EntryErrorKind::InvalidPath,
-            subject: string_from_chars(s),
-        });
+        return Err(excerpt_failure(EntryErrorKind::InvalidPath, s, n));
     }
     #[cfg(verus_keep_ghost)]
     proof! {
@@ -723,6 +882,7 @@ fn parse_quoted_entry(s: &[char]) -> Result<ParsedEntry, EntryFailure> {
         return Err(EntryFailure {
             kind: EntryErrorKind::InvalidPath,
             subject: String::new(),
+            truncated: false,
         });
     }
     let mut j = i + 1;
@@ -766,16 +926,16 @@ fn parse_quoted_entry(s: &[char]) -> Result<ParsedEntry, EntryFailure> {
             assert(r[0] == s@[j as int]);
             assert(r.drop_first() =~= s@.subrange(j + 1, n as int));
         }
+        assert(tail_remainder(s@.skip(i + 1)) == r);
     }
     let comment = if j == n {
         None
     } else if s[j] == '#' {
         normalized_comment(s, j + 1, n)
     } else {
-        return Err(EntryFailure {
-            kind: EntryErrorKind::InvalidPath,
-            subject: string_from_chars(s),
-        });
+        // The excerpt ends with the first scalar that cannot follow the
+        // closing quote; any later text, a comment included, is not shown.
+        return Err(excerpt_failure(EntryErrorKind::InvalidPath, s, j + 1));
     };
     Ok(ParsedEntry {
         shape: EntryShape::Single {
@@ -809,6 +969,7 @@ fn parse_single_path(p: &[char], at_root: bool) -> Result<EntryShape, EntryFailu
         return Err(EntryFailure {
             kind: EntryErrorKind::SpecialDirectory,
             subject: string_from_chars(d),
+            truncated: false,
         });
     }
     if m == 0
@@ -822,6 +983,7 @@ fn parse_single_path(p: &[char], at_root: bool) -> Result<EntryShape, EntryFailu
         return Err(EntryFailure {
             kind: EntryErrorKind::InvalidPath,
             subject: string_from_chars(d),
+            truncated: false,
         });
     }
     Ok(EntryShape::Single {
@@ -836,11 +998,12 @@ fn parse_single_path(p: &[char], at_root: bool) -> Result<EntryShape, EntryFailu
         shape_result_view(r) == expression_spec(expr@, at_root),
 ))]
 fn parse_expression(expr: &[char], at_root: bool) -> Result<EntryShape, EntryFailure> {
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert(expr@.take(expr@.len() as int) =~= expr@);
+    }
     match scan_expression(expr) {
-        Err(e) => Err(EntryFailure {
-            kind: EntryErrorKind::Choice(e),
-            subject: string_from_chars(expr),
-        }),
+        Err(e) => Err(excerpt_failure(EntryErrorKind::Choice(e), expr, expr.len())),
         Ok(ExpressionScan::Plain) => {
             let decoded = decode_escapes_exec(expr);
             parse_single_path(decoded.as_slice(), at_root)
@@ -859,10 +1022,7 @@ fn parse_expression(expr: &[char], at_root: bool) -> Result<EntryShape, EntryFai
                 at_root,
             ) {
                 Ok(paths) => Ok(EntryShape::Choice(paths)),
-                Err(e) => Err(EntryFailure {
-                    kind: EntryErrorKind::Choice(e),
-                    subject: string_from_chars(expr),
-                }),
+                Err(e) => Err(excerpt_failure(EntryErrorKind::Choice(e), expr, n)),
             }
         }
     }
@@ -876,31 +1036,12 @@ fn parse_expression(expr: &[char], at_root: bool) -> Result<EntryShape, EntryFai
 fn parse_bare_entry(s: &[char], at_root: bool) -> Result<ParsedEntry, EntryFailure> {
     let n = s.len();
     let h = find_comment_start(s);
-    let mut e = h;
+    // Only unescaped trailing spaces are line padding; an escaped space stays
+    // in the expression (contract "Active body grammar").
+    let e = find_padding_start(s, h);
     #[cfg(verus_keep_ghost)]
     proof! {
-        assert(s@.take(h as int) == s@.take(e as int));
-    }
-    #[cfg_attr(verus_keep_ghost, verus_spec(
-        invariant
-            e <= h,
-            h <= n,
-            n == s@.len(),
-            trim_end_spaces(s@.take(h as int)) == trim_end_spaces(s@.take(e as int)),
-        decreases e
-    ))]
-    while e > 0 && s[e - 1] == ' ' {
-        #[cfg(verus_keep_ghost)]
-        proof! {
-            assert(s@.take(e as int).drop_last() =~= s@.take(e - 1));
-        }
-        e -= 1;
-    }
-    #[cfg(verus_keep_ghost)]
-    proof! {
-        if e > 0 {
-            assert(s@.take(e as int).last() == s@[e - 1]);
-        }
+        assert(s@.take(h as int).take(e as int) =~= s@.take(e as int));
         assert(bare_expression(s@) == s@.take(e as int));
         assert(s@.subrange(h + 1, n as int) =~= s@.skip(h + 1));
     }
@@ -913,6 +1054,7 @@ fn parse_bare_entry(s: &[char], at_root: bool) -> Result<ParsedEntry, EntryFailu
         return Err(EntryFailure {
             kind: EntryErrorKind::InvalidPath,
             subject: String::new(),
+            truncated: false,
         });
     }
     if e == 3 && s[0] == '.' && s[1] == '.' && s[2] == '.' {
@@ -1337,6 +1479,88 @@ proof fn lemma_quote_escape_plain(s: Seq<char>)
     }
 }
 
+/// `padding_start` stays between `run` and the end of `t`, and everything
+/// from it to the end is a space.
+proof fn lemma_padding_spaces(t: Seq<char>, i: int, run: int)
+    requires
+        0 <= run <= i <= t.len(),
+        forall|k: int| run <= k < i ==> t[k] == ' ',
+    ensures
+        run <= padding_start(t, i, run) <= t.len(),
+        forall|k: int| padding_start(t, i, run) <= k < t.len() ==> t[k] == ' ',
+    decreases t.len() - i,
+{
+    if i < t.len() {
+        if t[i] == ' ' {
+            lemma_padding_spaces(t, i + 1, run);
+        } else if t[i] == '\\' && i + 1 < t.len() {
+            lemma_padding_spaces(t, i + 2, i + 2);
+        } else {
+            lemma_padding_spaces(t, i + 1, i + 1);
+        }
+    }
+}
+
+/// Text that does not end with a space has no padding.
+proof fn lemma_no_padding(t: Seq<char>, i: int, run: int)
+    requires
+        0 <= i < t.len(),
+        t.last() != ' ',
+    ensures
+        padding_start(t, i, run) == t.len(),
+    decreases t.len() - i,
+{
+    if t[i] == ' ' {
+        assert(i + 1 < t.len());
+        lemma_no_padding(t, i + 1, run);
+    } else if t[i] == '\\' && i + 1 < t.len() {
+        if i + 2 < t.len() {
+            lemma_no_padding(t, i + 2, i + 2);
+        } else {
+            assert(padding_start(t, i + 2, i + 2) == i + 2);
+        }
+    } else if i + 1 < t.len() {
+        lemma_no_padding(t, i + 1, i + 1);
+    } else {
+        assert(padding_start(t, i + 1, i + 1) == i + 1);
+    }
+}
+
+/// Scanning backslash-free text up to an escape at `m` resumes after the
+/// escape with a new, empty run.
+proof fn lemma_padding_to_escape(t: Seq<char>, i: int, run: int, m: int)
+    requires
+        0 <= run <= i <= m,
+        m + 1 < t.len(),
+        t[m] == '\\',
+        forall|k: int| i <= k < m ==> t[k] != '\\',
+    ensures
+        padding_start(t, i, run) == padding_start(t, m + 2, m + 2),
+    decreases m - i,
+{
+    if i < m {
+        if t[i] == ' ' {
+            lemma_padding_to_escape(t, i + 1, run, m);
+        } else {
+            lemma_padding_to_escape(t, i + 1, i + 1, m);
+        }
+    }
+}
+
+/// Over a run of spaces that reaches the end, the padding starts at `run`.
+proof fn lemma_padding_over_spaces(t: Seq<char>, i: int, run: int)
+    requires
+        0 <= run <= i <= t.len(),
+        forall|k: int| i <= k < t.len() ==> t[k] == ' ',
+    ensures
+        padding_start(t, i, run) == run,
+    decreases t.len() - i,
+{
+    if i < t.len() {
+        lemma_padding_over_spaces(t, i + 1, run);
+    }
+}
+
 /// No `#`, `\\`, `[`, `]`, or double quote: text in which a bare expression
 /// has no comment, escape, choice list, or quoting.
 pub(crate) open spec fn is_plain_bare_text(s: Seq<char>) -> bool {
@@ -1398,6 +1622,42 @@ proof fn lemma_plain_decode(s: Seq<char>)
 // ---------------------------------------------------------------------------
 // Contract theorems
 // ---------------------------------------------------------------------------
+
+/// Contract `line-padding`: trimming it removes only a trailing run of
+/// U+0020 spaces, never any other scalar.
+pub(crate) proof fn theorem_padding_is_trailing_spaces(t: Seq<char>)
+    ensures
+        trim_padding(t) == t.take(padding_start(t, 0, 0)),
+        0 <= padding_start(t, 0, 0) <= t.len(),
+        forall|k: int| padding_start(t, 0, 0) <= k < t.len() ==> t[k] == ' ',
+{
+    lemma_padding_spaces(t, 0, 0);
+}
+
+/// Contract `line-padding` removes only unescaped spaces: after text without
+/// a backslash, an escaped space `\\ ` and any number of following spaces
+/// leave the escaped space in the expression. So `foo\\ ` is the path
+/// `foo ` (an edge space, rejected as an invalid path) rather than an
+/// incomplete escape.
+pub(crate) proof fn theorem_escaped_space_is_not_padding(u: Seq<char>, n: nat)
+    requires
+        forall|k: int| 0 <= k < u.len() ==> u[k] != '\\',
+    ensures
+        trim_padding(u + seq!['\\', ' '] + Seq::new(n, |_k: int| ' ')) == u + seq!['\\', ' '],
+{
+    let t = u + seq!['\\', ' '] + Seq::new(n, |_k: int| ' ');
+    let m = u.len() as int;
+    assert(t[m] == '\\');
+    assert forall|k: int| 0 <= k < m implies t[k] != '\\' by {
+        assert(t[k] == u[k]);
+    }
+    lemma_padding_to_escape(t, 0, 0, m);
+    assert forall|k: int| m + 2 <= k < t.len() implies t[k] == ' ' by {
+        assert(t[k] == Seq::new(n, |_k: int| ' ')[k - m - 2]);
+    }
+    lemma_padding_over_spaces(t, m + 2, m + 2);
+    assert(t.take(m + 2) =~= u + seq!['\\', ' ']);
+}
 
 /// The placeholder is recognized exactly when the entry is unquoted and its
 /// comment-stripped, right-trimmed expression is exactly `...`; a quoted
@@ -1574,6 +1834,7 @@ pub(crate) proof fn theorem_plain_bare_entry(s: Seq<char>, at_root: bool)
     assert(s[0] != '"');
     lemma_plain_comment_start(s, 0);
     assert(s.take(s.len() as int) =~= s);
+    lemma_no_padding(s, 0, 0);
     assert(bare_expression(s) == s);
     lemma_plain_scan(s, 0);
     assert forall|k: int| 0 <= k < s.len() implies #[trigger] s[k] != '\\' by {
@@ -1717,11 +1978,380 @@ pub(crate) proof fn theorem_comment_is_normalized(content: Seq<char>, at_root: b
     }
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic excerpts ("Diagnostic confidentiality")
+// ---------------------------------------------------------------------------
+
+/// The decoder reads at most the whole text.
+proof fn lemma_quoted_read_len_bounds(t: Seq<char>)
+    ensures
+        0 <= quoted_read_len(t) <= t.len(),
+    decreases t.len(),
+{
+    if t.len() > 0 && t[0] != '"' {
+        if t[0] == '\\' {
+            if t.len() >= 2 && (t[1] == '"' || t[1] == '\\') {
+                lemma_quoted_read_len_bounds(t.subrange(2, t.len() as int));
+            }
+        } else if t[0] != '\r' && t[0] != '\n' {
+            lemma_quoted_read_len_bounds(t.drop_first());
+        }
+    }
+}
+
+/// An excerpt is a prefix of its text with at most 256 scalars, cut exactly
+/// when the text is longer.
+proof fn lemma_excerpt_shape(kind: EntryErrorKind, text: Seq<char>)
+    ensures
+        excerpt(kind, text).kind == kind,
+        excerpt(kind, text).subject.len() <= 256,
+        excerpt(kind, text).subject == text.take(excerpt(kind, text).subject.len() as int),
+        excerpt(kind, text).truncated == (text.len() > 256),
+{
+    if text.len() <= 256 {
+        assert(text.take(text.len() as int) =~= text);
+    }
+}
+
+/// Every rejected entry's diagnostic text is bounded and comes from the
+/// entry itself: a malformed quoted path renders a prefix of the entry of
+/// at most 256 scalars; a choice error renders a prefix, of at most 256
+/// scalars, of the text before the first unescaped `#`, so never the
+/// comment; and an excerpt is marked as cut exactly when it has 256
+/// scalars and more text followed. Decoded paths are rendered exactly.
+pub(crate) proof fn theorem_failure_excerpts_are_bounded(content: Seq<char>, at_root: bool)
+    ensures
+        entry_spec(content, at_root) matches Err(f) ==> {
+            &&& (content.len() > 0 && content[0] == '"') ==> {
+                &&& f.subject.len() <= 256
+                &&& f.subject == content.take(f.subject.len() as int)
+            }
+            &&& f.kind is Choice ==> {
+                &&& f.subject.len() <= 256
+                &&& f.subject == content.take(comment_start(content, 0)).take(
+                    f.subject.len() as int,
+                )
+            }
+            &&& f.truncated ==> f.subject.len() == 256
+        },
+{
+    if content.len() > 0 && content[0] == '"' {
+        let t = content.drop_first();
+        lemma_quoted_read_len_bounds(t);
+        match decode_quoted_chars(t) {
+            None => {
+                let text = content.take(1 + quoted_read_len(t));
+                lemma_excerpt_shape(EntryErrorKind::InvalidPath, text);
+                let f = excerpt(EntryErrorKind::InvalidPath, text);
+                assert(f.subject =~= content.take(f.subject.len() as int));
+            },
+            Some((decoded, rest)) => {
+                if decoded.len() > 0 && quoted_tail(rest) is None {
+                    let r = tail_remainder(rest);
+                    let text = content.take(content.len() - r.len() + 1);
+                    lemma_excerpt_shape(EntryErrorKind::InvalidPath, text);
+                    let f = excerpt(EntryErrorKind::InvalidPath, text);
+                    lemma_tail_remainder_is_suffix(content, rest);
+                    assert(f.subject =~= content.take(f.subject.len() as int));
+                }
+                if decoded.len() == 0 {
+                    assert(Seq::<char>::empty() =~= content.take(0));
+                }
+            },
+        }
+    } else {
+        let h = comment_start(content, 0);
+        lemma_comment_start_bounds(content, 0);
+        let before = content.take(h);
+        let expr = bare_expression(content);
+        lemma_padding_spaces(before, 0, 0);
+        let p = padding_start(before, 0, 0);
+        assert(expr == before.take(p));
+        if expr.len() > 0 && expr != seq!['.', '.', '.'] {
+            match scan_expression_spec(expr) {
+                Err(e) => {
+                    lemma_excerpt_shape(EntryErrorKind::Choice(e), expr);
+                    let f = excerpt(EntryErrorKind::Choice(e), expr);
+                    assert(f.subject =~= before.take(f.subject.len() as int));
+                },
+                Ok(ScanView::Choice { open, close }) => {
+                    match choice_list_spec(
+                        expr.take(open),
+                        expr.subrange(open + 1, close),
+                        expr.skip(close + 1),
+                        at_root,
+                    ) {
+                        Err(e) => {
+                            lemma_excerpt_shape(EntryErrorKind::Choice(e), expr);
+                            let f = excerpt(EntryErrorKind::Choice(e), expr);
+                            assert(f.subject =~= before.take(f.subject.len() as int));
+                        },
+                        Ok(_) => {},
+                    }
+                },
+                Ok(ScanView::Plain) => {},
+            }
+        }
+    }
+}
+
+/// `comment_start` stays within the text.
+proof fn lemma_comment_start_bounds(s: Seq<char>, i: int)
+    requires
+        0 <= i,
+    ensures
+        i <= s.len() ==> i <= comment_start(s, i) <= s.len(),
+        comment_start(s, i) <= s.len() || i > s.len(),
+    decreases s.len() - i,
+{
+    if i < s.len() && s[i] != '#' {
+        if s[i] == '\\' {
+            if i + 1 < s.len() {
+                lemma_comment_start_bounds(s, i + 2);
+            }
+        } else {
+            lemma_comment_start_bounds(s, i + 1);
+        }
+    }
+}
+
+/// The remainder of a quoted tail is a suffix of the tail, and when the
+/// decoder stops with `rest` the tail is a suffix of the entry.
+proof fn lemma_tail_remainder_is_suffix(content: Seq<char>, rest: Seq<char>)
+    requires
+        content.len() > 0,
+        decode_quoted_chars(content.drop_first()) matches Some((_, r)) && r == rest,
+    ensures
+        tail_remainder(rest).len() <= rest.len() < content.len(),
+        tail_remainder(rest) == content.skip(content.len() - tail_remainder(rest).len()),
+{
+    lemma_decode_rest_is_suffix(content.drop_first());
+    let after = if rest.len() > 0 && rest[0] == '/' {
+        rest.drop_first()
+    } else {
+        rest
+    };
+    lemma_trim_start_spaces_suffix(after);
+    let r = tail_remainder(rest);
+    assert(r =~= content.skip(content.len() - r.len()));
+}
+
+/// The decoder's remaining text is a proper suffix of its input.
+proof fn lemma_decode_rest_is_suffix(t: Seq<char>)
+    ensures
+        decode_quoted_chars(t) matches Some((_, rest)) ==> rest.len() < t.len() && rest == t.skip(
+            t.len() - rest.len(),
+        ),
+    decreases t.len(),
+{
+    if t.len() > 0 {
+        if t[0] == '"' {
+            assert(t.drop_first() =~= t.skip(1));
+        } else if t[0] == '\\' {
+            if t.len() >= 2 && (t[1] == '"' || t[1] == '\\') {
+                let u = t.subrange(2, t.len() as int);
+                lemma_decode_rest_is_suffix(u);
+                match decode_quoted_chars(u) {
+                    Some((_, rest)) => {
+                        assert(rest =~= t.skip(t.len() - rest.len()));
+                    },
+                    None => {},
+                }
+            }
+        } else if t[0] != '\r' && t[0] != '\n' {
+            let u = t.drop_first();
+            lemma_decode_rest_is_suffix(u);
+            match decode_quoted_chars(u) {
+                Some((_, rest)) => {
+                    assert(rest =~= t.skip(t.len() - rest.len()));
+                },
+                None => {},
+            }
+        }
+    }
+}
+
+/// Removing leading spaces leaves a suffix.
+proof fn lemma_trim_start_spaces_suffix(s: Seq<char>)
+    ensures
+        trim_start_spaces(s).len() <= s.len(),
+        trim_start_spaces(s) == s.skip(s.len() - trim_start_spaces(s).len()),
+    decreases s.len(),
+{
+    if s.len() > 0 && s[0] == ' ' {
+        lemma_trim_start_spaces_suffix(s.drop_first());
+        let r = trim_start_spaces(s);
+        assert(r =~= s.skip(s.len() - r.len()));
+    } else {
+        assert(s.skip(0) =~= s);
+    }
+}
+
+/// Quoted text without a quote, backslash, CR, or LF decodes to itself and
+/// is read in full before whatever follows.
+proof fn lemma_plain_quoted_text(a: Seq<char>, rest: Seq<char>)
+    requires
+        forall|k: int|
+            0 <= k < a.len() ==> {
+                let c = #[trigger] a[k];
+                c != '"' && c != '\\' && c != '\r' && c != '\n'
+            },
+    ensures
+        decode_quoted_chars(a + rest) == prepend_decoded(a, decode_quoted_chars(rest)),
+        quoted_read_len(a + rest) == a.len() + quoted_read_len(rest),
+    decreases a.len(),
+{
+    if a.len() == 0 {
+        assert(a + rest =~= rest);
+        match decode_quoted_chars(rest) {
+            Some((x, r)) => {
+                assert(a + x =~= x);
+            },
+            None => {},
+        }
+    } else {
+        let tail = a.drop_first();
+        assert forall|k: int| 0 <= k < tail.len() implies {
+            let c = #[trigger] tail[k];
+            c != '"' && c != '\\' && c != '\r' && c != '\n'
+        } by {
+            assert(tail[k] == a[k + 1]);
+        }
+        lemma_plain_quoted_text(tail, rest);
+        let c = a[0];
+        assert(c != '"' && c != '\\' && c != '\r' && c != '\n');
+        assert((a + rest)[0] == c);
+        assert((a + rest).drop_first() =~= tail + rest);
+        match decode_quoted_chars(rest) {
+            Some((x, r)) => {
+                assert(seq![c] + (tail + x) =~= a + x);
+            },
+            None => {},
+        }
+    }
+}
+
+/// Leading spaces before a non-space are removed exactly.
+proof fn lemma_trim_spaces_run(n: nat, r: Seq<char>)
+    requires
+        r.len() > 0,
+        r[0] != ' ',
+    ensures
+        trim_start_spaces(Seq::new(n, |_k: int| ' ') + r) == r,
+    decreases n,
+{
+    let s = Seq::new(n, |_k: int| ' ') + r;
+    if n == 0 {
+        assert(s =~= r);
+    } else {
+        assert(s[0] == ' ');
+        assert(s.drop_first() =~= Seq::new((n - 1) as nat, |_k: int| ' ') + r);
+        lemma_trim_spaces_run((n - 1) as nat, r);
+    }
+}
+
+/// An invalid escape in a quoted path is shown through the escape and no
+/// further: whatever text `x` follows it, including a closing quote and a
+/// comment, the diagnostic is the same excerpt.
+pub(crate) proof fn theorem_quoted_escape_excerpt_ignores_later_text(
+    a: Seq<char>,
+    e: char,
+    x: Seq<char>,
+    at_root: bool,
+)
+    requires
+        forall|k: int|
+            0 <= k < a.len() ==> {
+                let c = #[trigger] a[k];
+                c != '"' && c != '\\' && c != '\r' && c != '\n'
+            },
+        e != '"',
+        e != '\\',
+    ensures
+        entry_spec(seq!['"'] + a + seq!['\\', e] + x, at_root) == Err::<EntryView, FailureView>(
+            excerpt(EntryErrorKind::InvalidPath, seq!['"'] + a + seq!['\\', e]),
+        ),
+{
+    let content = seq!['"'] + a + seq!['\\', e] + x;
+    let rest = seq!['\\', e] + x;
+    assert(content.drop_first() =~= a + rest);
+    lemma_plain_quoted_text(a, rest);
+    assert(rest[0] == '\\' && rest[1] == e);
+    assert(decode_quoted_chars(rest) is None);
+    assert(quoted_read_len(rest) == 2);
+    assert(content.take(1 + a.len() as int + 2) =~= seq!['"'] + a + seq!['\\', e]);
+}
+
+/// A scalar that cannot follow a quoted path's closing quote is shown
+/// through that scalar and no further: whatever text `x` follows it,
+/// including a comment, the diagnostic is the same excerpt.
+pub(crate) proof fn theorem_quoted_tail_excerpt_ignores_later_text(
+    d: Seq<char>,
+    directory: bool,
+    spaces: nat,
+    c: char,
+    x: Seq<char>,
+    at_root: bool,
+)
+    requires
+        d.len() > 0,
+        !d.contains('\r'),
+        !d.contains('\n'),
+        c != '#',
+        c != ' ',
+        directory || spaces > 0 || c != '/',
+    ensures
+        ({
+            let marker = if directory {
+                seq!['/']
+            } else {
+                Seq::<char>::empty()
+            };
+            let shown = quoted_component(d) + marker + Seq::new(spaces, |_k: int| ' ') + seq![c];
+            entry_spec(shown + x, at_root) == Err::<EntryView, FailureView>(
+                excerpt(EntryErrorKind::InvalidPath, shown),
+            )
+        }),
+{
+    let marker = if directory {
+        seq!['/']
+    } else {
+        Seq::<char>::empty()
+    };
+    let gap = Seq::new(spaces, |_k: int| ' ');
+    let shown = quoted_component(d) + marker + gap + seq![c];
+    let tail = marker + gap + seq![c] + x;
+    let content = shown + x;
+    assert(content =~= quoted_component(d) + tail);
+    lemma_quote_escape_decodes(d, tail);
+    assert(content.drop_first() =~= quote_escape(d) + seq!['"'] + tail);
+    assert(content[0] == '"');
+    let r = seq![c] + x;
+    if directory {
+        assert(tail[0] == '/');
+        assert(tail.drop_first() =~= gap + r);
+    } else if spaces > 0 {
+        assert(tail =~= gap + r);
+        assert(tail[0] == ' ');
+    } else {
+        assert(tail =~= r);
+        assert(tail[0] == c);
+    }
+    lemma_trim_spaces_run(spaces, r);
+    assert(tail_remainder(tail) == r);
+    assert(content.take(content.len() - r.len() + 1) =~= shown);
+}
+
 } // verus!
 
 /// The entry-text functions of the parser before this kernel, kept verbatim
 /// (as free functions) as the differential-testing oracle for
-/// [`parse_entry`] and its parser glue.
+/// [`parse_entry`] and its parser glue, except for two deliberate changes
+/// made on 2026-11-25 with the kernel, each written independently of it:
+/// line padding removes only unescaped trailing spaces (by backslash parity
+/// rather than the kernel's forward token scan), and raw-text diagnostics
+/// render a bounded excerpt (a malformed quoted path through its first
+/// offending scalar, or the choice expression, cut to 256 scalars).
 #[cfg(test)]
 pub(crate) mod legacy_oracle {
     #![allow(clippy::all)]
@@ -1829,7 +2459,7 @@ pub(crate) mod legacy_oracle {
         }
 
         let (raw_path, raw_comment) = split_path_comment(content);
-        let path = raw_path.trim_end_matches(' ').to_string();
+        let path = trim_line_padding(raw_path).to_string();
         let comment = normalize_comment(raw_comment);
 
         if path.is_empty() {
@@ -1861,23 +2491,25 @@ pub(crate) mod legacy_oracle {
                     break;
                 }
                 '\\' => {
-                    let Some((_, escaped)) = chars.next() else {
-                        return Err(invalid_path_error(line_number, content).into());
+                    let Some((escaped_index, escaped)) = chars.next() else {
+                        return Err(excerpt_path_error(line_number, content).into());
                     };
                     if !matches!(escaped, '"' | '\\') {
-                        return Err(invalid_path_error(line_number, content).into());
+                        let end = escaped_index + escaped.len_utf8();
+                        return Err(excerpt_path_error(line_number, &content[..end]).into());
                     }
                     decoded.push(escaped);
                 }
                 '\r' | '\n' => {
-                    return Err(invalid_path_error(line_number, content).into());
+                    let end = index + ch.len_utf8();
+                    return Err(excerpt_path_error(line_number, &content[..end]).into());
                 }
                 _ => decoded.push(ch),
             }
         }
 
         let Some(closing_end) = closing_end else {
-            return Err(invalid_path_error(line_number, content).into());
+            return Err(excerpt_path_error(line_number, content).into());
         };
         if decoded.is_empty() {
             return Err(invalid_path_error(line_number, "").into());
@@ -1895,7 +2527,9 @@ pub(crate) mod legacy_oracle {
         } else if let Some(comment) = remainder.strip_prefix('#') {
             normalize_comment(Some(comment))
         } else {
-            return Err(invalid_path_error(line_number, content).into());
+            let offending = remainder.chars().next().expect("nonempty remainder");
+            let end = content.len() - remainder.len() + offending.len_utf8();
+            return Err(excerpt_path_error(line_number, &content[..end]).into());
         };
 
         Ok((
@@ -1947,10 +2581,47 @@ pub(crate) mod legacy_oracle {
         }
     }
 
+    /// Remove line padding: the trailing spaces that a backslash does not
+    /// escape. A space is escaped when an odd run of backslashes precedes it.
+    fn trim_line_padding(raw: &str) -> &str {
+        let mut end = raw.len();
+        while raw[..end].ends_with(' ') {
+            let backslashes = raw[..end - 1]
+                .chars()
+                .rev()
+                .take_while(|&ch| ch == '\\')
+                .count();
+            if backslashes % 2 == 1 {
+                break;
+            }
+            end -= 1;
+        }
+        &raw[..end]
+    }
+
+    /// The rendered excerpt of raw entry text: its first 256 scalars, with
+    /// `…` after the closing quote when more text was cut.
+    fn excerpt(text: &str) -> String {
+        let mut chars = text.chars();
+        let head: String = chars.by_ref().take(256).collect();
+        let mut rendered = render_utf8_component(&head);
+        if chars.next().is_some() {
+            rendered.push('…');
+        }
+        rendered
+    }
+
+    fn excerpt_path_error(line: usize, text: &str) -> SyntaxError {
+        SyntaxError::InvalidPathFormat {
+            line,
+            path: excerpt(text),
+        }
+    }
+
     fn invalid_wildcard_error(line: usize, path: &str, message: impl Into<String>) -> SyntaxError {
         SyntaxError::InvalidWildcardSyntax {
             line,
-            path: render_utf8_component(path),
+            path: excerpt(path),
             message: message.into(),
         }
     }
@@ -2512,6 +3183,7 @@ mod tests {
         EntryFailure {
             kind,
             subject: subject.to_string(),
+            truncated: false,
         }
     }
 
@@ -2552,15 +3224,46 @@ mod tests {
             Ok(single("/etc/..//x", false, None))
         );
         assert_eq!(parse_entry("\"a\"#", true), Ok(single("a", false, None)));
-        for malformed in [
-            r#""a\q""#, r#""a\"#, "\"a", "\"a\nb\"", "\"a\rb\"", "\"a\"x", "\"a\"//",
+        // A malformed quoted path renders its text through the first
+        // offending scalar and nothing after it, so never a comment.
+        for (malformed, excerpt) in [
+            (r#""a\q""#, r#""a\q"#),
+            (r#""a\q" # private note"#, r#""a\q"#),
+            (r#""a\"#, r#""a\"#),
+            ("\"a", "\"a"),
+            (
+                "\"a # not a comment inside quotes",
+                "\"a # not a comment inside quotes",
+            ),
+            ("\"a\nb\"", "\"a\n"),
+            ("\"a\rb\" # note", "\"a\r"),
+            ("\"a\"x", "\"a\"x"),
+            ("\"a\"x # private note", "\"a\"x"),
+            ("\"a\"/  y # note", "\"a\"/  y"),
+            ("\"a\"//", "\"a\"//"),
+            ("\"a\" / # note", "\"a\" /"),
         ] {
             assert_eq!(
                 parse_entry(malformed, true),
-                Err(failure(EntryErrorKind::InvalidPath, malformed)),
+                Err(failure(EntryErrorKind::InvalidPath, excerpt)),
                 "{malformed:?}"
             );
         }
+        // Excerpts are cut to 256 scalars and marked as cut.
+        let long = format!("\"{}", "é".repeat(300));
+        assert_eq!(
+            parse_entry(&long, true),
+            Err(EntryFailure {
+                kind: EntryErrorKind::InvalidPath,
+                subject: long.chars().take(MAX_EXCERPT_SCALARS).collect(),
+                truncated: true,
+            })
+        );
+        let exact = format!("\"{}", "a".repeat(MAX_EXCERPT_SCALARS - 1));
+        assert_eq!(
+            parse_entry(&exact, true),
+            Err(failure(EntryErrorKind::InvalidPath, &exact))
+        );
         assert_eq!(
             parse_entry("\"\"/ # c", true),
             Err(failure(EntryErrorKind::InvalidPath, ""))
@@ -2615,16 +3318,25 @@ mod tests {
             parse_entry("dir/C:notes", true),
             Ok(single("dir/C:notes", false, None))
         );
-        // Contract deviation kept for compatibility: a trailing escaped
-        // space loses its space to line padding and reports a dangling
-        // escape instead of an invalid edge space.
+        // Line padding is only the unescaped trailing spaces, so a trailing
+        // escaped space stays in the path and is rejected as an edge space.
+        for text in [r"foo\ ", r"foo\   ", r"foo\  # note"] {
+            assert_eq!(
+                parse_entry(text, true),
+                Err(failure(EntryErrorKind::InvalidPath, "foo ")),
+                "{text:?}"
+            );
+        }
+        // An escaped backslash does not escape the space after it.
         assert_eq!(
-            parse_entry(r"foo\ ", true),
-            Err(failure(
-                EntryErrorKind::Choice(ChoiceError::IncompleteEscape),
-                r"foo\"
-            ))
+            parse_entry(r"foo\\ ", true),
+            Ok(single(r"foo\", false, None))
         );
+        assert_eq!(
+            parse_entry(r"foo\\\ ", true),
+            Err(failure(EntryErrorKind::InvalidPath, r"foo\ "))
+        );
+        assert_eq!(parse_entry(r"a\ b ", true), Ok(single("a b", false, None)));
     }
 
     #[test]
