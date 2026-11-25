@@ -29,6 +29,7 @@
     - path_rules.rs # validator path rules and containment theorems
     - placeholder.rs # placeholder accounting and item resolution
     - settings.rs # environment-variable scope, value acceptance, precedence
+    - tree_rules.rs # unique full paths and placeholder sibling rules
     - windows_names.rs # Windows namespace and component rules
   - validator.rs # logic for validating syntax of guide
   - verifier.rs # logic for verifying guide against file system

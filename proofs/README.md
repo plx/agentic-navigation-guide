@@ -109,6 +109,7 @@ that specification. Theorem names are searchable in the source.
 | List items and indentation | `src/proven/layout.rs` | The list-item splitter matches `^(\s*)- (.+)$` with Unicode `White_Space` and exact byte offsets. `theorem_layout_sound`, `theorem_layout_complete`, and `theorem_layout_first_error`: the line fold accepts exactly the bodies that satisfy the indentation rules (unit 1–16, multiples of the unit, depth at most 256, first line at depth 0, one level deeper only below a line that can own children) and rejects at the first failing line. |
 | Entry text | `src/proven/entry.rs`, `src/proven/choice.rs` | `parse_entry` equals `entry_spec`. `theorem_placeholder_iff_bare_ellipsis`; `theorem_bare_paths_are_contained` (every bare or choice path the parser accepts is one the validator accepts); `theorem_choice_list_shape` (2–256 pairwise-distinct sibling expansions); `theorem_quoted_path_decoder`; `theorem_comment_is_normalized`. |
 | Path validation | `src/proven/path_rules.rs` | `check_path_structure` carries the validator's exact precedence. `theorem_valid_iff_contained`: a path is valid exactly when it is a non-empty `/`-join of non-empty, non-dot, control-free components (with the root-level backslash and drive-prefix rules); `theorem_valid_path_stays_below`: no prefix of a valid path names its root or an ancestor of it. |
+| Duplicate paths and placeholder siblings | `src/proven/tree_rules.rs` | `theorem_duplicate_check_decides_decoded_identity`: a guide is rejected exactly when two entries decode to the same full path (through any hierarchy spelling), at the first repeat in preorder; the check is a verified linear hash index whose keys affect only running time. `theorem_placeholder_rules`: sibling lists are accepted exactly when no two placeholders are adjacent and no placeholder has children. |
 | Name codec and diagnostics | `src/path_codec.rs` (in place) | `serialize_component` meets the exact quoting rules; `theorem_serialize_injective`, `theorem_quoted_component_decodes`. The diagnostic renderers are proven delimited, decodable, injective, and free of C0 controls and DEL (`theorem_rendered_*`). |
 | Dump → parse round trip | `proofs/round_trip.rs` | See [Round trip](#round-trip). |
 
@@ -163,8 +164,8 @@ these theorems.
 
 The theorems model, rather than verify, this glue: the dumper's traversal,
 sorting, and recursion in `format_tree`; `str::lines` and `join`; the
-parser's per-line loop, item assembly, and `build_hierarchy`; validator
-checks other than path rules (duplicate full paths, nesting); file I/O and
+parser's per-line loop, item assembly, and `build_hierarchy`; the
+validator's nesting and indentation checks; file I/O and
 UTF-8 decoding; and the filesystem half of `verify`. The module
 documentation in `round_trip.rs` states each correspondence.
 
