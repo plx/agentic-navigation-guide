@@ -22,7 +22,9 @@
     - entry.rs # entry text: comments, quoted and bare paths, placeholders
     - generation.rs # dump/init limits, line formatting, integer parsing
     - glob.rs # exclusion pattern compiler and matcher
+    - hierarchy.rs # parent assignment while assembling the parsed tree
     - layout.rs # list-item splitting and indentation rules
+    - lines.rs # physical line splitting equal to str::lines
     - marker.rs # marker-line grammar
     - outcome.rs # ignored-guide policy, exit status, recursive outcomes
     - output_path.rs # --output spelling, in-root route, destination mode rule

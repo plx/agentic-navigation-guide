@@ -85,9 +85,10 @@ A proof is only as strong as what it assumes. These kernels trust:
   modes), and `std::env` values;
 - that the stable `rustc` used for the product (1.85 or newer) gives the
   same meaning to the verified Rust as Verus's front end does;
-- the unverified glue that calls the kernels: reading the guide file,
-  `str::lines`, mapping kernel verdicts to `SyntaxError` values and messages,
-  and all filesystem access.
+- the unverified glue that calls the kernels: reading the guide file, the
+  loops that feed kernel verdicts forward and number lines, moving parsed
+  items into their parents, mapping kernel verdicts to `SyntaxError` and
+  `AppError` values and messages, and all filesystem access.
 
 No kernel uses `assume`, `admit`, `external_body`, or
 `assume_specification`.
@@ -104,9 +105,11 @@ that specification. Theorem names are searchable in the source.
 | Decision | Code | What Verus proves |
 |---|---|---|
 | Line endings | `src/proven/document.rs` | `first_lone_cr_line` returns no line exactly when every CR is followed by LF, and otherwise reports the first lone CR's line. |
+| Physical lines | `src/proven/lines.rs` | `split_lines` equals `physical_lines`, which matches `str::lines` on every input; `theorem_lines_decompose` and `theorem_lines_unique` characterize it without describing the algorithm, and `theorem_checked_document_lines` shows every document that passes the lone-CR check splits into lines free of CR and LF. The parser hands the body lines straight to the layout fold. |
 | Marker lines | `src/proven/marker.rs` | `marker_class` restates the contract's marker productions as existential decompositions of the line; the scanner is proven equal to it on every byte sequence, including the outer-whitespace, `ignore=true`, and BOM rules. |
 | Guide envelope | `src/proven/document.rs` | `theorem_envelope_accepts_exactly`: a document is accepted exactly when it has one opening marker, one later closing marker, and otherwise only ordinary lines; `theorem_envelope_reports_first_offense` and the missing-marker theorems fix which line is reported. |
 | List items and indentation | `src/proven/layout.rs` | The list-item splitter matches `^(\s*)- (.+)$` with Unicode `White_Space` and exact byte offsets. `theorem_layout_sound`, `theorem_layout_complete`, and `theorem_layout_first_error`: the line fold accepts exactly the bodies that satisfy the indentation rules (unit 1–16, multiples of the unit, depth at most 256, first line at depth 0, one level deeper only below a line that can own children) and rejects at the first failing line. |
+| Hierarchy assembly | `src/proven/hierarchy.rs` | `theorem_assembly_accepts_exactly` (the assembly accepts exactly the layout kernel's depth rules), `theorem_assembly_parents` (every item is attached to its preorder parent), `theorem_assembly_work` (linear work, at most 257 open directories), `theorem_parsed_items_assemble`; `theorem_positive_depths_include_one` and `theorem_children_one_level_deeper` show the validator's indentation and nesting errors cannot fire on parsed guides. |
 | Entry text | `src/proven/entry.rs`, `src/proven/choice.rs` | `parse_entry` equals `entry_spec`. `theorem_placeholder_iff_bare_ellipsis`; `theorem_bare_paths_are_contained` (every bare or choice path the parser accepts is one the validator accepts); `theorem_choice_list_shape` (2–256 pairwise-distinct sibling expansions); `theorem_quoted_path_decoder`; `theorem_comment_is_normalized`. |
 | Path validation | `src/proven/path_rules.rs` | `check_path_structure` carries the validator's exact precedence. `theorem_valid_iff_contained`: a path is valid exactly when it is a non-empty `/`-join of non-empty, non-dot, control-free components (with the root-level backslash and drive-prefix rules); `theorem_valid_path_stays_below`: no prefix of a valid path names its root or an ancestor of it. |
 | Duplicate paths and placeholder siblings | `src/proven/tree_rules.rs` | `theorem_duplicate_check_decides_decoded_identity`: a guide is rejected exactly when two entries decode to the same full path (through any hierarchy spelling), at the first repeat in preorder; the check is a verified linear hash index whose keys affect only running time. `theorem_placeholder_rules`: sibling lists are accepted exactly when no two placeholders are adjacent and no placeholder has children. |
