@@ -5583,3 +5583,181 @@ fn issue_49_internal_trust_ids(source: &str) -> std::collections::BTreeSet<&str>
         })
         .collect()
 }
+
+/// Guide bodies whose failures embed a root-derived path: a missing item
+/// (`ItemNotFound`) and an unsatisfied top-level placeholder
+/// (`PlaceholderNoUnmentionedItems`). The third field is the rendered path
+/// tail that follows the root's final separator.
+#[cfg(unix)]
+const ROOT_DERIVED_BODIES: [(&str, &str, &str); 2] = [
+    ("missing", "- missing.txt\n", "missing.txt"),
+    ("placeholder", "- AGENTIC_NAVIGATION_GUIDE.md\n- ...\n", ""),
+];
+
+/// Every verify diagnostic mode with its documented failure status.
+#[cfg(unix)]
+const ROOT_DERIVED_MODES: [(&str, &[&str], i32); 3] = [
+    ("default", &[], 1),
+    ("github-actions", &["--github-actions-check"], 1),
+    ("post-tool-use", &["--post-tool-use-hook"], 2),
+];
+
+#[cfg(unix)]
+struct RootDerivedCase {
+    label: String,
+    recursive: bool,
+    root: PathBuf,
+    expected_fragment: String,
+}
+
+#[cfg(unix)]
+fn write_root_derived_guide(directory: &Path, body: &str) {
+    fs::create_dir_all(directory).expect("create root-derived diagnostic fixture");
+    fs::write(
+        directory.join("AGENTIC_NAVIGATION_GUIDE.md"),
+        format!("<agentic-navigation-guide>\n{body}</agentic-navigation-guide>\n"),
+    )
+    .expect("write root-derived diagnostic guide");
+}
+
+#[cfg(unix)]
+fn upper_hex_escaped(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("\\x{byte:02X}")).collect()
+}
+
+/// Run each case in every diagnostic mode and require the complete stdout and
+/// stderr byte streams to be control-safe, lossless, and to carry the
+/// reversible rendering of the root-derived path.
+#[cfg(unix)]
+fn assert_root_derived_cases_are_control_safe(cases: &[RootDerivedCase]) {
+    for case in cases {
+        for (mode, flags, status) in ROOT_DERIVED_MODES {
+            let context = format!("{} in {mode} mode", case.label);
+            let mut command = isolated_command();
+            command.arg("verify");
+            if case.recursive {
+                command.arg("--recursive");
+            }
+            let output = command
+                .args(flags)
+                .arg("--root")
+                .arg(&case.root)
+                .output()
+                .expect("run root-derived verification");
+
+            let mut bytes = output.stdout.clone();
+            bytes.extend_from_slice(&output.stderr);
+            let lossy = String::from_utf8_lossy(&bytes).into_owned();
+            assert_eq!(
+                output.status.code(),
+                Some(status),
+                "{context}: unexpected status:\n{lossy:?}"
+            );
+            assert!(
+                !bytes
+                    .iter()
+                    .any(|byte| (*byte < 0x20 && *byte != b'\n') || *byte == 0x7F),
+                "{context}: output carried a raw C0 control or DEL byte:\n{lossy:?}"
+            );
+            let text = String::from_utf8(bytes)
+                .unwrap_or_else(|_| panic!("{context}: output was not UTF-8:\n{lossy:?}"));
+            assert!(
+                !text.contains('\u{FFFD}'),
+                "{context}: output used a lossy replacement character:\n{text:?}"
+            );
+            assert!(
+                text.contains(&case.expected_fragment),
+                "{context}: output omitted the reversible path {:?}:\n{text:?}",
+                case.expected_fragment
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn verify_renders_escape_bearing_root_paths_control_safely() {
+    const NAME: &str = "r\u{1b}[31mX";
+
+    let temp = TempDir::new().expect("temporary escape-bearing root fixture");
+    let mut cases = Vec::new();
+    for (body_label, body, tail) in ROOT_DERIVED_BODIES {
+        let expected_fragment = format!("r\\u{{001B}}[31mX/{tail}\"");
+
+        // The caller selects the escape-bearing directory as the root.
+        let single = temp.path().join(format!("single-{body_label}")).join(NAME);
+        write_root_derived_guide(&single, body);
+        cases.push(RootDerivedCase {
+            label: format!("single-guide {body_label}"),
+            recursive: false,
+            root: single,
+            expected_fragment: expected_fragment.clone(),
+        });
+
+        // Recursive discovery finds the escape-bearing directory inside the
+        // scanned, untrusted tree.
+        let search = temp.path().join(format!("recursive-{body_label}"));
+        write_root_derived_guide(&search.join(NAME), body);
+        cases.push(RootDerivedCase {
+            label: format!("recursive {body_label}"),
+            recursive: true,
+            root: search,
+            expected_fragment,
+        });
+    }
+
+    assert_root_derived_cases_are_control_safe(&cases);
+}
+
+#[cfg(unix)]
+#[test]
+fn verify_preserves_non_utf8_root_bytes_without_replacement() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = std::ffi::OsStr::from_bytes(b"r\xFF");
+    let temp = TempDir::new().expect("temporary non-UTF-8 root fixture");
+    if let Err(error) = fs::create_dir(temp.path().join(name)) {
+        if cfg!(target_os = "linux") {
+            panic!("Linux must accept a non-UTF-8 directory name: {error}");
+        }
+        eprintln!(
+            "non_utf8_verify_root unavailable_on={} expected=host-rejects-non-utf8-names ({error})",
+            std::env::consts::OS
+        );
+        return;
+    }
+
+    let mut cases = Vec::new();
+    for (body_label, body, tail) in ROOT_DERIVED_BODIES {
+        // A non-UTF-8 path renders every raw byte, so the fragment begins at
+        // the rejected name and runs through the closing quote.
+        let single = temp.path().join(format!("single-{body_label}")).join(name);
+        write_root_derived_guide(&single, body);
+        let mut tail_bytes = b"r\xFF/".to_vec();
+        tail_bytes.extend_from_slice(tail.as_bytes());
+        cases.push(RootDerivedCase {
+            label: format!("single-guide {body_label}"),
+            recursive: false,
+            root: single,
+            expected_fragment: format!("{}\"", upper_hex_escaped(&tail_bytes)),
+        });
+
+        // Discovery rejects a non-UTF-8 scanned name before verification, so
+        // the recursive case selects a non-UTF-8 search root instead.
+        let search = temp
+            .path()
+            .join(format!("recursive-{body_label}"))
+            .join(name);
+        write_root_derived_guide(&search.join("module"), body);
+        let mut tail_bytes = b"r\xFF/module/".to_vec();
+        tail_bytes.extend_from_slice(tail.as_bytes());
+        cases.push(RootDerivedCase {
+            label: format!("recursive {body_label}"),
+            recursive: true,
+            root: search,
+            expected_fragment: format!("{}\"", upper_hex_escaped(&tail_bytes)),
+        });
+    }
+
+    assert_root_derived_cases_are_control_safe(&cases);
+}
