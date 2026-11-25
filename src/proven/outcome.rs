@@ -8,7 +8,12 @@
 //!   finished its work completed, completed with an allowed ignored result,
 //!   or is rejected by `--deny-ignored`;
 //! - [`exit_status`]: the process status of a successful run and of a runtime
-//!   failure in each execution mode.
+//!   failure in each execution mode;
+//! - [`empty_discovery_decision`]: a recursive search whose discovery
+//!   completed with zero guides succeeds only under `--allow-empty`
+//!   ("Recursive discovery and empty searches");
+//! - [`recursive_completion`]: after recursive verification, whether the run
+//!   succeeds, failed, is rejected by `--deny-ignored`, or both.
 //!
 //! Neither kernel takes a log level: quiet and verbose mode are not inputs to
 //! any status decision, by construction of these signatures, so they can
@@ -24,7 +29,15 @@
 //!   ignored (never as completed), and `--deny-ignored` rejects every run
 //!   with an ignored guide;
 //! - `theorem_denied_ignored_never_succeeds`: under `--deny-ignored`, a run
-//!   with an ignored guide exits with a nonzero status in every mode.
+//!   with an ignored guide exits with a nonzero status in every mode;
+//! - `theorem_recursive_run_succeeds`: a recursive run succeeds exactly when
+//!   it discovered zero guides under `--allow-empty`, or discovered at least
+//!   one guide, none failed, and `--deny-ignored` is off or none was
+//!   ignored; `--allow-empty` therefore never excuses a failed or denied
+//!   guide, and its status is `0` exactly then;
+//! - `theorem_recursive_completion_agrees_with_ignored_policy`: when no guide
+//!   failed, the recursive decision is the single-guide ignored-guide policy
+//!   applied to the ignored count, and a failure is never accepted.
 
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
@@ -58,6 +71,30 @@ pub(crate) enum StatusMode {
     PostToolUse,
     PreCommitHook,
     GitHubActions,
+}
+
+/// The decision after a recursive discovery completed with zero guides.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EmptyDiscoveryDecision {
+    /// `--allow-empty` accepts the absent search: the run succeeds.
+    Accept,
+    /// The absent search is a runtime failure.
+    Reject,
+}
+
+/// The decision after recursive verification of at least one guide.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RecursiveCompletion {
+    /// The run succeeds with this outcome.
+    Accept(CommandOutcome),
+    /// Some guide failed; `--deny-ignored` did not reject the run.
+    Failed,
+    /// `--deny-ignored` rejected the ignored guides; no guide failed.
+    Denied,
+    /// Some guide failed and `--deny-ignored` rejected the ignored guides.
+    FailedAndDenied,
 }
 
 #[cfg(verus_keep_ghost)]
@@ -103,6 +140,65 @@ pub(crate) open spec fn policy_status(mode: StatusMode, decision: IgnoredPolicyD
     }
 }
 
+/// An absent recursive search succeeds only under `--allow-empty`.
+pub(crate) open spec fn empty_discovery_spec(allow_empty: bool) -> EmptyDiscoveryDecision {
+    if allow_empty {
+        EmptyDiscoveryDecision::Accept
+    } else {
+        EmptyDiscoveryDecision::Reject
+    }
+}
+
+/// The recursive decision after verification: `--deny-ignored` with an
+/// ignored guide rejects the run (together with any failure); otherwise a
+/// failure fails it, and a run without failures is accepted as completed or
+/// ignored.
+pub(crate) open spec fn recursive_completion_spec(
+    all_passed: bool,
+    ignored_count: usize,
+    deny_ignored: bool,
+) -> RecursiveCompletion {
+    if deny_ignored && ignored_count != 0 {
+        if all_passed {
+            RecursiveCompletion::Denied
+        } else {
+            RecursiveCompletion::FailedAndDenied
+        }
+    } else if !all_passed {
+        RecursiveCompletion::Failed
+    } else if ignored_count == 0 {
+        RecursiveCompletion::Accept(CommandOutcome::Completed)
+    } else {
+        RecursiveCompletion::Accept(CommandOutcome::Ignored { count: ignored_count })
+    }
+}
+
+/// The recursive decision accepts the run.
+pub(crate) open spec fn is_accepted(completion: RecursiveCompletion) -> bool {
+    match completion {
+        RecursiveCompletion::Accept(_) => true,
+        _ => false,
+    }
+}
+
+/// Whether a recursive run succeeds, composed exactly as `verify
+/// --recursive` composes the two decisions: an absent search takes the
+/// empty-discovery decision, and any other search the completion decision
+/// with `all_passed` meaning that no discovered guide failed.
+pub(crate) open spec fn recursive_run_succeeds(
+    discovered: nat,
+    failed: nat,
+    ignored_count: usize,
+    deny_ignored: bool,
+    allow_empty: bool,
+) -> bool {
+    if discovered == 0 {
+        empty_discovery_spec(allow_empty) == EmptyDiscoveryDecision::Accept
+    } else {
+        is_accepted(recursive_completion_spec(failed == 0, ignored_count, deny_ignored))
+    }
+}
+
 } // verus!
 
 /// Decide the ignored-guide policy for a run that finished its work with
@@ -140,6 +236,46 @@ pub(crate) fn exit_status(mode: StatusMode, is_error: bool) -> i32 {
         }
     } else {
         0
+    }
+}
+
+/// Decide an absent recursive search: it succeeds only under
+/// `--allow-empty`.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r == empty_discovery_spec(allow_empty),
+))]
+pub(crate) fn empty_discovery_decision(allow_empty: bool) -> EmptyDiscoveryDecision {
+    if allow_empty {
+        EmptyDiscoveryDecision::Accept
+    } else {
+        EmptyDiscoveryDecision::Reject
+    }
+}
+
+/// Decide a recursive run after verifying at least one guide, from whether
+/// every guide passed, the number of ignored guides, and `--deny-ignored`.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r == recursive_completion_spec(all_passed, ignored_count, deny_ignored),
+))]
+pub(crate) fn recursive_completion(
+    all_passed: bool,
+    ignored_count: usize,
+    deny_ignored: bool,
+) -> RecursiveCompletion {
+    if deny_ignored && ignored_count != 0 {
+        if all_passed {
+            return RecursiveCompletion::Denied;
+        }
+        return RecursiveCompletion::FailedAndDenied;
+    }
+    if !all_passed {
+        return RecursiveCompletion::Failed;
+    }
+    match decide_ignored_policy(ignored_count, deny_ignored) {
+        IgnoredPolicyDecision::Accept(accepted) => RecursiveCompletion::Accept(accepted),
+        IgnoredPolicyDecision::Deny => RecursiveCompletion::Denied,
     }
 }
 
@@ -190,6 +326,78 @@ pub(crate) proof fn theorem_denied_ignored_never_succeeds(mode: StatusMode, igno
 {
 }
 
+/// A recursive run succeeds exactly when it discovered zero guides under
+/// `--allow-empty`, or discovered at least one guide, none failed, and
+/// `--deny-ignored` is off or none was ignored. Its status is `0` exactly
+/// then, and otherwise the mode's failure status.
+pub(crate) proof fn theorem_recursive_run_succeeds(
+    mode: StatusMode,
+    discovered: nat,
+    failed: nat,
+    ignored_count: usize,
+    deny_ignored: bool,
+    allow_empty: bool,
+)
+    ensures
+        recursive_run_succeeds(discovered, failed, ignored_count, deny_ignored, allow_empty) == ((
+        discovered == 0 && allow_empty) || (discovered > 0 && failed == 0 && (!deny_ignored
+            || ignored_count == 0))),
+        (exit_status_spec(
+            mode,
+            !recursive_run_succeeds(discovered, failed, ignored_count, deny_ignored, allow_empty),
+        ) == 0) == recursive_run_succeeds(
+            discovered,
+            failed,
+            ignored_count,
+            deny_ignored,
+            allow_empty,
+        ),
+        discovered > 0 && failed > 0 ==> !recursive_run_succeeds(
+            discovered,
+            failed,
+            ignored_count,
+            deny_ignored,
+            allow_empty,
+        ),
+        discovered == 0 && !allow_empty ==> !recursive_run_succeeds(
+            discovered,
+            failed,
+            ignored_count,
+            deny_ignored,
+            allow_empty,
+        ),
+{
+}
+
+/// When no guide failed, the recursive decision is the single-guide
+/// ignored-guide policy applied to the ignored count; a failure is never
+/// accepted, and it is reported together with a `--deny-ignored` rejection
+/// exactly when that policy rejects.
+pub(crate) proof fn theorem_recursive_completion_agrees_with_ignored_policy(
+    all_passed: bool,
+    ignored_count: usize,
+    deny_ignored: bool,
+)
+    ensures
+        all_passed ==> match ignored_policy(ignored_count, deny_ignored) {
+            IgnoredPolicyDecision::Accept(o) => recursive_completion_spec(
+                all_passed,
+                ignored_count,
+                deny_ignored,
+            ) == RecursiveCompletion::Accept(o),
+            IgnoredPolicyDecision::Deny => recursive_completion_spec(
+                all_passed,
+                ignored_count,
+                deny_ignored,
+            ) == RecursiveCompletion::Denied,
+        },
+        !all_passed ==> !is_accepted(recursive_completion_spec(all_passed, ignored_count, deny_ignored)),
+        !all_passed ==> (recursive_completion_spec(all_passed, ignored_count, deny_ignored)
+            == RecursiveCompletion::FailedAndDenied) == (ignored_policy(ignored_count, deny_ignored)
+            == IgnoredPolicyDecision::Deny),
+{
+}
+
 } // verus!
 
 #[cfg(test)]
@@ -218,6 +426,76 @@ mod tests {
         assert_eq!(
             decide_ignored_policy(usize::MAX, true),
             IgnoredPolicyDecision::Deny
+        );
+    }
+
+    #[test]
+    fn empty_discovery_succeeds_only_under_allow_empty() {
+        assert_eq!(
+            empty_discovery_decision(true),
+            EmptyDiscoveryDecision::Accept
+        );
+        assert_eq!(
+            empty_discovery_decision(false),
+            EmptyDiscoveryDecision::Reject
+        );
+    }
+
+    /// The recursive decision exactly as `verify --recursive` stated it
+    /// before it moved into this kernel.
+    fn reference_completion(
+        all_passed: bool,
+        ignored: usize,
+        deny_ignored: bool,
+    ) -> RecursiveCompletion {
+        if deny_ignored && ignored != 0 {
+            if !all_passed {
+                return RecursiveCompletion::FailedAndDenied;
+            }
+            return RecursiveCompletion::Denied;
+        }
+        if !all_passed {
+            RecursiveCompletion::Failed
+        } else {
+            match decide_ignored_policy(ignored, deny_ignored) {
+                IgnoredPolicyDecision::Accept(accepted) => RecursiveCompletion::Accept(accepted),
+                IgnoredPolicyDecision::Deny => unreachable!("denied runs return above"),
+            }
+        }
+    }
+
+    #[test]
+    fn recursive_completion_covers_every_branch() {
+        for all_passed in [false, true] {
+            for ignored in [0, 1, 2, usize::MAX] {
+                for deny_ignored in [false, true] {
+                    assert_eq!(
+                        recursive_completion(all_passed, ignored, deny_ignored),
+                        reference_completion(all_passed, ignored, deny_ignored),
+                        "all_passed={all_passed} ignored={ignored} deny={deny_ignored}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            recursive_completion(true, 0, true),
+            RecursiveCompletion::Accept(CommandOutcome::Completed)
+        );
+        assert_eq!(
+            recursive_completion(true, 3, false),
+            RecursiveCompletion::Accept(CommandOutcome::Ignored { count: 3 })
+        );
+        assert_eq!(
+            recursive_completion(false, 0, true),
+            RecursiveCompletion::Failed
+        );
+        assert_eq!(
+            recursive_completion(true, 1, true),
+            RecursiveCompletion::Denied
+        );
+        assert_eq!(
+            recursive_completion(false, 1, true),
+            RecursiveCompletion::FailedAndDenied
         );
     }
 

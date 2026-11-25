@@ -10,7 +10,9 @@
 //! plain Rust and the product gains no dependency. See `proofs/README.md` for
 //! the trusted base and how to re-run the proofs.
 
+pub(crate) mod anchor;
 pub(crate) mod choice;
+pub(crate) mod discovery;
 pub(crate) mod document;
 pub(crate) mod entry;
 pub(crate) mod generation;

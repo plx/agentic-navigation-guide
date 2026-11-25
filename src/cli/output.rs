@@ -1184,7 +1184,7 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
             reason: "the path must end in an ordinary file name".to_string(),
         });
     }
-    if has_windows_namespace_prefix(&raw) {
+    if crate::proven::windows_names::has_namespace_prefix(&raw) {
         return Err(OutputError::InvalidPath {
             path: path.to_path_buf(),
             reason: "device, named-pipe, and verbatim namespaces are not supported".to_string(),
@@ -1196,10 +1196,9 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
             Component::Prefix(prefix) => match prefix.kind() {
                 Prefix::Disk(_) => {}
                 Prefix::UNC(server, share) => {
-                    if windows_name_eq_ascii(share, "pipe")
-                        || windows_name_eq_ascii(share, "mailslot")
-                        || windows_name_eq_ascii(share, "IPC$")
-                    {
+                    if crate::proven::windows_names::is_non_filesystem_share(
+                        share.to_string_lossy().as_bytes(),
+                    ) {
                         return Err(OutputError::InvalidPath {
                             path: path.to_path_buf(),
                             reason: "named-pipe and mailslot namespaces are not filesystem shares"
@@ -1226,101 +1225,37 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn has_windows_namespace_prefix(raw: &[u16]) -> bool {
-    let separator = |unit| unit == u16::from(b'\\') || unit == u16::from(b'/');
-    (raw.len() >= 4
-        && separator(raw[0])
-        && separator(raw[1])
-        && matches!(raw[2], 46 | 63)
-        && separator(raw[3]))
-        || (raw.len() >= 4
-            && separator(raw[0])
-            && raw[1] == u16::from(b'?')
-            && raw[2] == u16::from(b'?')
-            && separator(raw[3]))
-        || (raw.len() >= 5
-            && separator(raw[0])
-            && separator(raw[1])
-            && raw[2] == u16::from(b'?')
-            && raw[3] == u16::from(b'?')
-            && separator(raw[4]))
-}
-
+/// Validate one Windows output-path component. The verified
+/// `proven::windows_names::windows_component_verdict` decides the spelling
+/// rules in their precedence (shared with guide-path input); this glue
+/// supplies the component's UTF-16 code units and the host's Unicode
+/// uppercase form of its text, and maps the verdict to the output diagnostic.
 #[cfg(windows)]
 fn validate_windows_component(path: &Path, component: &std::ffi::OsStr) -> Result<(), OutputError> {
+    use crate::proven::windows_names::{windows_component_verdict, WindowsComponentVerdict};
     use std::os::windows::ffi::OsStrExt;
 
     let units: Vec<u16> = component.encode_wide().collect();
-    if units.contains(&u16::from(b':')) {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "alternate data stream syntax is not allowed".to_string(),
-        });
-    }
-    if units.iter().any(|unit| {
-        *unit < 32
-            || matches!(
-                *unit,
-                value
-                    if value == u16::from(b'<')
-                        || value == u16::from(b'>')
-                        || value == u16::from(b'"')
-                        || value == u16::from(b'|')
-                        || value == u16::from(b'?')
-                        || value == u16::from(b'*')
-            )
-    }) {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path contains a character Windows does not allow in filesystem names"
-                .to_string(),
-        });
-    }
-    if units
-        .last()
-        .is_some_and(|unit| *unit == u16::from(b' ') || *unit == u16::from(b'.'))
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "Windows path components may not end in a space or dot".to_string(),
-        });
-    }
-
     let uppercase = component.to_string_lossy().to_uppercase();
-    let base = uppercase
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(' ');
-    let reserved = matches!(
-        base,
-        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
-    ) || reserved_numbered_alias(base, "COM")
-        || reserved_numbered_alias(base, "LPT");
-    if reserved {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "a reserved DOS device alias is not an ordinary filesystem name".to_string(),
-        });
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn windows_name_eq_ascii(name: &std::ffi::OsStr, expected: &str) -> bool {
-    name.to_string_lossy().eq_ignore_ascii_case(expected)
-}
-
-#[cfg(windows)]
-fn reserved_numbered_alias(name: &str, prefix: &str) -> bool {
-    let Some(suffix) = name.strip_prefix(prefix) else {
-        return false;
+    let reason = match windows_component_verdict(&units, &uppercase) {
+        WindowsComponentVerdict::Ordinary => return Ok(()),
+        WindowsComponentVerdict::AlternateDataStream => {
+            "alternate data stream syntax is not allowed"
+        }
+        WindowsComponentVerdict::ForbiddenCharacter => {
+            "the path contains a character Windows does not allow in filesystem names"
+        }
+        WindowsComponentVerdict::TrailingSpaceOrDot => {
+            "Windows path components may not end in a space or dot"
+        }
+        WindowsComponentVerdict::ReservedDevice => {
+            "a reserved DOS device alias is not an ordinary filesystem name"
+        }
     };
-    matches!(
-        suffix,
-        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-    )
+    Err(OutputError::InvalidPath {
+        path: path.to_path_buf(),
+        reason: reason.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -1727,6 +1662,183 @@ mod tests {
     fn created_handle_validation_rejects_device_handle() {
         let null = File::open("NUL").unwrap();
         assert!(validate_regular_handle(&null).is_err());
+    }
+
+    /// The Windows output-name rules exactly as this module stated them
+    /// before it delegated to `proven::windows_names`, over UTF-8 text.
+    fn previous_output_component_reason(component: &str) -> Option<&'static str> {
+        let units: Vec<u16> = component.encode_utf16().collect();
+        if units.contains(&u16::from(b':')) {
+            return Some("alternate data stream syntax is not allowed");
+        }
+        if units
+            .iter()
+            .any(|unit| *unit < 32 || b"<>\"|?*".iter().any(|byte| *unit == u16::from(*byte)))
+        {
+            return Some(
+                "the path contains a character Windows does not allow in filesystem names",
+            );
+        }
+        if units
+            .last()
+            .is_some_and(|unit| *unit == u16::from(b' ') || *unit == u16::from(b'.'))
+        {
+            return Some("Windows path components may not end in a space or dot");
+        }
+        let uppercase = component.to_uppercase();
+        let base = uppercase
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(' ');
+        let numbered = |prefix: &str| {
+            base.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        };
+        if matches!(
+            base,
+            "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
+        ) || numbered("COM")
+            || numbered("LPT")
+        {
+            return Some("a reserved DOS device alias is not an ordinary filesystem name");
+        }
+        None
+    }
+
+    fn delegated_output_component_reason(component: &str) -> Option<&'static str> {
+        use crate::proven::windows_names::{windows_component_verdict, WindowsComponentVerdict};
+
+        let units: Vec<u16> = component.encode_utf16().collect();
+        match windows_component_verdict(&units, &component.to_uppercase()) {
+            WindowsComponentVerdict::Ordinary => None,
+            WindowsComponentVerdict::AlternateDataStream => {
+                Some("alternate data stream syntax is not allowed")
+            }
+            WindowsComponentVerdict::ForbiddenCharacter => {
+                Some("the path contains a character Windows does not allow in filesystem names")
+            }
+            WindowsComponentVerdict::TrailingSpaceOrDot => {
+                Some("Windows path components may not end in a space or dot")
+            }
+            WindowsComponentVerdict::ReservedDevice => {
+                Some("a reserved DOS device alias is not an ordinary filesystem name")
+            }
+        }
+    }
+
+    #[test]
+    fn windows_output_rules_match_the_previous_output_implementation() {
+        let alphabet = ['C', 'o', 'N', '1', '¹', ':', '.', ' ', '?', '\u{1}', 'ı'];
+        let mut components = vec![String::new()];
+        let mut frontier = vec![String::new()];
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for ch in alphabet {
+                    let mut component = prefix.clone();
+                    component.push(ch);
+                    next.push(component);
+                }
+            }
+            components.extend(next.iter().cloned());
+            frontier = next;
+        }
+        components.extend(
+            [
+                "CON.txt",
+                "con .md",
+                "NUL",
+                "aux",
+                "PRN.log",
+                "CLOCK$",
+                "conin$",
+                "CONOUT$",
+                "COM1",
+                "com9.txt",
+                "LPT³",
+                "lpt²",
+                "COM0",
+                "COM10",
+                "LPT",
+                "conın$",
+                "x<y",
+                "a|b",
+                "a*b",
+                "a\"b",
+                "a>b",
+                "ordinary-output.md",
+                "name.",
+                "name ",
+            ]
+            .map(str::to_string),
+        );
+        for component in &components {
+            assert_eq!(
+                delegated_output_component_reason(component),
+                previous_output_component_reason(component),
+                "{component:?}"
+            );
+        }
+
+        let separator = |unit: u16| unit == u16::from(b'\\') || unit == u16::from(b'/');
+        let previous_namespace = |raw: &[u16]| {
+            (raw.len() >= 4
+                && separator(raw[0])
+                && separator(raw[1])
+                && matches!(raw[2], 46 | 63)
+                && separator(raw[3]))
+                || (raw.len() >= 4
+                    && separator(raw[0])
+                    && raw[1] == u16::from(b'?')
+                    && raw[2] == u16::from(b'?')
+                    && separator(raw[3]))
+                || (raw.len() >= 5
+                    && separator(raw[0])
+                    && separator(raw[1])
+                    && raw[2] == u16::from(b'?')
+                    && raw[3] == u16::from(b'?')
+                    && separator(raw[4]))
+        };
+        let units = b"\\/?.a".map(u16::from);
+        let mut spellings: Vec<Vec<u16>> = vec![Vec::new()];
+        let mut frontier: Vec<Vec<u16>> = vec![Vec::new()];
+        for _ in 0..5 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for unit in units {
+                    let mut spelling = prefix.clone();
+                    spelling.push(unit);
+                    next.push(spelling);
+                }
+            }
+            spellings.extend(next.iter().cloned());
+            frontier = next;
+        }
+        for spelling in &spellings {
+            assert_eq!(
+                crate::proven::windows_names::has_namespace_prefix(spelling),
+                previous_namespace(spelling),
+                "{spelling:?}"
+            );
+        }
+
+        for share in [
+            "pipe", "PIPE", "MailSlot", "ipc$", "IPC$", "share", "pipes", "ıpc$", "",
+        ] {
+            let previous = ["pipe", "mailslot", "IPC$"]
+                .iter()
+                .any(|expected| share.eq_ignore_ascii_case(expected));
+            assert_eq!(
+                crate::proven::windows_names::is_non_filesystem_share(share.as_bytes()),
+                previous,
+                "{share:?}"
+            );
+        }
     }
 
     #[test]
