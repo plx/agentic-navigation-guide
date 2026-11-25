@@ -1,0 +1,57 @@
+name: Verus Proofs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verus:
+    name: Check Verus kernel proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # Keep these pins in sync with proofs/README.md.
+      VERUS_COMMIT: 48ed2e8a36716eecc22057111681d8d29993b701
+      Z3_WHEEL_URL: https://files.pythonhosted.org/packages/f6/e6/98741b086b6e01630a55db1fbda596949f738204aac14ef35e64a9526ccb/z3_solver-4.16.0.0-py3-none-manylinux_2_27_x86_64.whl
+      Z3_WHEEL_SHA256: afae2551f795670f0522cfce82132d129c408a2694adff71eb01ba0f2ece44f9
+      Z3_WHEEL_BINARY: z3_solver-4.16.0.0.data/data/bin/z3
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Fetch Verus at the pinned commit
+      run: |
+        verus_root="$RUNNER_TEMP/verus"
+        git init --quiet "$verus_root"
+        git -C "$verus_root" fetch --quiet --depth 1 \
+          https://github.com/verus-lang/verus.git "$VERUS_COMMIT"
+        git -C "$verus_root" checkout --quiet --detach FETCH_HEAD
+        test "$(git -C "$verus_root" rev-parse HEAD)" = "$VERUS_COMMIT"
+    - name: Install the checksum-pinned Z3 required by Verus
+      run: |
+        wheel="$RUNNER_TEMP/z3_solver.whl"
+        curl --fail --location --silent --show-error "$Z3_WHEEL_URL" --output "$wheel"
+        echo "$Z3_WHEEL_SHA256  $wheel" | sha256sum --check -
+        unzip -p "$wheel" "$Z3_WHEEL_BINARY" > "$RUNNER_TEMP/verus/source/z3"
+        chmod +x "$RUNNER_TEMP/verus/source/z3"
+        "$RUNNER_TEMP/verus/source/z3" --version
+    - name: Build Verus and its verified standard library
+      working-directory: ${{ runner.temp }}/verus/source
+      run: |
+        rustup toolchain install
+        cargo build --release -p rust_verify -p verus -p cargo-verus
+        ./target-verus/release/cargo-verus build --release --manifest-path vstd/Cargo.toml
+    - name: Check the kernel proofs
+      env:
+        VERUS_Z3_PATH: ${{ runner.temp }}/verus/source/z3
+      run: proofs/run.sh "$RUNNER_TEMP/verus/source/target-verus/release/verus"
