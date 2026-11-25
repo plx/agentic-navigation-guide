@@ -421,6 +421,7 @@ fn skip_bom_sequence(line: &[u8], pos: usize) -> usize {
 
 /// Classify a line whose trimmed content starts with the opening name at
 /// `start`.
+#[cfg_attr(verus_keep_ghost, verifier::spinoff_prover)]
 #[cfg_attr(verus_keep_ghost, verus_spec(r =>
     requires
         wsp_run(line@, 0, start as int),
@@ -525,18 +526,16 @@ fn classify_opening_candidate(line: &[u8], start: usize) -> MarkerClass {
             proof! {
                 let quoted = value_len == 6;
                 assert(true_value(quoted).len() == value_len);
-                assert(line@.subrange(q2 as int, q2 + 1) =~= seq![b'=']);
-                assert(line@.subrange(q4 as int, q4 + 1) =~= seq![b'>']);
                 assert(lit_at(line@, q3 as int, true_value(quoted)));
-                assert(wsp_run(line@, 0, start as int) && lit_at(line@, start as int, opening_name())
-                    && wsp_run(line@, start + 25, q1 as int) && q1 > start + 25
-                    && lit_at(line@, q1 as int, ignore_word())
-                    && wsp_run(line@, q1 + 6, q2 as int) && lit_at(line@, q2 as int, seq![b'='])
-                    && wsp_run(line@, q2 + 1, q3 as int) && lit_at(line@, q3 as int, true_value(quoted))
-                    && wsp_run(line@, q3 + true_value(quoted).len(), q4 as int)
-                    && lit_at(line@, q4 as int, seq![b'>'])
-                    && wsp_run(line@, q4 + 1, line@.len() as int));
-                assert(ignored_opening_line(line@));
+                lemma_ignored_opening_witness(
+                    line@,
+                    start as int,
+                    q1 as int,
+                    q2 as int,
+                    q3 as int,
+                    quoted,
+                    q4 as int,
+                );
             }
             return MarkerClass::IgnoredOpening;
         }
@@ -863,6 +862,40 @@ proof fn lemma_not_ignored_at_q4(
         assert(quoted == quoted_scan);
         lemma_lit_first(s, r4, seq![b'>']);
     }
+}
+
+/// The scanned positions form an ignored-marker decomposition.
+proof fn lemma_ignored_opening_witness(
+    s: Seq<u8>,
+    p: int,
+    q1: int,
+    q2: int,
+    q3: int,
+    quoted: bool,
+    q4: int,
+)
+    requires
+        wsp_run(s, 0, p),
+        lit_at(s, p, opening_name()),
+        wsp_run(s, p + 25, q1),
+        q1 > p + 25,
+        lit_at(s, q1, ignore_word()),
+        wsp_run(s, q1 + 6, q2),
+        q2 < s.len(),
+        s[q2] == b'=',
+        wsp_run(s, q2 + 1, q3),
+        lit_at(s, q3, true_value(quoted)),
+        wsp_run(s, q3 + true_value(quoted).len(), q4),
+        q4 < s.len(),
+        s[q4] == b'>',
+        wsp_run(s, q4 + 1, s.len() as int),
+    ensures
+        ignored_opening_line(s),
+{
+    assert(s.subrange(q2, q2 + 1) =~= seq![b'=']);
+    assert(s.subrange(q4, q4 + 1) =~= seq![b'>']);
+    assert(lit_at(s, q2, seq![b'=']));
+    assert(lit_at(s, q4, seq![b'>']));
 }
 
 proof fn lemma_not_closing_line(s: Seq<u8>, start: int)
