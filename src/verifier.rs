@@ -2,9 +2,10 @@
 
 use crate::entry_type::{classify_metadata, EntryClassification, SupportedEntryKind};
 use crate::errors::{AppError, Result, SemanticError};
-use crate::path_codec::{
-    contains_forbidden_control, has_windows_drive_prefix, render_os_component,
-    render_utf8_component,
+use crate::path_codec::{render_os_component, render_utf8_component};
+use crate::proven::generation::{host_name_verdict, HostNameVerdict};
+use crate::proven::placeholder::{
+    first_component, placeholder_satisfied, resolution_step, ResolutionStep,
 };
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -143,12 +144,6 @@ impl Verifier {
             FilesystemItem::Placeholder { .. } => "placeholder".to_string(),
         }
     }
-
-    fn placeholder_has_meaningful_comment(item: &NavigationGuideLine) -> bool {
-        item.comment()
-            .map(|comment| !comment.trim().is_empty())
-            .unwrap_or(false)
-    }
 }
 
 impl<'a, C: VerificationControl> VerificationRun<'a, C> {
@@ -177,8 +172,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
         let mentioned_names = items
             .iter()
             .filter(|item| !item.is_placeholder())
-            .filter_map(|item| item.path().split('/').next())
-            .map(str::to_string)
+            .map(|item| first_component(item.path()))
             .collect::<HashSet<_>>();
         let has_unmentioned_item = snapshot
             .entries
@@ -187,7 +181,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
 
         for item in items {
             if item.is_placeholder() {
-                if !has_unmentioned_item && !Verifier::placeholder_has_meaningful_comment(item) {
+                if !placeholder_satisfied(has_unmentioned_item, item.comment()) {
                     return Err(SemanticError::PlaceholderNoUnmentionedItems {
                         line: item.line_number,
                         parent: self
@@ -310,20 +304,25 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
             )?;
 
             let classification = entry.observation.classification;
-            if index + 1 == components.len() {
-                if classification.is_ok() {
-                    self.require_canonical_containment(&entry.path, item)?;
+            match resolution_step(index + 1 == components.len(), classification) {
+                ResolutionStep::Resolved {
+                    require_containment,
+                } => {
+                    if require_containment {
+                        self.require_canonical_containment(&entry.path, item)?;
+                    }
+                    return Ok(ResolvedItem { entry, ancestors });
                 }
-                return Ok(ResolvedItem { entry, ancestors });
-            }
-            if classification != Ok(SupportedEntryKind::Directory) {
-                return Err(SemanticError::TypeMismatch {
-                    line: item.line_number,
-                    expected: "directory".to_string(),
-                    found: Self::classification_name(classification),
-                    path: components[..=index].join("/"),
+                ResolutionStep::TypeMismatch => {
+                    return Err(SemanticError::TypeMismatch {
+                        line: item.line_number,
+                        expected: "directory".to_string(),
+                        found: Self::classification_name(classification),
+                        path: components[..=index].join("/"),
+                    }
+                    .into());
                 }
-                .into());
+                ResolutionStep::Descend => {}
             }
 
             self.require_canonical_containment(&entry.path, item)?;
@@ -565,17 +564,20 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
                 line,
                 path: PathBuf::from(render_os_component(&name)),
             })?;
-            if contains_forbidden_control(utf8_name) {
-                return Err(AppError::Other(format!(
-                    "line {line}: unsupported control-bearing filesystem name {}",
-                    render_utf8_component(utf8_name)
-                )));
-            }
-            if at_root && (utf8_name.starts_with('\\') || has_windows_drive_prefix(utf8_name)) {
-                return Err(AppError::Other(format!(
-                    "line {line}: unsupported rooted or drive-prefixed filesystem name {}",
-                    render_utf8_component(utf8_name)
-                )));
+            match host_name_verdict(utf8_name, at_root) {
+                HostNameVerdict::Representable => {}
+                HostNameVerdict::ControlBearing => {
+                    return Err(AppError::Other(format!(
+                        "line {line}: unsupported control-bearing filesystem name {}",
+                        render_utf8_component(utf8_name)
+                    )));
+                }
+                HostNameVerdict::RootedOrDrivePrefixed => {
+                    return Err(AppError::Other(format!(
+                        "line {line}: unsupported rooted or drive-prefixed filesystem name {}",
+                        render_utf8_component(utf8_name)
+                    )));
+                }
             }
 
             let observation = match observe_path(&path) {

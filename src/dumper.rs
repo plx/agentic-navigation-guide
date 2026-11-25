@@ -5,24 +5,16 @@ use crate::entry_type::{
 };
 use crate::errors::{AppError, Result};
 use crate::exclusion::ExclusionMatcher;
-use crate::path_codec::{
-    contains_forbidden_control, has_windows_drive_prefix, render_os_component,
-    render_utf8_component, serialize_component,
+use crate::path_codec::{render_os_component, render_utf8_component, serialize_component};
+use crate::proven::generation::{
+    child_depth, descends_into, format_entry_line, generation_configuration, host_name_verdict,
+    ChildDepth, GenerationConfiguration, HostNameVerdict, TraversalLimit, MAX_INDENT_SIZE,
+    MAX_LOGICAL_DEPTH, MIN_INDENT_SIZE,
 };
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-
-const MIN_INDENT_SIZE: usize = 1;
-const MAX_INDENT_SIZE: usize = 16;
-const MAX_LOGICAL_DEPTH: usize = 256;
-
-#[derive(Clone, Copy)]
-struct TraversalLimit {
-    maximum_entry_depth: usize,
-    reject_beyond_limit: bool,
-}
 
 #[derive(Clone, Copy)]
 struct DirectoryPosition<'a> {
@@ -105,30 +97,16 @@ impl Dumper {
     }
 
     fn validate_configuration(&self) -> Result<TraversalLimit> {
-        if !(MIN_INDENT_SIZE..=MAX_INDENT_SIZE).contains(&self.indent_size) {
-            return Err(AppError::Other(format!(
+        match generation_configuration(self.indent_size, self.max_depth) {
+            GenerationConfiguration::Limit(limit) => Ok(limit),
+            GenerationConfiguration::IndentOutOfRange => Err(AppError::Other(format!(
                 "indent size {} is outside the supported range {} through {}",
                 self.indent_size, MIN_INDENT_SIZE, MAX_INDENT_SIZE
-            )));
+            ))),
+            GenerationConfiguration::DepthOutOfRange { depth } => Err(AppError::Other(format!(
+                "maximum depth {depth} is outside the supported range 0 through {MAX_LOGICAL_DEPTH}"
+            ))),
         }
-
-        let (maximum_logical_depth, reject_beyond_limit) = match self.max_depth {
-            Some(depth) if depth <= MAX_LOGICAL_DEPTH => (depth, false),
-            Some(depth) => {
-                return Err(AppError::Other(format!(
-                    "maximum depth {depth} is outside the supported range 0 through {MAX_LOGICAL_DEPTH}"
-                )));
-            }
-            None => (MAX_LOGICAL_DEPTH, true),
-        };
-        let maximum_entry_depth = maximum_logical_depth.checked_add(1).ok_or_else(|| {
-            AppError::Other("maximum generation depth could not be represented".to_string())
-        })?;
-
-        Ok(TraversalLimit {
-            maximum_entry_depth,
-            reject_beyond_limit,
-        })
     }
 
     /// Collect all directory entries respecting depth and exclusion rules
@@ -215,14 +193,19 @@ impl Dumper {
                 continue;
             }
 
-            let depth = position.depth.checked_add(1).ok_or_else(|| {
-                AppError::Other("generation entry depth could not be represented".to_string())
-            })?;
-            if depth > traversal_limit.maximum_entry_depth {
-                return Err(AppError::Other(format!(
-                    "generation without an explicit depth encountered an included entry beyond maximum logical depth {MAX_LOGICAL_DEPTH}"
-                )));
-            }
+            let depth = match child_depth(position.depth, traversal_limit) {
+                ChildDepth::Included(depth) => depth,
+                ChildDepth::Unrepresentable => {
+                    return Err(AppError::Other(
+                        "generation entry depth could not be represented".to_string(),
+                    ));
+                }
+                ChildDepth::BeyondLimit => {
+                    return Err(AppError::Other(format!(
+                        "generation without an explicit depth encountered an included entry beyond maximum logical depth {MAX_LOGICAL_DEPTH}"
+                    )));
+                }
+            };
             Self::validate_included_name(&name, depth == 1)?;
 
             let physical_path = position.physical.join(&name);
@@ -240,10 +223,11 @@ impl Dumper {
                 kind,
             });
 
-            if kind == SupportedEntryKind::Directory
-                && (depth < traversal_limit.maximum_entry_depth
-                    || traversal_limit.reject_beyond_limit)
-            {
+            if descends_into(
+                depth,
+                kind == SupportedEntryKind::Directory,
+                traversal_limit,
+            ) {
                 self.collect_directory(
                     DirectoryPosition {
                         physical: &physical_path,
@@ -403,21 +387,17 @@ impl Dumper {
             )));
         };
 
-        if contains_forbidden_control(name) {
-            return Err(AppError::Other(format!(
+        match host_name_verdict(name, at_root) {
+            HostNameVerdict::Representable => Ok(()),
+            HostNameVerdict::ControlBearing => Err(AppError::Other(format!(
                 "unsupported control-bearing filesystem name {}",
                 render_utf8_component(name)
-            )));
-        }
-
-        if at_root && (name.starts_with('\\') || has_windows_drive_prefix(name)) {
-            return Err(AppError::Other(format!(
+            ))),
+            HostNameVerdict::RootedOrDrivePrefixed => Err(AppError::Other(format!(
                 "unsupported rooted or drive-prefixed filesystem name {}",
                 render_utf8_component(name)
-            )));
+            ))),
         }
-
-        Ok(())
     }
 
     fn prepare_tree(node: &mut TreeNode, depth: usize) -> Result<()> {
@@ -444,17 +424,16 @@ impl Dumper {
     /// Format the tree as markdown
     fn format_tree(&self, node: &TreeNode, output: &mut String, depth: usize) -> Result<()> {
         for child in &node.children {
-            let indent_width = depth.checked_mul(self.indent_size).ok_or_else(|| {
+            let line = format_entry_line(
+                depth,
+                self.indent_size,
+                &child.serialized_name,
+                child.is_dir,
+            )
+            .ok_or_else(|| {
                 AppError::Other("generation indentation width could not be represented".to_string())
             })?;
-            let indent = " ".repeat(indent_width);
-            let name = if child.is_dir {
-                format!("{}/", child.serialized_name)
-            } else {
-                child.serialized_name.clone()
-            };
-
-            output.push_str(&format!("{indent}- {name}\n"));
+            output.push_str(&line);
 
             if !child.children.is_empty() {
                 let child_depth = depth.checked_add(1).ok_or_else(|| {
