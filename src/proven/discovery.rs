@@ -20,6 +20,13 @@
 //! link/directory facts of the metadata, and performs the I/O each action
 //! names, in the order the actions are decided.
 //!
+//! Scope of the proof: Verus proves the per-entry decision table. That the
+//! traversal in `src/recursive.rs` consults the exclusion verdict before any
+//! metadata call, and pushes exactly the `Descend` entries onto its worklist,
+//! are properties of that unverified loop; `pushed_entries` models the loop
+//! so the worklist theorem can be stated, but nothing ties the model to the
+//! production code.
+//!
 //! The theorems below state the contract-level consequences:
 //!
 //! - `theorem_excluded_entries_are_never_inspected`: an excluded entry is
@@ -36,9 +43,10 @@
 //!   not have the guide name;
 //! - `theorem_accepted_guides_are_included_non_links`: every accepted guide
 //!   has the guide name, is not excluded, and is not a link;
-//! - `theorem_worklist_contains_only_real_included_directories`: over any
-//!   sequence of enumerated entries, every entry pushed onto the traversal
-//!   worklist is a non-link, non-excluded directory without the guide name.
+//! - `theorem_worklist_contains_only_real_included_directories`: in the
+//!   `pushed_entries` model of the traversal loop, over any sequence of
+//!   enumerated entries, every entry pushed onto the worklist is a non-link,
+//!   non-excluded directory without the guide name.
 
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;

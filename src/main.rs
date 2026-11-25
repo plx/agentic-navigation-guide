@@ -71,12 +71,13 @@ fn main() {
         Command::Verify(args) => args.execute(&mut config),
     };
 
-    // Handle the result and exit with appropriate code
+    // Handle the result and exit with appropriate code. Every status,
+    // success included, comes from the verified exit-status table.
     match result {
-        Ok(CommandOutcome::Completed) => std::process::exit(0),
+        Ok(CommandOutcome::Completed) => std::process::exit(cli::get_exit_code(&config, false)),
         Ok(CommandOutcome::Ignored { count }) => {
             debug_assert_ne!(count, 0);
-            std::process::exit(0);
+            std::process::exit(cli::get_exit_code(&config, false));
         }
         Err(e) => {
             if !e.is_reported() {

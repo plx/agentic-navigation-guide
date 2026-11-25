@@ -105,7 +105,7 @@ that specification. Theorem names are searchable in the source.
 
 | Decision | Code | What Verus proves |
 |---|---|---|
-| Configuration and depth limits | `src/proven/generation.rs` | `theorem_configuration_table`; `theorem_explicit_depth_is_exact` (an explicit `--depth` never errors and bounds the logical depth); `theorem_default_depth_fails_closed`. |
+| Configuration and depth limits | `src/proven/generation.rs` | `theorem_configuration_table`; `theorem_explicit_depth_is_exact` (an explicit `--depth` never errors and bounds the logical depth); `theorem_default_depth_fails_closed`. The CLI's `--indent` and `--depth` parsing uses the same verified bounds; clap's argument order decides which error wins when both are out of range. |
 | Guide lines | `src/proven/generation.rs` | `format_entry_line` emits exactly indentation, `- `, the name, an optional `/`, and a newline (`entry_line_spec`). |
 | Name admission and integers | `src/proven/generation.rs` | `host_name_verdict` is the shared representability rule; `parse_unsigned_decimal` equals `str::parse::<usize>`. |
 
@@ -114,12 +114,12 @@ that specification. Theorem names are searchable in the source.
 | Decision | Code | What Verus proves |
 |---|---|---|
 | Entry types | `src/entry_type.rs` (in place) | `theorem_fail_closed`: a supported kind is returned exactly when there is no reparse, link, FIFO, socket, or device evidence and exactly one of the file and directory flags is set. |
-| Placeholders and resolution | `src/proven/placeholder.rs` | `theorem_placeholder_acceptance`; `theorem_resolution_descends_only_through_directories`. |
-| Recursive discovery | `src/proven/discovery.rs` | Excluded entries are pruned before any metadata access, links are never descended, guide-named entries are always validated and never descended, and the worklist holds only non-link, non-excluded directories. |
+| Placeholders and resolution | `src/proven/placeholder.rs` | `theorem_placeholder_acceptance`; `theorem_resolution_descends_only_through_directories`. A comment satisfies a placeholder when it has a non-`White_Space` scalar, which is wider than the parser's SP/HTAB comment trimming. |
+| Recursive discovery | `src/proven/discovery.rs` | The per-entry decision: an excluded entry gets no action, a link is never descended or accepted as a guide, a guide-named entry is always validated and never descended, and only non-link, non-excluded directories are descended. That the traversal consults the exclusion verdict before metadata access and pushes exactly the descended entries is a property of the unverified loop in `src/recursive.rs`, which `pushed_entries` models. |
 | Guide-path reduction | `src/proven/anchor.rs` | The reduction is an ordered plan that the glue executes. `theorem_plan_follows_components`, `theorem_every_erased_component_is_inspected`, `theorem_reduction_tracks_lexical_depth`, `theorem_left_path_is_never_in_anchor`. |
 | Windows spellings | `src/proven/windows_names.rs` | Namespace prefixes and the component verdict in its exact order; `theorem_accepted_component_is_ordinary`. Unicode uppercasing stays a trusted `std` input. |
 | Exclusion patterns | `src/proven/glob.rs` | The matcher equals a declarative glob semantics; `*` and `?` never cross a component, a literal pattern matches only itself, `**` matches every non-empty path, and the compiler emits only well-formed patterns. |
-| Outcomes and exit status | `src/proven/outcome.rs` | `theorem_exit_status_table`, `theorem_denied_ignored_never_succeeds`, `theorem_recursive_run_succeeds`. |
+| Outcomes and exit status | `src/proven/outcome.rs` | `theorem_exit_status_table`, `theorem_denied_ignored_never_succeeds`, `theorem_recursive_run_succeeds`. `main` routes every exit, success included, through the verified table. No decision takes the log level, although a stdout write that only non-quiet mode performs can still fail in the unverified output glue. |
 
 ### Round trip
 

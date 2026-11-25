@@ -15,9 +15,10 @@
 //! - [`recursive_completion`]: after recursive verification, whether the run
 //!   succeeds, failed, is rejected by `--deny-ignored`, or both.
 //!
-//! Neither kernel takes a log level: quiet and verbose mode are not inputs to
-//! any status decision, by construction of these signatures, so they can
-//! change output only, never the outcome or the status.
+//! No kernel takes a log level: quiet and verbose mode are not inputs to any
+//! status decision, by construction of these signatures. This does not cover
+//! the unverified output glue: a stdout write that only non-quiet mode
+//! performs can still fail and turn a run into an error.
 //!
 //! The theorems below state the contract-level consequences:
 //!

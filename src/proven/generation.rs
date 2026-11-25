@@ -58,13 +58,16 @@ use vstd::std_specs::iter::IteratorSpec;
 
 /// Smallest supported indent size.
 #[cfg_attr(verus_keep_ghost, verus_verify)]
-const MIN_INDENT_SIZE: usize = 1;
+pub(crate) const MIN_INDENT_SIZE: usize = 1;
 /// Largest supported indent size.
 #[cfg_attr(verus_keep_ghost, verus_verify)]
-const MAX_INDENT_SIZE: usize = 16;
+pub(crate) const MAX_INDENT_SIZE: usize = 16;
+/// Smallest supported `--depth`.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+pub(crate) const MIN_LOGICAL_DEPTH: usize = 0;
 /// Largest supported logical depth.
 #[cfg_attr(verus_keep_ghost, verus_verify)]
-const MAX_LOGICAL_DEPTH: usize = 256;
+pub(crate) const MAX_LOGICAL_DEPTH: usize = 256;
 
 /// The entry-depth limit of one generation traversal.
 #[cfg_attr(verus_keep_ghost, verus_verify)]

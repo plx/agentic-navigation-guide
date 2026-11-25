@@ -8,16 +8,13 @@ use crate::exclusion::ExclusionMatcher;
 use crate::path_codec::{render_os_component, render_utf8_component, serialize_component};
 use crate::proven::generation::{
     child_depth, descends_into, format_entry_line, generation_configuration, host_name_verdict,
-    ChildDepth, GenerationConfiguration, HostNameVerdict, TraversalLimit,
+    ChildDepth, GenerationConfiguration, HostNameVerdict, TraversalLimit, MAX_INDENT_SIZE,
+    MAX_LOGICAL_DEPTH, MIN_INDENT_SIZE,
 };
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-
-const MIN_INDENT_SIZE: usize = 1;
-const MAX_INDENT_SIZE: usize = 16;
-const MAX_LOGICAL_DEPTH: usize = 256;
 
 #[derive(Clone, Copy)]
 struct DirectoryPosition<'a> {

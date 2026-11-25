@@ -253,8 +253,9 @@ pub(crate) fn init_logging(config: &Config) {
 
 /// Get the appropriate exit code based on execution mode.
 ///
-/// The status is decided by the verified `proven::outcome::exit_status`
-/// from the execution mode alone; the log level is not an input.
+/// `main` routes every outcome, success included, through this function, and
+/// the status is decided by the verified `proven::outcome::exit_status` from
+/// the execution mode alone; the log level is not an input.
 pub(crate) fn get_exit_code(config: &Config, is_error: bool) -> i32 {
     outcome::exit_status(status_mode(config.execution_mode), is_error)
 }
