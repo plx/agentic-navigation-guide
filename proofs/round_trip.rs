@@ -14,12 +14,15 @@
 //! The kernels involved are: generation's name admission
 //! (`proven::generation::host_name_verdict`), canonical serialization
 //! (`path_codec::serialize_component`), and line formatting
-//! (`proven::generation::format_entry_line`); and the parser's marker
-//! classification (`proven::marker`), envelope fold (`proven::document`),
-//! line-ending check (`proven::document::first_lone_cr_line`), list-item
-//! layout and indentation (`proven::layout`), entry-text parsing
-//! (`proven::entry`), and the validator's structural path rules
-//! (`proven::path_rules`).
+//! (`proven::generation::format_entry_line`); and the parser's line-ending
+//! check (`proven::document::first_lone_cr_line`), physical-line splitting
+//! (`proven::lines::split_lines`, specified by `lines::physical_lines`),
+//! marker classification (`proven::marker`), envelope fold
+//! (`proven::document`), empty-body check (`proven::lines::is_blank_body`),
+//! list-item layout and indentation (`proven::layout`), entry-text parsing
+//! (`proven::entry`), hierarchy assembly plan (`proven::hierarchy`, whose
+//! decisions `hierarchy::plan_item` makes), and the validator's structural
+//! path rules (`proven::path_rules`).
 //!
 //! # Model
 //!
@@ -33,8 +36,18 @@
 //! `Dumper::format_tree`: each child's line in stored order, then, when the
 //! child has children, its children one level deeper. An emission is a
 //! sequence of [`Emitted`] `(depth, name, kind)`; its body lines are the
-//! `format_entry_line` outputs without their final line feed, as
-//! `str::lines` yields them.
+//! `format_entry_line` outputs without their final line feed.
+//! [`tree_parents`] gives each emitted node the preorder index of the node
+//! whose children list holds it (`None` for the root's children), and
+//! [`tree_nodes`] pairs it with the node's name and kind.
+//!
+//! Documents are scalar sequences. Their lines are [`physical_lines`], the
+//! specification of the verified splitter the parser calls
+//! (`lines::split_lines`, proven to return exactly `physical_lines` of its
+//! input); the parser no longer calls `str::lines` or re-joins the body, so
+//! neither is modeled. It hands the body slice `lines[start + 1..end]`
+//! ([`envelope_body`]) to `lines::is_blank_body` and then, line by line, to
+//! its per-line loop.
 //!
 //! # Theorems
 //!
@@ -68,72 +81,100 @@
 //!   them as one active (not ignored) block whose opening marker is line 1,
 //!   whose closing marker is the last line, and whose body is exactly the
 //!   given lines.
+//! - T5 [`theorem_tree_assembly`]: for every well-formed tree, the verified
+//!   hierarchy assembly ([`assembly`]) over the emitted depths and kinds
+//!   accepts every item and attaches item `i` exactly to
+//!   `tree_parents(roots)[i]`, the index of its parent node (`None` for the
+//!   root's children). [`theorem_tree_hierarchy_round_trip`]: the items the
+//!   parser's per-line loop recovers from the body (one per line,
+//!   [`one_item_per_line`]) assemble into exactly the tree's nodes:
+//!   [`assembled_nodes`] (path, kind, and assembled parent index per item)
+//!   equals [`tree_nodes`]. [`theorem_tree_nodes_injective`]: that node
+//!   structure determines the tree.
 //! - [`theorem_document_text_lines`]: the text `dump_with_wrapper` builds
-//!   has no carriage return, so the parser's lone-CR check accepts it; split
-//!   as `str::lines` documents ([`lines_spec`]) it gives exactly the opening
-//!   line, the body lines, and the closing line; and the body the parser
-//!   re-joins with line feeds splits back into the same lines and is not
-//!   blank.
+//!   has no carriage return, so the parser's lone-CR check accepts it; its
+//!   physical lines are exactly the opening line, the body lines, and the
+//!   closing line; and a nonempty body is not blank ([`blank_lines`] is
+//!   false), so the empty-block check passes.
+//!   [`lemma_lines_spec_is_physical_lines`] relates [`physical_lines`] to
+//!   the closed-form [`lines_spec`] on carriage-return-free text.
 //! - [`theorem_dump_round_trip`]: all of the above for the document `dump`
-//!   writes for a nonempty well-formed tree, ending in the parser's items
-//!   and the uniqueness of the tree they came from.
+//!   writes for a nonempty well-formed tree: the physical lines, the
+//!   envelope on lines 1 and `body.len() + 2`, the sliced body, the parsed
+//!   items, the assembled hierarchy equal to the tree's nodes, and the
+//!   uniqueness of the tree the items came from.
 //! - [`theorem_init_text_lines`], [`theorem_framed_document_envelope`], and
 //!   [`theorem_init_round_trip`]: the same for the file `init` writes, which
 //!   surrounds that document with five Markdown prologue lines and two
 //!   epilogue lines; every one of them is ordinary text, so the envelope
-//!   fold accepts the block on lines 6 through `body.len() + 7` with the
-//!   same body.
+//!   fold accepts the block on lines 6 and `body.len() + 7` with the same
+//!   body.
 //!
 //! `lemma_example_tree` and `lemma_example_round_trip` instantiate the
 //! hypotheses with a concrete tree (a directory `src` holding the file
-//! `a#b`, which generation must quote), so the theorems are not vacuous.
+//! `a#b`, which generation must quote, with parents `[None, Some(0)]`), so
+//! the theorems are not vacuous.
 //!
-//! # What the theorems do not cover
+//! # What is verified and what is modeled
 //!
-//! The theorems state what the kernels' specifications imply when they are
-//! called in the order the unverified glue calls them. That glue is checked
-//! by tests, not by these proofs:
+//! Every kernel named above is a shipped function Verus proves against its
+//! specification; the theorems compose those specifications. The glue that
+//! calls the kernels is not verified. These theorems hold for it only if it
+//! calls them as follows, which tests check:
 //!
-//! - Generation traversal and tree building: directory enumeration, entry
-//!   classification, exclusion, and depth limits; `Dumper::build_tree`
-//!   producing one node per included entry, children only under
-//!   directories, and distinct sibling names; `Dumper::prepare_tree`
-//!   sorting children (the theorems hold for every child order) and
-//!   calling `host_name_verdict` with `depth == 0` and `serialize_component`
-//!   for every child; `Dumper::format_tree`'s recursion emitting exactly
-//!   [`flatten_from`]; `Dumper::dump_with_wrapper`'s `format!` building
-//!   exactly [`document_text`]; and the raw-string `format!` in
-//!   `cli/init.rs` building exactly [`init_text`] (its prose lines are
-//!   transcribed in [`init_title`], [`init_intro`], [`init_scope`], and
-//!   [`init_note`]). `format_entry_line` fails only when
-//!   `depth * indent` overflows `usize`, which no depth up to 256 with an
-//!   indent size up to 16 does; T1 itself holds for every depth and indent.
-//! - The standard library: `str::lines` splitting carriage-return-free text
-//!   as [`lines_spec`] (its documented behavior), `[&str]::join("\n")` as
-//!   [`join_lf`], and `String` and `Vec` plumbing.
-//! - Parser assembly: `Parser::extract_guide_block` slicing
-//!   `lines[start + 1..end]` from the envelope's marker lines (T4 states the
-//!   slice) and re-splitting it; `Parser::parse_guide_content` performing
-//!   exactly [`parse_lines`] (one `layout_entry_line`, one `parse_entry` at
-//!   `depth == 0`, and one `advance` per line, in order);
-//!   `Parser::parse_entry_items` turning a single parsed path into one
-//!   `FilesystemItem` of its kind; and `Parser::build_hierarchy` assembling
-//!   the items into a hierarchy. The theorems prove that the recovered
-//!   `(depth, name, kind)` sequence determines the tree, not that
-//!   `build_hierarchy` rebuilds it.
+//! - Generation (modeled): directory enumeration, entry classification,
+//!   exclusion, and depth limits; `Dumper::build_tree` producing one node
+//!   per included entry, children only under directories, and distinct
+//!   sibling names; `Dumper::prepare_tree` sorting children (the theorems
+//!   hold for every child order) and calling `host_name_verdict` (with
+//!   `at_root` exactly for the root's children) and `serialize_component`
+//!   for every child;
+//!   `Dumper::format_tree`'s recursion emitting exactly [`flatten_from`]
+//!   and appending each `format_entry_line` output ([`body_text`]);
+//!   `Dumper::dump_with_wrapper`'s `format!` building exactly
+//!   [`document_text`]; and the raw-string `format!` in `cli/init.rs`
+//!   building exactly [`init_text`] (its prose lines are transcribed in
+//!   [`init_title`], [`init_intro`], [`init_scope`], and [`init_note`], and
+//!   it is modeled with `[&str]::join("\n")`, [`join_lf`]).
+//!   `format_entry_line` fails only when `depth * indent` overflows
+//!   `usize`, which no depth up to 256 with an indent size up to 16 does;
+//!   T1 itself holds for every depth and indent.
+//! - Parser glue (modeled): `Parser::extract_guide_block` passing the
+//!   decoded document to `first_lone_cr_line` and `split_lines`, feeding the
+//!   lines' marker classes to `scan_marker_line` in order with line numbers
+//!   `1, 2, ...` and then `finish_envelope` (whose fold is
+//!   `locate_envelope`), and slicing `lines[start + 1..end]` (stated by
+//!   [`envelope_body`]); `Parser::parse_guide_content` calling
+//!   `is_blank_body` on that slice and then performing exactly
+//!   [`parse_lines`] (one `layout_entry_line`, one `parse_entry` with
+//!   `at_root` exactly at depth 0, and one `advance` per line, in order);
+//!   `Parser::parse_entry_items` turning a single-path entry into one
+//!   `FilesystemItem` of its kind ([`item_depths`] and [`item_dirs`]); and
+//!   `Parser::build_hierarchy_with_observer` calling `plan_item` once per
+//!   item with the open-stack length and the item's depth, closing exactly
+//!   the returned number of directories, pushing exactly the directory
+//!   items, and draining the stack. The theorems prove that the assembly
+//!   plan attaches every item to its tree parent; the moves of
+//!   `NavigationGuideLine` values (`close_directory`,
+//!   `append_hierarchy_item`, and the final `Vec` of roots) that realize the
+//!   plan are trusted.
 //! - Validator checks other than the structural path rules: a nonempty
 //!   item list, unique full paths (true of a filesystem tree, whose sibling
-//!   names are distinct, but not modeled here), indentation consistency and
-//!   nesting over the assembled hierarchy, and placeholder rules (generated
-//!   guides have no placeholders). T1 applies the structural path rules
-//!   with `at_root` exactly for depth 0, which is where the validator
-//!   applies them once `build_hierarchy` has placed depth-0 items at the
-//!   top level.
+//!   names are distinct, but not modeled here), and placeholder rules
+//!   (generated guides have no placeholders). Indentation consistency and
+//!   nesting cannot fire on any parsed body, generated ones included
+//!   (`theorem_positive_depths_include_one` and
+//!   `theorem_children_one_level_deeper` in `proven::hierarchy`). T1
+//!   applies the structural path rules with `at_root` exactly for depth 0,
+//!   which is where the validator applies them once the assembly has placed
+//!   depth-0 items at the top level.
 //! - File I/O and encoding: writing the generated document (`init`, or
 //!   `dump` to stdout or a file), reading it back through the guide-input
 //!   checks, and UTF-8 decoding; the theorems are over Unicode scalar
-//!   sequences, and the marker kernel's input is their UTF-8 encoding.
-//! - The filesystem half of the invariant: `verify` against the same tree.
+//!   sequences, and the marker and lone-CR kernels' input is their UTF-8
+//!   encoding.
+//! - `String` and `Vec` plumbing, and the filesystem half of the invariant:
+//!   `verify` against the same tree.
 
 use vstd::prelude::*;
 
@@ -153,12 +194,20 @@ use crate::proven::document::{
     Envelope, EnvelopeError,
 };
 use crate::proven::entry::{
-    bare_path_rule, can_own_children, entry_spec, is_plain_bare_text, single_path_spec,
-    theorem_plain_bare_entry, theorem_quoted_component_entry, EntryView, FailureView, ShapeView,
+    bare_path_rule, can_own_children, entry_items, entry_spec, is_plain_bare_text,
+    single_path_spec, theorem_plain_bare_entry, theorem_quoted_component_entry, EntryView,
+    FailureView, ShapeView,
 };
 use crate::proven::generation::{
     directory_marker, entry_line_spec, host_name_verdict_spec, spaces,
     theorem_representable_names_are_valid_paths, HostNameVerdict,
+};
+use crate::proven::hierarchy::{
+    assembly, attached_to_preorder_parent, natural_depths, preorder_parent,
+    theorem_assembly_accepts_exactly, theorem_assembly_parents,
+};
+use crate::proven::lines::{
+    cr_free, join_lf, lf_free, lf_pieces, physical_lines, theorem_lines_without_cr,
 };
 use crate::proven::layout::{
     advance_state, all_white_space, depth_rules, entry_shape, initial_indent_state, is_list_item,
@@ -211,16 +260,6 @@ pub(crate) open spec fn emitted_line(depth: nat, indent: nat, n: Seq<char>, is_d
 /// kind, and no comment.
 pub(crate) open spec fn single_entry(n: Seq<char>, is_dir: bool) -> EntryView {
     EntryView { shape: ShapeView::Single { path: n, directory: is_dir }, comment: None }
-}
-
-/// No scalar of `s` is a line feed.
-pub(crate) open spec fn lf_free(s: Seq<char>) -> bool {
-    forall|i: int| 0 <= i < s.len() ==> #[trigger] s[i] != '\n'
-}
-
-/// No scalar of `s` is a carriage return.
-pub(crate) open spec fn cr_free(s: Seq<char>) -> bool {
-    forall|i: int| 0 <= i < s.len() ==> #[trigger] s[i] != '\r'
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +756,30 @@ pub(crate) open spec fn line_recovers(
     &&& path_verdict(name, depth == 0) == PathVerdict::Valid
 }
 
+/// The depths and kinds of a valid emission obey the layout kernel's depth
+/// rules (which are also the rules the hierarchy assembly accepts), with
+/// "is a directory" as "can own children".
+proof fn lemma_emission_depth_rules(es: Seq<Emitted>)
+    requires
+        valid_emission(es),
+    ensures
+        depth_rules(emitted_depths(es), emitted_kinds(es)),
+{
+    let owns = emitted_kinds(es);
+    let depths = emitted_depths(es);
+    assert forall|i: int| 0 < i < depths.len() && #[trigger] depths[i] == depths[i - 1]
+        + 1 implies owns[i - 1] by {
+        assert(step_ok(es[i - 1], es[i]));
+    }
+    assert forall|i: int| 0 < i < depths.len() implies #[trigger] depths[i] <= depths[i - 1]
+        + 1 by {
+        assert(step_ok(es[i - 1], es[i]));
+    }
+    assert forall|i: int| 0 <= i < depths.len() implies 0 <= #[trigger] depths[i] <= 256 by {
+        assert(es[i].depth <= 256);
+    }
+}
+
 /// The layout half of T2: the layout kernel accepts the emitted body lines
 /// with exactly the emitted depths, and the body satisfies the contract's
 /// indentation and parentage rules with the indent size as its unit.
@@ -743,19 +806,7 @@ proof fn lemma_body_layout(es: Seq<Emitted>, indent: nat)
         assert(depths[i] == e.depth as int);
         assert((e.depth * indent) as int == (e.depth as int) * (indent as int));
     }
-    assert(depth_rules(depths, owns)) by {
-        assert forall|i: int| 0 < i < depths.len() && #[trigger] depths[i] == depths[i - 1]
-            + 1 implies owns[i - 1] by {
-            assert(step_ok(es[i - 1], es[i]));
-        }
-        assert forall|i: int| 0 < i < depths.len() implies #[trigger] depths[i] <= depths[i - 1]
-            + 1 by {
-            assert(step_ok(es[i - 1], es[i]));
-        }
-        assert forall|i: int| 0 <= i < depths.len() implies 0 <= #[trigger] depths[i] <= 256 by {
-            assert(es[i].depth <= 256);
-        }
-    }
+    lemma_emission_depth_rules(es);
     assert(width_rule(lines, depths, indent as int));
     assert(valid_layout(lines, owns, depths, indent as int));
     theorem_layout_complete(lines, owns, depths, indent as int);
@@ -767,9 +818,9 @@ proof fn lemma_body_layout(es: Seq<Emitted>, indent: nat)
 /// its kind, which is what the entry kernel reports for it), the body
 /// satisfies the contract's indentation and parentage rules with the
 /// indent size as its unit, and every line is ordinary text whose entry
-/// text parses, at its recovered depth, to exactly its name and kind.
-/// Since the hierarchy builder is a function of the per-line depths and
-/// items alone, parsing recovers `(depth, name, kind)` for every line.
+/// text parses, at its recovered depth, to exactly its name and kind, so
+/// parsing recovers `(depth, name, kind)` for every line (T5 then assembles
+/// those items into the tree's hierarchy).
 pub(crate) proof fn theorem_body_round_trip(es: Seq<Emitted>, indent: nat)
     requires
         valid_emission(es),
@@ -1295,6 +1346,472 @@ pub(crate) proof fn theorem_tree_emission_injective(r1: Seq<SpecTree>, r2: Seq<S
 }
 
 // ---------------------------------------------------------------------------
+// T5: the assembled hierarchy
+// ---------------------------------------------------------------------------
+
+/// The parent of every node of `flatten_from(cs, i, _)`, by preorder index,
+/// when that emission starts at index `base` and the nodes `cs[i..]` have
+/// the parent `parent`: each node's entry is `parent`, the entries of its
+/// children are `Some` of its own index, and the next sibling's subtree
+/// starts after its own.
+pub(crate) open spec fn parents_from(
+    cs: Seq<SpecTree>,
+    i: int,
+    base: int,
+    parent: Option<int>,
+) -> Seq<Option<int>>
+    decreases cs, cs.len() - i,
+{
+    if i < 0 || i >= cs.len() {
+        Seq::empty()
+    } else {
+        let t = cs[i];
+        let sub = if t.children.len() > 0 {
+            parents_from(t.children, 0, base + 1, Some(base))
+        } else {
+            Seq::empty()
+        };
+        seq![parent] + sub + parents_from(cs, i + 1, base + 1 + sub.len(), parent)
+    }
+}
+
+/// For every node of the tree, in `format_tree` (preorder) order, the
+/// preorder index of the node whose children list holds it, or `None` for
+/// the generation root's children.
+pub(crate) open spec fn tree_parents(roots: Seq<SpecTree>) -> Seq<Option<int>> {
+    parents_from(roots, 0, 0, None)
+}
+
+/// One node of a hierarchy, by preorder index: its name, its kind, and the
+/// index of its parent (`None` for a root).
+pub(crate) struct NodeView {
+    pub(crate) name: Seq<char>,
+    pub(crate) is_dir: bool,
+    pub(crate) parent: Option<int>,
+}
+
+/// The tree's nodes in `format_tree` order: name, kind, and the index of the
+/// parent node.
+pub(crate) open spec fn tree_nodes(roots: Seq<SpecTree>) -> Seq<NodeView> {
+    let es = tree_emission(roots);
+    let ps = tree_parents(roots);
+    Seq::new(
+        es.len(),
+        |i: int| NodeView { name: es[i].name, is_dir: es[i].is_dir, parent: ps[i] },
+    )
+}
+
+/// Every parsed line contributes exactly one hierarchy item: the entry
+/// kernel's [`entry_items`] for its entry has one `(path, is_directory)`
+/// pair, as it does for every single path.
+pub(crate) open spec fn one_item_per_line(parsed: Seq<(int, EntryView)>) -> bool {
+    forall|i: int| 0 <= i < parsed.len() ==> #[trigger] entry_items(parsed[i].1).len() == 1
+}
+
+/// The logical depth of each item `Parser::parse_guide_content` hands to
+/// `Parser::build_hierarchy` when every line contributes one item: its
+/// line's depth.
+pub(crate) open spec fn item_depths(parsed: Seq<(int, EntryView)>) -> Seq<int> {
+    Seq::new(parsed.len(), |i: int| parsed[i].0)
+}
+
+/// Whether each such item is a directory (`NavigationGuideLine::is_directory`):
+/// the kind of its line's one [`entry_items`] pair, which is the
+/// `FilesystemItem` kind `Parser::parse_entry_items` builds for it.
+pub(crate) open spec fn item_dirs(parsed: Seq<(int, EntryView)>) -> Seq<bool> {
+    Seq::new(parsed.len(), |i: int| entry_items(parsed[i].1)[0].1)
+}
+
+/// The hierarchy `Parser::build_hierarchy` assembles from parsed lines that
+/// each contribute one item: the verified assembly plan
+/// ([`assembly`], whose decisions `hierarchy::plan_item` makes) over the
+/// items' depths and kinds, and, item by item in source order, its path,
+/// its kind, and the index of the item it is attached to; `None` when the
+/// plan rejects an item.
+pub(crate) open spec fn assembled_nodes(parsed: Seq<(int, EntryView)>) -> Option<Seq<NodeView>> {
+    match assembly(item_depths(parsed), item_dirs(parsed)) {
+        Ok(s) => Some(
+            Seq::new(
+                parsed.len(),
+                |i: int|
+                    NodeView {
+                        name: entry_items(parsed[i].1)[0].0,
+                        is_dir: entry_items(parsed[i].1)[0].1,
+                        parent: s.parents[i],
+                    },
+            ),
+        ),
+        Err(_) => None,
+    }
+}
+
+/// Item `p` of the emission `f` is the preorder parent of item `k`: an
+/// earlier item one level shallower, with only items at least as deep as
+/// `k` between them.
+pub(crate) open spec fn emitted_parent(f: Seq<Emitted>, k: int, p: int) -> bool {
+    &&& 0 <= p < k < f.len()
+    &&& f[p].depth + 1 == f[k].depth
+    &&& forall|q: int| p < q < k ==> f[k].depth <= (#[trigger] f[q]).depth
+}
+
+/// `ps` gives every item of `f` at `depth` the parent `parent`, and every
+/// deeper item its preorder parent in `f`, offset by `base`.
+pub(crate) open spec fn parents_at(
+    f: Seq<Emitted>,
+    ps: Seq<Option<int>>,
+    depth: nat,
+    base: int,
+    parent: Option<int>,
+) -> bool {
+    &&& ps.len() == f.len()
+    &&& forall|k: int| 0 <= k < f.len() && f[k].depth == depth ==> #[trigger] ps[k] == parent
+    &&& forall|k: int|
+        0 <= k < f.len() && f[k].depth != depth ==> (#[trigger] ps[k]) is Some && emitted_parent(
+            f,
+            k,
+            ps[k]->Some_0 - base,
+        )
+}
+
+/// A child's item, followed by its subtree one level deeper and then its
+/// later siblings, keeps [`parents_at`]: the subtree's shallowest items have
+/// the child (at index `base`) as parent.
+proof fn lemma_parents_concat(
+    e: Emitted,
+    sub: Seq<Emitted>,
+    sub_ps: Seq<Option<int>>,
+    rest: Seq<Emitted>,
+    rest_ps: Seq<Option<int>>,
+    depth: nat,
+    base: int,
+    parent: Option<int>,
+)
+    requires
+        e.depth == depth,
+        forall|k: int| 0 <= k < sub.len() ==> depth < (#[trigger] sub[k]).depth,
+        parents_at(sub, sub_ps, depth + 1, base + 1, Some(base)),
+        parents_at(rest, rest_ps, depth, base + 1 + sub.len(), parent),
+    ensures
+        parents_at(seq![e] + sub + rest, seq![parent] + sub_ps + rest_ps, depth, base, parent),
+{
+    let f = seq![e] + sub + rest;
+    let ps = seq![parent] + sub_ps + rest_ps;
+    let n = sub.len() as int;
+    let b2 = base + 1 + n;
+    assert forall|k: int| 0 <= k < f.len() && f[k].depth == depth implies #[trigger] ps[k]
+        == parent by {
+        if 0 < k < 1 + n {
+            assert(f[k] == sub[k - 1]);
+        } else if k >= 1 + n {
+            assert(f[k] == rest[k - 1 - n]);
+            assert(ps[k] == rest_ps[k - 1 - n]);
+        }
+    }
+    assert forall|k: int| 0 < k < 1 + n && f[k].depth != depth implies (#[trigger] ps[k]) is Some
+        && emitted_parent(f, k, ps[k]->Some_0 - base) by {
+        let m = k - 1;
+        assert(f[k] == sub[m]);
+        assert(ps[k] == sub_ps[m]);
+        if sub[m].depth == depth + 1 {
+            assert(ps[k] == Some(base));
+            assert(f[0] == e);
+            assert forall|q: int| 0 < q < k implies f[k].depth <= (#[trigger] f[q]).depth by {
+                assert(f[q] == sub[q - 1]);
+            }
+        } else {
+            let p = sub_ps[m]->Some_0 - (base + 1);
+            assert(emitted_parent(sub, m, p));
+            assert(f[p + 1] == sub[p]);
+            assert forall|q: int| p + 1 < q < k implies f[k].depth <= (#[trigger] f[q]).depth by {
+                assert(f[q] == sub[q - 1]);
+                assert(sub[m].depth <= sub[q - 1].depth);
+            }
+        }
+    }
+    assert forall|k: int| 1 + n <= k < f.len() && f[k].depth != depth implies (
+    #[trigger] ps[k]) is Some && emitted_parent(f, k, ps[k]->Some_0 - base) by {
+        let m = k - 1 - n;
+        assert(f[k] == rest[m]);
+        assert(ps[k] == rest_ps[m]);
+        let p = rest_ps[m]->Some_0 - b2;
+        assert(emitted_parent(rest, m, p));
+        assert(f[p + 1 + n] == rest[p]);
+        assert forall|q: int| p + 1 + n < q < k implies f[k].depth <= (#[trigger] f[q]).depth by {
+            assert(f[q] == rest[q - 1 - n]);
+            assert(rest[m].depth <= rest[q - 1 - n].depth);
+        }
+    }
+    assert forall|k: int| 0 <= k < f.len() && f[k].depth != depth implies (
+    #[trigger] ps[k]) is Some && emitted_parent(f, k, ps[k]->Some_0 - base) by {
+        if k == 0 {
+            assert(f[0] == e);
+        }
+    }
+}
+
+/// [`parents_from`] gives every node at the starting depth the given
+/// parent, and every deeper node its preorder parent (offset by `base`).
+proof fn lemma_parents_from(cs: Seq<SpecTree>, i: int, depth: nat, base: int, parent: Option<int>)
+    ensures
+        parents_at(
+            flatten_from(cs, i, depth),
+            parents_from(cs, i, base, parent),
+            depth,
+            base,
+            parent,
+        ),
+    decreases cs, cs.len() - i,
+{
+    if 0 <= i < cs.len() {
+        let t = cs[i];
+        let e = Emitted { depth, name: t.name, is_dir: t.is_dir };
+        let sub = if t.children.len() > 0 {
+            flatten_from(t.children, 0, depth + 1)
+        } else {
+            Seq::empty()
+        };
+        let sub_ps = if t.children.len() > 0 {
+            parents_from(t.children, 0, base + 1, Some(base))
+        } else {
+            Seq::empty()
+        };
+        if t.children.len() > 0 {
+            lemma_parents_from(t.children, 0, depth + 1, base + 1, Some(base));
+            lemma_flatten_depths(t.children, 0, depth + 1);
+        }
+        let b2 = base + 1 + sub_ps.len();
+        let rest = flatten_from(cs, i + 1, depth);
+        let rest_ps = parents_from(cs, i + 1, b2, parent);
+        lemma_parents_from(cs, i + 1, depth, b2, parent);
+        assert(flatten_from(cs, i, depth) == seq![e] + sub + rest);
+        assert(parents_from(cs, i, base, parent) == seq![parent] + sub_ps + rest_ps);
+        lemma_parents_concat(e, sub, sub_ps, rest, rest_ps, depth, base, parent);
+    }
+}
+
+/// Every node of the tree's emission is a root exactly when it is at depth
+/// 0, and otherwise [`tree_parents`] holds its preorder parent.
+proof fn lemma_tree_parents(roots: Seq<SpecTree>)
+    ensures
+        ({
+            let es = tree_emission(roots);
+            let ps = tree_parents(roots);
+            &&& ps.len() == es.len()
+            &&& forall|k: int|
+                0 <= k < es.len() ==> (#[trigger] ps[k] is None <==> es[k].depth == 0)
+            &&& forall|k: int|
+                0 <= k < es.len() && #[trigger] ps[k] is Some ==> emitted_parent(
+                    es,
+                    k,
+                    ps[k]->Some_0,
+                )
+        }),
+{
+    lemma_parents_from(roots, 0, 0, 0, None);
+    let es = tree_emission(roots);
+    let ps = tree_parents(roots);
+    assert(parents_at(es, ps, 0, 0, None));
+    assert forall|k: int| 0 <= k < es.len() implies (#[trigger] ps[k] is None <==> es[k].depth
+        == 0) by {
+        if es[k].depth != 0 {
+            assert(ps[k] is Some);
+        }
+    }
+    assert forall|k: int| 0 <= k < es.len() && #[trigger] ps[k] is Some implies emitted_parent(
+        es,
+        k,
+        ps[k]->Some_0,
+    ) by {
+        if es[k].depth == 0 {
+            assert(ps[k] == None::<int>);
+        }
+        assert(ps[k]->Some_0 - 0 == ps[k]->Some_0);
+    }
+}
+
+/// An item has at most one preorder parent.
+proof fn lemma_preorder_parent_unique(depths: Seq<int>, i: int, p1: int, p2: int)
+    requires
+        preorder_parent(depths, i, p1),
+        preorder_parent(depths, i, p2),
+    ensures
+        p1 == p2,
+{
+    if p1 < p2 {
+        assert(depths[p2] > depths[i] - 1);
+    }
+    if p2 < p1 {
+        assert(depths[p1] > depths[i] - 1);
+    }
+}
+
+/// **T5 (assembly).** For every generation tree, the verified hierarchy
+/// assembly (`hierarchy::assembly`, the loop `Parser::build_hierarchy` runs
+/// with `hierarchy::plan_item`) over the emitted depths and kinds accepts
+/// every item, and attaches each one exactly to its parent node in the
+/// tree: its parent index is the preorder index of the node whose children
+/// list holds it, and the generation root's children become roots. In the
+/// hierarchy kernel's terms, every node's tree parent is its preorder
+/// parent, a directory one level shallower.
+pub(crate) proof fn theorem_tree_assembly(roots: Seq<SpecTree>)
+    requires
+        well_formed_tree(roots),
+    ensures
+        tree_parents(roots).len() == tree_emission(roots).len(),
+        assembly(emitted_depths(tree_emission(roots)), emitted_kinds(tree_emission(roots)))
+            matches Ok(s) && s.parents == tree_parents(roots),
+        forall|i: int|
+            0 <= i < tree_emission(roots).len() ==> #[trigger] attached_to_preorder_parent(
+                emitted_depths(tree_emission(roots)),
+                emitted_kinds(tree_emission(roots)),
+                tree_parents(roots),
+                i,
+            ),
+{
+    let es = tree_emission(roots);
+    let depths = emitted_depths(es);
+    let dirs = emitted_kinds(es);
+    theorem_tree_emission_valid(roots);
+    lemma_emission_depth_rules(es);
+    assert(natural_depths(depths));
+    theorem_assembly_accepts_exactly(depths, dirs);
+    theorem_assembly_parents(depths, dirs);
+    lemma_tree_parents(roots);
+    let s = assembly(depths, dirs)->Ok_0;
+    let ps = tree_parents(roots);
+    assert forall|k: int| 0 <= k < es.len() implies s.parents[k] == ps[k] by {
+        assert(attached_to_preorder_parent(depths, dirs, s.parents, k));
+        if es[k].depth != 0 {
+            assert(ps[k] is Some);
+            let p1 = s.parents[k]->Some_0;
+            let p2 = ps[k]->Some_0;
+            assert(emitted_parent(es, k, p2));
+            assert(preorder_parent(depths, k, p2)) by {
+                assert forall|q: int| p2 < q < k implies #[trigger] depths[q] > depths[k] - 1 by {
+                    assert(es[k].depth <= es[q].depth);
+                }
+            }
+            lemma_preorder_parent_unique(depths, k, p1, p2);
+        } else {
+            assert(ps[k] is None);
+        }
+    }
+    assert(s.parents =~= ps);
+}
+
+/// **T5 (parsed hierarchy).** For every generation tree and every supported
+/// indent size, the parser's per-line loop recovers one item per line, at
+/// the emitted depths and with the emitted kinds, and the hierarchy the
+/// verified assembly builds from them is the tree's: item by item, the same
+/// name, the same kind, and the parent index of the tree node's parent.
+pub(crate) proof fn theorem_tree_hierarchy_round_trip(roots: Seq<SpecTree>, indent: nat)
+    requires
+        well_formed_tree(roots),
+        1 <= indent <= 16,
+    ensures
+        ({
+            let es = tree_emission(roots);
+            let items = expected_items(es);
+            &&& parsed_items(body_lines(es, indent)) == Some(items)
+            &&& one_item_per_line(items)
+            &&& item_depths(items) == emitted_depths(es)
+            &&& item_dirs(items) == emitted_kinds(es)
+            &&& assembled_nodes(items) == Some(tree_nodes(roots))
+        }),
+{
+    let es = tree_emission(roots);
+    let items = expected_items(es);
+    theorem_tree_round_trip(roots, indent);
+    theorem_tree_assembly(roots);
+    assert forall|i: int| 0 <= i < items.len() implies #[trigger] entry_items(items[i].1) == seq![
+        (es[i].name, es[i].is_dir),
+    ] by {
+        assert(items[i].1 == single_entry(es[i].name, es[i].is_dir));
+    }
+    assert(item_depths(items) =~= emitted_depths(es));
+    assert(item_dirs(items) =~= emitted_kinds(es)) by {
+        assert forall|i: int| 0 <= i < items.len() implies item_dirs(items)[i] == emitted_kinds(
+            es,
+        )[i] by {
+            assert(entry_items(items[i].1) == seq![(es[i].name, es[i].is_dir)]);
+        }
+    }
+    let s = assembly(emitted_depths(es), emitted_kinds(es))->Ok_0;
+    assert(assembled_nodes(items)->Some_0 =~= tree_nodes(roots)) by {
+        assert forall|i: int| 0 <= i < items.len() implies assembled_nodes(items)->Some_0[i]
+            == tree_nodes(roots)[i] by {
+            assert(entry_items(items[i].1) == seq![(es[i].name, es[i].is_dir)]);
+        }
+    }
+}
+
+/// The depths of two emissions that share their parent indices agree, since
+/// a root is at depth 0 and every other node is one level below its parent.
+proof fn lemma_depths_agree(e1: Seq<Emitted>, e2: Seq<Emitted>, ps: Seq<Option<int>>, n: int)
+    requires
+        0 <= n <= e1.len(),
+        e1.len() == e2.len(),
+        ps.len() == e1.len(),
+        forall|k: int|
+            0 <= k < e1.len() ==> (#[trigger] ps[k] is None <==> e1[k].depth == 0) && (ps[k] is None
+                <==> e2[k].depth == 0),
+        forall|k: int|
+            0 <= k < e1.len() && #[trigger] ps[k] is Some ==> emitted_parent(e1, k, ps[k]->Some_0)
+                && emitted_parent(e2, k, ps[k]->Some_0),
+    ensures
+        forall|k: int| 0 <= k < n ==> (#[trigger] e1[k]).depth == e2[k].depth,
+    decreases n,
+{
+    if n > 0 {
+        lemma_depths_agree(e1, e2, ps, n - 1);
+        let k = n - 1;
+        if ps[k] is Some {
+            let p = ps[k]->Some_0;
+            assert(emitted_parent(e1, k, p) && emitted_parent(e2, k, p));
+            assert(e1[p].depth == e2[p].depth);
+        }
+    }
+}
+
+/// **T5 (uniqueness).** The node structure (preorder names, kinds, and
+/// parent indices) determines the tree.
+pub(crate) proof fn theorem_tree_nodes_injective(r1: Seq<SpecTree>, r2: Seq<SpecTree>)
+    requires
+        tree_nodes(r1) == tree_nodes(r2),
+    ensures
+        r1 == r2,
+{
+    let e1 = tree_emission(r1);
+    let e2 = tree_emission(r2);
+    let ps = tree_parents(r1);
+    lemma_tree_parents(r1);
+    lemma_tree_parents(r2);
+    assert(e1.len() == e2.len()) by {
+        assert(tree_nodes(r1).len() == e1.len());
+        assert(tree_nodes(r2).len() == e2.len());
+    }
+    assert forall|k: int| 0 <= k < e1.len() implies #[trigger] ps[k] == tree_parents(r2)[k]
+        && e1[k].name == e2[k].name && e1[k].is_dir == e2[k].is_dir by {
+        let n1 = tree_nodes(r1)[k];
+        let n2 = tree_nodes(r2)[k];
+        assert(n1 == n2);
+        assert(n1 == NodeView { name: e1[k].name, is_dir: e1[k].is_dir, parent: ps[k] });
+        assert(n2 == NodeView {
+            name: e2[k].name,
+            is_dir: e2[k].is_dir,
+            parent: tree_parents(r2)[k],
+        });
+    }
+    lemma_depths_agree(e1, e2, ps, e1.len() as int);
+    assert forall|k: int| 0 <= k < e1.len() implies #[trigger] e1[k] == e2[k] by {
+        assert(ps[k] == tree_parents(r2)[k]);
+        assert(e1[k].depth == e2[k].depth);
+    }
+    assert(e1 =~= e2);
+    theorem_tree_emission_injective(r1, r2);
+}
+
+// ---------------------------------------------------------------------------
 // T4: the wrapped document
 // ---------------------------------------------------------------------------
 
@@ -1433,6 +1950,22 @@ proof fn lemma_marker_witnesses(name: Seq<u8>)
     }
 }
 
+/// `</agentic-navigation-guide>` is a closing-marker candidate and an exact
+/// closing line. (Stated for the closing literal alone, so that no query
+/// compares it with the opening literal.)
+proof fn lemma_closing_witness()
+    ensures
+        candidate(closing_name() + seq![0x3Eu8], closing_name()),
+        closing_line(closing_name() + seq![0x3Eu8]),
+{
+    let b = closing_name() + seq![0x3Eu8];
+    lemma_literal_then_gt(closing_name());
+    assert(closing_name().len() == 26);
+    assert(wsp_run(b, 0, 0) && lit_at(b, 0, closing_name()));
+    assert(wsp_run(b, 0, 0) && lit_at(b, 0, closing_name()) && lit_at(b, 0int + 26, seq![b'>'])
+        && wsp_run(b, 0int + 27, b.len() as int));
+}
+
 /// The classification of a line that is an active opening marker.
 proof fn lemma_class_of_opening(b: Seq<u8>)
     requires
@@ -1479,27 +2012,42 @@ proof fn lemma_opening_line_class()
     lemma_opening_bytes_class();
 }
 
+/// A line that starts with `</` is not an opening-marker candidate: the
+/// opening literal would have to start at its first byte, and its second
+/// byte is `a`.
+proof fn lemma_slash_line_not_opening(b: Seq<u8>)
+    requires
+        b.len() >= 2,
+        b[0] == 0x3Cu8,
+        b[1] == 0x2Fu8,
+    ensures
+        !candidate(b, opening_name()),
+{
+    if candidate(b, opening_name()) {
+        let p = choose|p: int| wsp_run(b, 0, p) && lit_at(b, p, opening_name());
+        if p > 0 {
+            assert(is_wsp(b[0]));
+        }
+        assert(b.subrange(0, 25)[1] == b[1]);
+        assert(opening_name()[1] == 0x61u8);
+    }
+}
+
 /// `</agentic-navigation-guide>` is exactly the closing marker.
 proof fn lemma_closing_bytes_class()
     ensures
         marker_class(closing_name() + seq![0x3Eu8]) == MarkerClass::Closing,
 {
+    // The class follows from the lemmas below alone; unfolding the
+    // classifier over the concrete line here only costs resources.
+    hide(marker_class);
     let b = closing_name() + seq![0x3Eu8];
     assert(closing_name().len() == 26);
     assert(b[0] == closing_name()[0]);
     assert(b[1] == closing_name()[1]);
     lemma_not_bom_prefixed(b);
-    assert(!candidate(b, opening_name())) by {
-        if candidate(b, opening_name()) {
-            let p = choose|p: int| wsp_run(b, 0, p) && lit_at(b, p, opening_name());
-            if p > 0 {
-                assert(is_wsp(b[0]));
-            }
-            assert(b.subrange(0, 25)[1] == b[1]);
-            assert(opening_name()[1] == 0x61u8);
-        }
-    }
-    lemma_marker_witnesses(closing_name());
+    lemma_slash_line_not_opening(b);
+    lemma_closing_witness();
     lemma_class_of_closing(b);
 }
 
@@ -1588,72 +2136,70 @@ pub(crate) open spec fn document_text(es: Seq<Emitted>, indent: nat) -> Seq<char
     opening_marker_text() + seq!['\n'] + body_text(es, indent) + closing_marker_text()
 }
 
-/// The pieces of `t` between line feeds, as `str::split('\n')` yields them:
-/// always at least one, possibly empty.
-pub(crate) open spec fn split_lf(t: Seq<char>) -> Seq<Seq<char>>
-    decreases t.len(),
-{
-    if t.len() == 0 {
-        seq![Seq::<char>::empty()]
-    } else {
-        let p = split_lf(t.drop_last());
-        if t.last() == '\n' {
-            p.push(Seq::empty())
-        } else {
-            p.update(p.len() - 1, p.last().push(t.last()))
-        }
-    }
-}
-
-/// `str::lines` on text without a carriage return, as the standard library
-/// documents it: the text is split at every line feed, which is dropped; a
-/// final line feed ends the last line instead of starting an empty one; and
-/// empty text has no lines.
+/// The physical lines of carriage-return-free text in closed form: the
+/// pieces between line feeds (`str::split('\n')`, [`lf_pieces`]), without
+/// the empty piece after a final line feed; empty text has no lines.
+/// `lines::theorem_lines_without_cr` proves that the verified splitter's
+/// specification, [`physical_lines`], is this formula on such text
+/// ([`lemma_lines_spec_is_physical_lines`]); the theorems below state
+/// [`physical_lines`] itself.
 pub(crate) open spec fn lines_spec(t: Seq<char>) -> Seq<Seq<char>> {
     if t.len() == 0 {
         Seq::empty()
     } else if t.last() == '\n' {
-        split_lf(t).drop_last()
+        lf_pieces(t).drop_last()
     } else {
-        split_lf(t)
+        lf_pieces(t)
     }
 }
 
-/// `lines.join("\n")`.
-pub(crate) open spec fn join_lf(lines: Seq<Seq<char>>) -> Seq<char>
-    decreases lines.len(),
-{
-    if lines.len() == 0 {
-        Seq::empty()
-    } else if lines.len() == 1 {
-        lines[0]
-    } else {
-        join_lf(lines.drop_last()) + seq!['\n'] + lines.last()
-    }
-}
-
-proof fn lemma_split_lf_nonempty(t: Seq<char>)
+/// On carriage-return-free text, the lines `lines::split_lines` returns
+/// ([`physical_lines`]) are [`lines_spec`].
+pub(crate) proof fn lemma_lines_spec_is_physical_lines(t: Seq<char>)
+    requires
+        cr_free(t),
     ensures
-        split_lf(t).len() >= 1,
+        physical_lines(t) == lines_spec(t),
+{
+    theorem_lines_without_cr(t);
+}
+
+/// Every line consists only of Unicode `White_Space`: the parser's
+/// empty-body rule, which `lines::is_blank_body` decides over the body
+/// lines (`Parser::parse_guide_content` then reports `EmptyGuideBlock`).
+pub(crate) open spec fn blank_lines(ls: Seq<Seq<char>>) -> bool {
+    forall|i: int| 0 <= i < ls.len() ==> all_white_space(#[trigger] ls[i])
+}
+
+/// The body `Parser::extract_guide_block` slices from the document lines
+/// for an accepted envelope: `lines[start + 1..end]` with
+/// `start = opening_line - 1` and `end = closing_line - 1`.
+pub(crate) open spec fn envelope_body(lines: Seq<Seq<char>>, env: Envelope) -> Seq<Seq<char>> {
+    lines.subrange(env.opening_line as int, env.closing_line as int - 1)
+}
+
+proof fn lemma_pieces_nonempty(t: Seq<char>)
+    ensures
+        lf_pieces(t).len() >= 1,
     decreases t.len(),
 {
     if t.len() > 0 {
-        lemma_split_lf_nonempty(t.drop_last());
+        lemma_pieces_nonempty(t.drop_last());
     }
 }
 
 /// Text without a line feed is one piece.
-proof fn lemma_split_lf_free(b: Seq<char>)
+proof fn lemma_pieces_lf_free(b: Seq<char>)
     requires
         lf_free(b),
     ensures
-        split_lf(b) == seq![b],
+        lf_pieces(b) == seq![b],
     decreases b.len(),
 {
     if b.len() == 0 {
         assert(b =~= Seq::<char>::empty());
     } else {
-        lemma_split_lf_free(b.drop_last());
+        lemma_pieces_lf_free(b.drop_last());
         assert(b.last() == b[b.len() - 1]);
         assert(b.drop_last().push(b.last()) =~= b);
         assert(seq![b.drop_last()].update(0, b.drop_last().push(b.last())) =~= seq![b]);
@@ -1662,23 +2208,25 @@ proof fn lemma_split_lf_free(b: Seq<char>)
 
 /// A line feed separates the pieces of the text before it from those of the
 /// text after it.
-proof fn lemma_split_lf_append(a: Seq<char>, b: Seq<char>)
+proof fn lemma_pieces_append(a: Seq<char>, b: Seq<char>)
     ensures
-        split_lf(a + seq!['\n'] + b) == split_lf(a) + split_lf(b),
+        lf_pieces(a + seq!['\n'] + b) == lf_pieces(a) + lf_pieces(b),
     decreases b.len(),
 {
     let t = a + seq!['\n'] + b;
     if b.len() == 0 {
         assert(t.drop_last() =~= a);
         assert(t.last() == '\n');
-        assert(split_lf(a).push(Seq::<char>::empty()) =~= split_lf(a) + seq![Seq::<char>::empty()]);
+        assert(lf_pieces(a).push(Seq::<char>::empty()) =~= lf_pieces(a) + seq![
+            Seq::<char>::empty(),
+        ]);
     } else {
         assert(t.drop_last() =~= a + seq!['\n'] + b.drop_last());
         assert(t.last() == b.last());
-        lemma_split_lf_append(a, b.drop_last());
-        lemma_split_lf_nonempty(b.drop_last());
-        let x = split_lf(a);
-        let y = split_lf(b.drop_last());
+        lemma_pieces_append(a, b.drop_last());
+        lemma_pieces_nonempty(b.drop_last());
+        let x = lf_pieces(a);
+        let y = lf_pieces(b.drop_last());
         if b.last() == '\n' {
             assert((x + y).push(Seq::<char>::empty()) =~= x + y.push(Seq::<char>::empty()));
         } else {
@@ -1692,51 +2240,28 @@ proof fn lemma_split_lf_append(a: Seq<char>, b: Seq<char>)
 }
 
 /// Joining line-feed-free lines with line feeds and splitting the result at
-/// line feeds gives back the lines.
-proof fn lemma_split_join(lines: Seq<Seq<char>>)
+/// line feeds gives back the lines. (Used only for the Markdown text `init`
+/// writes around the guide block, which is modeled as such a join.)
+proof fn lemma_pieces_join(lines: Seq<Seq<char>>)
     requires
         lines.len() > 0,
         forall|i: int| 0 <= i < lines.len() ==> lf_free(#[trigger] lines[i]),
     ensures
-        split_lf(join_lf(lines)) == lines,
+        lf_pieces(join_lf(lines)) == lines,
     decreases lines.len(),
 {
     if lines.len() == 1 {
-        lemma_split_lf_free(lines[0]);
+        lemma_pieces_lf_free(lines[0]);
         assert(lines =~= seq![lines[0]]);
     } else {
         let p = lines.drop_last();
         assert forall|i: int| 0 <= i < p.len() implies lf_free(#[trigger] p[i]) by {
             assert(p[i] == lines[i]);
         }
-        lemma_split_join(p);
-        lemma_split_lf_append(join_lf(p), lines.last());
-        lemma_split_lf_free(lines.last());
+        lemma_pieces_join(p);
+        lemma_pieces_append(join_lf(p), lines.last());
+        lemma_pieces_lf_free(lines.last());
         assert(p + seq![lines.last()] =~= lines);
-    }
-}
-
-/// A join of lines starts with the first line and, when the last line is
-/// nonempty, ends with the last scalar of the last line.
-proof fn lemma_join_ends(lines: Seq<Seq<char>>)
-    requires
-        lines.len() > 0,
-    ensures
-        join_lf(lines).len() >= lines[0].len(),
-        forall|k: int| 0 <= k < lines[0].len() ==> #[trigger] join_lf(lines)[k] == lines[0][k],
-        lines.last().len() > 0 ==> join_lf(lines).len() > 0 && join_lf(lines).last()
-            == lines.last().last(),
-    decreases lines.len(),
-{
-    if lines.len() > 1 {
-        let p = lines.drop_last();
-        lemma_join_ends(p);
-        assert(p[0] == lines[0]);
-        let j = join_lf(lines);
-        assert(j == join_lf(p) + seq!['\n'] + lines.last());
-        assert forall|k: int| 0 <= k < lines[0].len() implies #[trigger] j[k] == lines[0][k] by {
-            assert(j[k] == join_lf(p)[k]);
-        }
     }
 }
 
@@ -1747,7 +2272,7 @@ proof fn lemma_document_split(es: Seq<Emitted>, indent: nat, t: Seq<char>)
         valid_emission(es),
         lf_free(t),
     ensures
-        split_lf(opening_marker_text() + seq!['\n'] + body_text(es, indent) + t) == seq![
+        lf_pieces(opening_marker_text() + seq!['\n'] + body_text(es, indent) + t) == seq![
             opening_marker_text(),
         ] + body_lines(es, indent) + seq![t],
     decreases es.len(),
@@ -1755,10 +2280,10 @@ proof fn lemma_document_split(es: Seq<Emitted>, indent: nat, t: Seq<char>)
     let o = opening_marker_text();
     if es.len() == 0 {
         assert(o + seq!['\n'] + body_text(es, indent) + t =~= o + seq!['\n'] + t);
-        lemma_split_lf_append(o, t);
+        lemma_pieces_append(o, t);
         lemma_marker_texts();
-        lemma_split_lf_free(o);
-        lemma_split_lf_free(t);
+        lemma_pieces_lf_free(o);
+        lemma_pieces_lf_free(t);
         assert(body_lines(es, indent) =~= Seq::<Seq<char>>::empty());
         assert(seq![o] + seq![t] =~= seq![o] + body_lines(es, indent) + seq![t]);
     } else {
@@ -1769,8 +2294,8 @@ proof fn lemma_document_split(es: Seq<Emitted>, indent: nat, t: Seq<char>)
         lemma_document_split(p, indent, l);
         assert(o + seq!['\n'] + body_text(es, indent) + t =~= (o + seq!['\n'] + body_text(p, indent)
             + l) + seq!['\n'] + t);
-        lemma_split_lf_append(o + seq!['\n'] + body_text(p, indent) + l, t);
-        lemma_split_lf_free(t);
+        lemma_pieces_append(o + seq!['\n'] + body_text(p, indent) + l, t);
+        lemma_pieces_lf_free(t);
         assert(seq![o] + body_lines(p, indent) + seq![l] + seq![t] =~= seq![o] + body_lines(
             es,
             indent,
@@ -1912,23 +2437,41 @@ proof fn lemma_body_text_no_cr(es: Seq<Emitted>, indent: nat)
     }
 }
 
+/// For a nonempty valid emission, the first body line is not blank, so the
+/// body is not blank.
+proof fn lemma_body_not_blank(es: Seq<Emitted>, indent: nat)
+    requires
+        valid_emission(es),
+        es.len() > 0,
+    ensures
+        !all_white_space(body_lines(es, indent)[0]),
+        !blank_lines(body_lines(es, indent)),
+{
+    let body = body_lines(es, indent);
+    let first = es[0];
+    assert(!has_forbidden_control(first.name));
+    lemma_line_shape(first.name, first.is_dir, first.depth, indent);
+    let w0 = (first.depth * indent) as int;
+    assert(body[0] == emitted_line(first.depth, indent, first.name, first.is_dir));
+    assert(body[0][w0] == '-');
+    assert(!is_white_space(body[0][w0]));
+}
+
 /// **Document text.** The text `dump_with_wrapper` returns for a valid
 /// emission has no carriage return, so the parser's line-ending check
-/// (`first_lone_cr_line`, specified by `no_lone_cr`) accepts it and
-/// `str::lines` reduces to [`lines_spec`]; its lines are exactly
-/// [`document_lines`] of the body lines. The body the parser re-joins with
-/// line feeds (`lines[start + 1..end].join("\n")`) splits back into the same
-/// body lines, and for a nonempty emission it is not blank, so the parser's
-/// empty-block check passes.
+/// (`first_lone_cr_line`, specified by `no_lone_cr`) accepts it; its
+/// physical lines, which the verified `lines::split_lines` returns to the
+/// parser, are exactly [`document_lines`] of the body lines; and for a
+/// nonempty emission the body is not blank, so the parser's empty-block
+/// check (`lines::is_blank_body`) passes.
 pub(crate) proof fn theorem_document_text_lines(es: Seq<Emitted>, indent: nat)
     requires
         valid_emission(es),
     ensures
         cr_free(document_text(es, indent)),
         no_lone_cr(encode_utf8(document_text(es, indent))),
-        lines_spec(document_text(es, indent)) == document_lines(body_lines(es, indent)),
-        es.len() > 0 ==> lines_spec(join_lf(body_lines(es, indent))) == body_lines(es, indent),
-        es.len() > 0 ==> !all_white_space(join_lf(body_lines(es, indent))),
+        physical_lines(document_text(es, indent)) == document_lines(body_lines(es, indent)),
+        es.len() > 0 ==> !blank_lines(body_lines(es, indent)),
 {
     let o = opening_marker_text();
     let c = closing_marker_text();
@@ -1953,25 +2496,9 @@ pub(crate) proof fn theorem_document_text_lines(es: Seq<Emitted>, indent: nat)
     lemma_document_split(es, indent, c);
     assert(d.last() == c.last());
     assert(d.last() != '\n');
+    lemma_lines_spec_is_physical_lines(d);
     if es.len() > 0 {
-        assert forall|i: int| 0 <= i < body.len() implies lf_free(#[trigger] body[i]) by {
-            let e = es[i];
-            assert(!has_forbidden_control(e.name));
-            lemma_line_shape(e.name, e.is_dir, e.depth, indent);
-        }
-        lemma_split_join(body);
-        lemma_join_ends(body);
-        let last = es[es.len() - 1];
-        assert(!has_forbidden_control(last.name));
-        lemma_line_shape(last.name, last.is_dir, last.depth, indent);
-        assert(body.last() == body[body.len() - 1]);
-        assert(body.last().last() != '\n');
-        let first = es[0];
-        assert(!has_forbidden_control(first.name));
-        lemma_line_shape(first.name, first.is_dir, first.depth, indent);
-        let w0 = (first.depth * indent) as int;
-        assert(join_lf(body)[w0] == body[0][w0]);
-        assert(!is_white_space(join_lf(body)[w0]));
+        lemma_body_not_blank(es, indent);
     }
 }
 
@@ -1982,15 +2509,20 @@ pub(crate) proof fn theorem_document_text_lines(es: Seq<Emitted>, indent: nat)
 /// **Round trip.** For every nonempty generation tree and every supported
 /// indent size, the document `dump` writes:
 ///
-/// - has no carriage return, so the parser's lone-CR check accepts it and
-///   `str::lines` splits it as [`lines_spec`];
-/// - splits into the opening line, the emitted body lines, and the closing
-///   line, which the marker and envelope kernels accept as one active guide
-///   block whose body is exactly the emitted lines;
-/// - has a body that, re-joined with line feeds by the parser, splits back
-///   into the same lines and is not blank;
+/// - has no carriage return, so the parser's lone-CR check accepts it;
+/// - has as physical lines (what the verified `lines::split_lines` returns
+///   to the parser) the opening line, the emitted body lines, and the
+///   closing line, which the marker and envelope kernels accept as one
+///   active guide block on lines 1 and `body.len() + 2`, so the body the
+///   parser slices (`lines[start + 1..end]`, [`envelope_body`]) is exactly
+///   the emitted lines;
+/// - has a body that is not blank, so the empty-block check passes;
 /// - has a body the parser's per-line loop accepts, recovering line by line
 ///   the depth, name, and kind of each tree node in `format_tree` order;
+/// - has parsed items that the verified hierarchy assembly accepts and
+///   attaches exactly as the tree does: item by item, the assembled name,
+///   kind, and parent index are the tree node's name, kind, and the index of
+///   its parent node ([`assembled_nodes`] equals [`tree_nodes`]);
 ///
 /// and those recovered items determine the tree: every well-formed tree
 /// whose body (at any supported indent size) parses to the same items is
@@ -2006,21 +2538,21 @@ pub(crate) proof fn theorem_dump_round_trip(roots: Seq<SpecTree>, indent: nat)
             let es = tree_emission(roots);
             let body = body_lines(es, indent);
             let text = document_text(es, indent);
-            let lines = lines_spec(text);
+            let lines = physical_lines(text);
+            let env = Envelope {
+                opening_line: 1,
+                closing_line: (body.len() + 2) as usize,
+                ignore: false,
+            };
             &&& cr_free(text)
             &&& no_lone_cr(encode_utf8(text))
             &&& lines == document_lines(body)
-            &&& locate_envelope(line_classes(lines)) == Ok::<Envelope, EnvelopeError>(
-                Envelope {
-                    opening_line: 1,
-                    closing_line: (body.len() + 2) as usize,
-                    ignore: false,
-                },
-            )
+            &&& locate_envelope(line_classes(lines)) == Ok::<Envelope, EnvelopeError>(env)
+            &&& envelope_body(lines, env) == body
             &&& lines.subrange(1, body.len() as int + 1) == body
-            &&& lines_spec(join_lf(body)) == body
-            &&& !all_white_space(join_lf(body))
+            &&& !blank_lines(body)
             &&& parsed_items(body) == Some(expected_items(es))
+            &&& assembled_nodes(expected_items(es)) == Some(tree_nodes(roots))
         }),
         forall|other: Seq<SpecTree>, other_indent: nat|
             well_formed_tree(other) && 1 <= other_indent <= 16 && #[trigger] parsed_items(
@@ -2030,6 +2562,7 @@ pub(crate) proof fn theorem_dump_round_trip(roots: Seq<SpecTree>, indent: nat)
     let es = tree_emission(roots);
     let body = body_lines(es, indent);
     theorem_tree_round_trip(roots, indent);
+    theorem_tree_hierarchy_round_trip(roots, indent);
     theorem_document_text_lines(es, indent);
     assert forall|i: int| 0 <= i < body.len() implies marker_class(encode_utf8(#[trigger] body[i]))
         == MarkerClass::Ordinary by {
@@ -2216,10 +2749,10 @@ proof fn lemma_init_frame_lines()
             ),
 {
     lemma_empty_line_ordinary();
-    lemma_init_text_line(init_title());
-    lemma_init_text_line(init_intro());
-    lemma_init_text_line(init_scope());
-    lemma_init_text_line(init_note());
+    lemma_init_title_line();
+    lemma_init_intro_line();
+    lemma_init_scope_line();
+    lemma_init_note_line();
     let pre = init_prologue_lines();
     let post = init_epilogue_lines();
     assert(pre[0] == init_title() && pre[2] == init_intro() && pre[3] == init_scope());
@@ -2227,21 +2760,58 @@ proof fn lemma_init_frame_lines()
     assert(post[0] == Seq::<char>::empty() && post[1] == init_note());
 }
 
-/// Each prose line `init` writes is a frame line.
-proof fn lemma_init_text_line(l: Seq<char>)
+/// An ASCII line without line feed or carriage return whose first scalar is
+/// neither a space, a tab, nor `<` is a frame line.
+proof fn lemma_ascii_frame_line(l: Seq<char>)
     requires
-        l == init_title() || l == init_intro() || l == init_scope() || l == init_note(),
+        is_ascii_text(l),
+        lf_free(l),
+        cr_free(l),
+        l.len() > 0,
+        l[0] != ' ',
+        l[0] != '\t',
+        l[0] != '<',
     ensures
         frame_line(l),
 {
-    reveal(init_title);
-    reveal(init_intro);
-    reveal(init_scope);
-    reveal(init_note);
-    assert(is_ascii_text(l));
-    assert(lf_free(l));
-    assert(cr_free(l));
     lemma_first_char_ordinary(l);
+}
+
+/// The title `init` writes is a frame line. (Each prose line has its own
+/// lemma so that each query reveals one literal.)
+proof fn lemma_init_title_line()
+    ensures
+        frame_line(init_title()),
+{
+    reveal(init_title);
+    lemma_ascii_frame_line(init_title());
+}
+
+/// The first description sentence `init` writes is a frame line.
+proof fn lemma_init_intro_line()
+    ensures
+        frame_line(init_intro()),
+{
+    reveal(init_intro);
+    lemma_ascii_frame_line(init_intro());
+}
+
+/// The second description sentence `init` writes is a frame line.
+proof fn lemma_init_scope_line()
+    ensures
+        frame_line(init_scope()),
+{
+    reveal(init_scope);
+    lemma_ascii_frame_line(init_scope());
+}
+
+/// The closing note `init` writes is a frame line.
+proof fn lemma_init_note_line()
+    ensures
+        frame_line(init_note()),
+{
+    reveal(init_note);
+    lemma_ascii_frame_line(init_note());
 }
 
 /// Joining carriage-return-free lines with line feeds gives
@@ -2277,18 +2847,18 @@ proof fn lemma_join_cr_free(lines: Seq<Seq<char>>)
 }
 
 /// **Init text.** The text `init` writes for a valid emission has no
-/// carriage return, so the parser's lone-CR check accepts it and
-/// `str::lines` splits it as [`lines_spec`]: into `init`'s five prologue
-/// lines, the lines of the `dump_with_wrapper` document, and `init`'s two
-/// epilogue lines, every one of the prologue and epilogue lines being
-/// ordinary text.
+/// carriage return, so the parser's lone-CR check accepts it, and its
+/// physical lines (what the verified `lines::split_lines` returns) are
+/// `init`'s five prologue lines, the lines of the `dump_with_wrapper`
+/// document, and `init`'s two epilogue lines, every one of the prologue and
+/// epilogue lines being ordinary text.
 pub(crate) proof fn theorem_init_text_lines(es: Seq<Emitted>, indent: nat)
     requires
         valid_emission(es),
     ensures
         cr_free(init_text(es, indent)),
         no_lone_cr(encode_utf8(init_text(es, indent))),
-        lines_spec(init_text(es, indent)) == init_prologue_lines() + document_lines(
+        physical_lines(init_text(es, indent)) == init_prologue_lines() + document_lines(
             body_lines(es, indent),
         ) + init_epilogue_lines(),
         forall|i: int|
@@ -2313,34 +2883,59 @@ pub(crate) proof fn theorem_init_text_lines(es: Seq<Emitted>, indent: nat)
     // The document text splits into the document lines.
     lemma_document_split(es, indent, closing_marker_text());
     assert(d == opening_marker_text() + seq!['\n'] + body_text(es, indent) + closing_marker_text());
-    // The frame lines split back out of their joins.
-    assert forall|i: int| 0 <= i < pre.len() implies lf_free(#[trigger] pre[i]) by {
+    // The frame lines split back out of their joins and have no CR.
+    assert forall|i: int| 0 <= i < pre.len() implies lf_free(#[trigger] pre[i]) && cr_free(
+        pre[i],
+    ) by {
         assert(frame_line(pre[i]));
     }
-    assert forall|i: int| 0 <= i < post.len() implies lf_free(#[trigger] post[i]) by {
+    assert forall|i: int| 0 <= i < post.len() implies lf_free(#[trigger] post[i]) && cr_free(
+        post[i],
+    ) by {
         assert(frame_line(post[i]));
     }
-    lemma_split_join(pre);
-    lemma_split_join(post);
-    // t == p + "\n" + (d + "\n" + (e + "\n" + empty)).
-    let tail2 = e + seq!['\n'] + Seq::<char>::empty();
-    let tail1 = d + seq!['\n'] + tail2;
-    assert(t =~= p + seq!['\n'] + tail1);
-    lemma_split_lf_append(p, tail1);
-    lemma_split_lf_append(d, tail2);
-    lemma_split_lf_append(e, Seq::<char>::empty());
-    assert(split_lf(t) =~= pre + document_lines(body) + post + seq![Seq::<char>::empty()]);
-    assert(t.last() == '\n');
-    assert(lines_spec(t) =~= pre + document_lines(body) + post);
-    // No carriage return anywhere.
-    assert forall|i: int| 0 <= i < pre.len() implies cr_free(#[trigger] pre[i]) by {
-        assert(frame_line(pre[i]));
-    }
-    assert forall|i: int| 0 <= i < post.len() implies cr_free(#[trigger] post[i]) by {
-        assert(frame_line(post[i]));
-    }
+    lemma_pieces_join(pre);
+    lemma_pieces_join(post);
     lemma_join_cr_free(pre);
     lemma_join_cr_free(post);
+    assert(t == p + seq!['\n'] + d + seq!['\n'] + e + seq!['\n']);
+    lemma_framed_pieces(p, d, e);
+    lemma_framed_cr_free(p, d, e);
+    assert(t.last() == '\n');
+    assert(lines_spec(t) =~= pre + document_lines(body) + post);
+    lemma_encode_no_cr(t);
+    lemma_lines_spec_is_physical_lines(t);
+}
+
+/// Three texts, each followed by a line feed, split at line feeds into the
+/// pieces of each and the empty piece after the final line feed.
+proof fn lemma_framed_pieces(p: Seq<char>, d: Seq<char>, e: Seq<char>)
+    ensures
+        lf_pieces(p + seq!['\n'] + d + seq!['\n'] + e + seq!['\n']) == lf_pieces(p) + lf_pieces(d)
+            + lf_pieces(e) + seq![Seq::<char>::empty()],
+{
+    let tail2 = e + seq!['\n'] + Seq::<char>::empty();
+    let tail1 = d + seq!['\n'] + tail2;
+    assert(p + seq!['\n'] + d + seq!['\n'] + e + seq!['\n'] =~= p + seq!['\n'] + tail1);
+    lemma_pieces_append(p, tail1);
+    lemma_pieces_append(d, tail2);
+    lemma_pieces_append(e, Seq::<char>::empty());
+    assert(lf_pieces(Seq::<char>::empty()) == seq![Seq::<char>::empty()]);
+    assert(lf_pieces(p) + (lf_pieces(d) + (lf_pieces(e) + seq![Seq::<char>::empty()]))
+        =~= lf_pieces(p) + lf_pieces(d) + lf_pieces(e) + seq![Seq::<char>::empty()]);
+}
+
+/// Three carriage-return-free texts, each followed by a line feed, are
+/// carriage-return free.
+proof fn lemma_framed_cr_free(p: Seq<char>, d: Seq<char>, e: Seq<char>)
+    requires
+        cr_free(p),
+        cr_free(d),
+        cr_free(e),
+    ensures
+        cr_free(p + seq!['\n'] + d + seq!['\n'] + e + seq!['\n']),
+{
+    let t = p + seq!['\n'] + d + seq!['\n'] + e + seq!['\n'];
     assert forall|i: int| 0 <= i < t.len() implies #[trigger] t[i] != '\r' by {
         let a = p.len() as int;
         let b = d.len() as int;
@@ -2358,7 +2953,6 @@ pub(crate) proof fn theorem_init_text_lines(es: Seq<Emitted>, indent: nat)
             assert(t[i] == '\n');
         }
     }
-    lemma_encode_no_cr(t);
 }
 
 /// Wrapping a guide block in ordinary prologue and epilogue lines moves its
@@ -2453,7 +3047,7 @@ proof fn lemma_init_document(es: Seq<Emitted>, indent: nat)
         ({
             let body = body_lines(es, indent);
             let text = init_text(es, indent);
-            let lines = lines_spec(text);
+            let lines = physical_lines(text);
             &&& cr_free(text)
             &&& no_lone_cr(encode_utf8(text))
             &&& lines == init_prologue_lines() + document_lines(body) + init_epilogue_lines()
@@ -2485,12 +3079,15 @@ proof fn lemma_init_document(es: Seq<Emitted>, indent: nat)
 
 /// **Init round trip.** For every nonempty generation tree and every
 /// supported indent size, the file `init` writes has no carriage return;
-/// it splits into `init`'s prologue lines, the opening line, the emitted
-/// body lines, the closing line, and `init`'s epilogue lines; the marker and
-/// envelope kernels accept it as one active guide block on lines 6 through
-/// `body.len() + 7`, whose body is exactly the emitted lines; and from there
-/// the parser recovers the same items as from the `dump` document, which
-/// determine the tree (`theorem_dump_round_trip`).
+/// its physical lines (what the verified `lines::split_lines` returns) are
+/// `init`'s prologue lines, the opening line, the emitted body lines, the
+/// closing line, and `init`'s epilogue lines; the marker and envelope
+/// kernels accept it as one active guide block on lines 6 and
+/// `body.len() + 7`, so the body the parser slices ([`envelope_body`]) is
+/// exactly the emitted lines; and from there, as for the `dump` document,
+/// the body is not blank, the parser recovers the tree's items, and the
+/// verified hierarchy assembly attaches them exactly as the tree does
+/// (`theorem_dump_round_trip`).
 pub(crate) proof fn theorem_init_round_trip(roots: Seq<SpecTree>, indent: nat)
     requires
         well_formed_tree(roots),
@@ -2502,28 +3099,28 @@ pub(crate) proof fn theorem_init_round_trip(roots: Seq<SpecTree>, indent: nat)
             let es = tree_emission(roots);
             let body = body_lines(es, indent);
             let text = init_text(es, indent);
-            let lines = lines_spec(text);
+            let lines = physical_lines(text);
+            let env = Envelope {
+                opening_line: 6,
+                closing_line: (body.len() + 7) as usize,
+                ignore: false,
+            };
             &&& cr_free(text)
             &&& no_lone_cr(encode_utf8(text))
             &&& lines == init_prologue_lines() + document_lines(body) + init_epilogue_lines()
-            &&& locate_envelope(line_classes(lines)) == Ok::<Envelope, EnvelopeError>(
-                Envelope {
-                    opening_line: 6,
-                    closing_line: (body.len() + 7) as usize,
-                    ignore: false,
-                },
-            )
+            &&& locate_envelope(line_classes(lines)) == Ok::<Envelope, EnvelopeError>(env)
+            &&& envelope_body(lines, env) == body
             &&& lines.subrange(6, body.len() as int + 6) == body
-            &&& lines_spec(join_lf(body)) == body
-            &&& !all_white_space(join_lf(body))
+            &&& !blank_lines(body)
             &&& parsed_items(body) == Some(expected_items(es))
+            &&& assembled_nodes(expected_items(es)) == Some(tree_nodes(roots))
         }),
 {
     let es = tree_emission(roots);
     theorem_tree_emission_valid(roots);
     lemma_init_document(es, indent);
-    theorem_parse_recovers_emission(es, indent);
-    theorem_document_text_lines(es, indent);
+    theorem_tree_hierarchy_round_trip(roots, indent);
+    lemma_body_not_blank(es, indent);
 }
 
 // ---------------------------------------------------------------------------
@@ -2593,15 +3190,36 @@ proof fn lemma_example_tree()
     assert(tree_emission(roots).len() == 2);
 }
 
-/// The example's dumped document round-trips at indent size 2.
+/// The example's dumped document round-trips at indent size 2, and its
+/// assembled hierarchy is the root `src` (a root) holding `a#b` (attached
+/// to item 0), so the parent indices the hierarchy theorems compare are
+/// not all `None`.
 proof fn lemma_example_round_trip()
     ensures
         parsed_items(body_lines(tree_emission(example_tree()), 2)) == Some(
             expected_items(tree_emission(example_tree())),
         ),
+        tree_parents(example_tree()) == seq![None::<int>, Some(0int)],
+        assembled_nodes(expected_items(tree_emission(example_tree()))) == Some(
+            tree_nodes(example_tree()),
+        ),
 {
     lemma_example_tree();
+    lemma_example_parents();
     theorem_dump_round_trip(example_tree(), 2);
+}
+
+/// The example's parents: `src` is a root and `a#b` is attached to it.
+proof fn lemma_example_parents()
+    ensures
+        tree_parents(example_tree()) == seq![None::<int>, Some(0int)],
+{
+    let roots = example_tree();
+    let children = roots[0].children;
+    assert(parents_from(children, 1, 2, Some(0int)) =~= Seq::<Option<int>>::empty());
+    assert(parents_from(children, 0, 1, Some(0int)) =~= seq![Some(0int)]);
+    assert(parents_from(roots, 1, 2, None::<int>) =~= Seq::<Option<int>>::empty());
+    assert(tree_parents(roots) =~= seq![None::<int>, Some(0int)]);
 }
 
 } // verus!

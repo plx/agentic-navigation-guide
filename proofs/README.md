@@ -156,19 +156,27 @@ Core invariant by composing the kernels' specifications:
 - `theorem_tree_round_trip` and `theorem_tree_emission_injective`: a tree's
   preorder emission satisfies those conditions, and distinct trees never
   produce the same emission, so the parsed items determine the tree.
+- `theorem_tree_assembly` and `theorem_tree_hierarchy_round_trip`: the
+  verified hierarchy assembly over the parsed depths and kinds attaches
+  every item to the index of its parent node in the original tree, so the
+  parsed (name, kind, parent) structure equals the tree's
+  (`theorem_tree_nodes_injective`).
 - `theorem_dump_round_trip` and `theorem_init_round_trip`: the complete
-  `dump` and `init` documents contain no carriage return, split into exactly
-  the expected lines, and the envelope accepts them with the body between
-  the markers.
+  `dump` and `init` documents contain no carriage return, split with the
+  verified `physical_lines` into exactly the expected lines, pass the
+  envelope with the body between the markers, and parse and assemble back
+  into the original tree.
 
 Some kernel mutations, such as emitting `#` unquoted or capping the
 indentation unit at 8, still verify on their own and are caught only by
 these theorems.
 
 The theorems model, rather than verify, this glue: the dumper's traversal,
-sorting, and recursion in `format_tree`; `str::lines` and `join`; the
-parser's per-line loop, item assembly, and `build_hierarchy`; the
-validator's nesting and indentation checks; file I/O and
+sorting, and recursion in `format_tree` and the `format!` calls that wrap
+the body; the parser's loops that call the kernels in order and slice the
+body; turning entry results into items; the moves of parsed values into
+their parents in `build_hierarchy`; the validator's nesting and indentation
+checks; file I/O and
 UTF-8 decoding; and the filesystem half of `verify`. The module
 documentation in `round_trip.rs` states each correspondence.
 
