@@ -10,6 +10,7 @@ pub(crate) mod verify;
 
 use crate::errors::{AppError, Result};
 use crate::proven::outcome::{self, IgnoredPolicyDecision, StatusMode};
+use crate::proven::settings::{self, CliSelections, CommandKind, LogChoice, ModeChoice};
 use crate::types::{Config, ExecutionMode, LogLevel};
 use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand};
 
@@ -125,52 +126,49 @@ impl Cli {
             .map_err(|error| Self::command().error(ErrorKind::InvalidValue, error.to_string()))
     }
 
+    /// Apply the environment defaults that the verified
+    /// `proven::settings::environment_plan` selects: exactly the relevant
+    /// variables that no higher-precedence selection shadows, parsed in the
+    /// fixed order log mode, execution mode, root, path, name, so the first
+    /// invalid selected value is reported.
     fn resolve_environment(
         &mut self,
         defaults: &environment::EnvironmentDefaults,
     ) -> std::result::Result<(), environment::EnvironmentError> {
-        if !self.verbose && !self.quiet && self.log_level.is_none() {
+        let plan = settings::environment_plan(self.cli_selections(), defaults.has_guide_path());
+
+        if plan.log_mode {
             self.log_level = defaults.log_mode()?;
         }
 
-        if self.execution_mode.is_none() && !self.command.has_execution_mode_flag() {
+        if plan.execution_mode {
             self.execution_mode = defaults.execution_mode()?;
         }
 
         match &mut self.command {
-            Command::Dump(args) => {
-                if args.root.is_none() {
-                    args.root = defaults.guide_root()?;
-                }
-            }
-            Command::Init(args) => {
-                if args.root.is_none() {
-                    args.root = defaults.guide_root()?;
+            Command::Dump(dump::DumpArgs { root, .. })
+            | Command::Init(init::InitArgs { root, .. }) => {
+                if plan.guide_root {
+                    *root = defaults.guide_root()?;
                 }
             }
             Command::Check(args) => {
-                if args.guide.is_none() {
+                if plan.guide_path {
                     args.guide = defaults.guide_path()?;
                 }
-                if args.guide.is_none() {
+                if plan.guide_name {
                     args.implicit_guide_name = Some(defaults.guide_name()?);
                 }
             }
             Command::Verify(args) => {
-                if args.root.is_none() {
+                if plan.guide_root {
                     args.root = defaults.guide_root()?;
                 }
-                if args.recursive {
-                    if args.guide_name.is_none() {
-                        args.implicit_guide_name = Some(defaults.guide_name()?);
-                    }
-                } else {
-                    if args.guide.is_none() {
-                        args.guide = defaults.guide_path()?;
-                    }
-                    if args.guide.is_none() {
-                        args.implicit_guide_name = Some(defaults.guide_name()?);
-                    }
+                if plan.guide_path {
+                    args.guide = defaults.guide_path()?;
+                }
+                if plan.guide_name {
+                    args.implicit_guide_name = Some(defaults.guide_name()?);
                 }
             }
         }
@@ -178,36 +176,60 @@ impl Cli {
         Ok(())
     }
 
-    /// Resolve already-parsed CLI arguments into a Config.
+    /// The higher-precedence CLI selections clap parsed, as the verified
+    /// precedence kernel sees them.
+    fn cli_selections(&self) -> CliSelections {
+        let (command, root_option, guide_option, guide_name_option) = match &self.command {
+            Command::Dump(args) => (CommandKind::Dump, args.root.is_some(), false, false),
+            Command::Init(args) => (CommandKind::Init, args.root.is_some(), false, false),
+            Command::Check(args) => (CommandKind::Check, false, args.guide.is_some(), false),
+            Command::Verify(args) => (
+                if args.recursive {
+                    CommandKind::RecursiveVerify
+                } else {
+                    CommandKind::Verify
+                },
+                args.root.is_some(),
+                args.guide.is_some(),
+                args.guide_name.is_some(),
+            ),
+        };
+        CliSelections {
+            command,
+            log_option: self.verbose || self.quiet || self.log_level.is_some(),
+            mode_option: self.execution_mode.is_some() || self.command.has_execution_mode_flag(),
+            root_option,
+            guide_option,
+            guide_name_option,
+        }
+    }
+
+    /// Resolve already-parsed CLI arguments into a Config. The verified
+    /// `proven::settings` kernels accept exactly the listed spellings and
+    /// rank `--verbose`, then `--quiet`, then the selected value, then the
+    /// built-in default.
     pub(crate) fn build_config(&self) -> Config {
-        let log_level = if self.verbose {
-            LogLevel::Verbose
-        } else if self.quiet {
-            LogLevel::Quiet
-        } else {
-            self.log_level
-                .as_ref()
-                .and_then(|level| match level.as_str() {
-                    "quiet" => Some(LogLevel::Quiet),
-                    "verbose" => Some(LogLevel::Verbose),
-                    "default" => Some(LogLevel::Default),
-                    _ => None,
-                })
-                .unwrap_or(LogLevel::Default)
+        let selected_level = self
+            .log_level
+            .as_deref()
+            .and_then(|level| settings::log_choice(level.as_bytes()));
+        let log_level = match settings::resolve_log_level(self.verbose, self.quiet, selected_level)
+        {
+            LogChoice::Quiet => LogLevel::Quiet,
+            LogChoice::Default => LogLevel::Default,
+            LogChoice::Verbose => LogLevel::Verbose,
         };
 
-        // Resolve execution mode from the direct parameter
-        let execution_mode = self
+        let selected_mode = self
             .execution_mode
-            .as_ref()
-            .and_then(|mode| match mode.as_str() {
-                "post-tool-use" => Some(ExecutionMode::PostToolUse),
-                "pre-commit-hook" => Some(ExecutionMode::PreCommitHook),
-                "github-actions" => Some(ExecutionMode::GitHubActions),
-                "default" => Some(ExecutionMode::Default),
-                _ => None,
-            })
-            .unwrap_or_default();
+            .as_deref()
+            .and_then(|mode| settings::mode_choice(mode.as_bytes()));
+        let execution_mode = match settings::resolve_execution_mode(selected_mode) {
+            ModeChoice::Default => ExecutionMode::Default,
+            ModeChoice::PostToolUse => ExecutionMode::PostToolUse,
+            ModeChoice::PreCommitHook => ExecutionMode::PreCommitHook,
+            ModeChoice::GitHubActions => ExecutionMode::GitHubActions,
+        };
 
         Config {
             execution_mode,

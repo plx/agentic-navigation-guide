@@ -8,6 +8,11 @@ use crate::proven::anchor::{
     parent_reduction_plan, AnchorResolution, AnchorStep, BeneathPlan, BeneathStep, ComponentKind,
     ParentOutcome, ReductionStep, TailClass,
 };
+pub(crate) use crate::proven::authority::GuideAuthority;
+use crate::proven::authority::{
+    classify_entry, directory_entry_verdict, guide_route, walk_entry_verdict, CandidatePlace,
+    EntryClass, EntryFacts, GuideRoute, WalkVerdict,
+};
 use crate::proven::windows_names::{implicit_name_shape, ImplicitNameShape};
 use std::error::Error;
 use std::fmt;
@@ -18,16 +23,21 @@ use std::path::{Component, Path, PathBuf};
 const MAX_DIAGNOSTIC_CHARS: usize = 320;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GuideAuthority {
-    Implicit,
-    Explicit,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CandidateClass<'a> {
     ProvenInAnchor(&'a Path),
     ProvenExternal,
     ParentContaining(&'a Path),
+}
+
+impl<'a> CandidateClass<'a> {
+    /// The verified authority kernel's view of this classification.
+    fn place(self) -> CandidatePlace<&'a Path> {
+        match self {
+            Self::ProvenInAnchor(tail) => CandidatePlace::InAnchor(tail),
+            Self::ProvenExternal => CandidatePlace::External,
+            Self::ParentContaining(tail) => CandidatePlace::ParentContaining(tail),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -151,15 +161,20 @@ impl GuideAnchor {
         logical_path: &Path,
     ) -> Result<(), GuideInputError> {
         let candidate = lexical_absolute(path, &self.current_dir, path)?;
-        let CandidateClass::ProvenInAnchor(tail) = classify_candidate(&self.spelling, &candidate)
-        else {
-            return Err(GuideInputError::UnsafePath {
-                path: logical_path.to_path_buf(),
-                reason: "an implicit guide must remain beneath its trust anchor",
-            });
-        };
-        self.validate_beneath(&candidate, tail, logical_path)?;
-        validate_exact_implicit_entry(&candidate, logical_path)
+        let place = classify_candidate(&self.spelling, &candidate).place();
+        match guide_route(GuideAuthority::Implicit, place) {
+            GuideRoute::WalkBeneath {
+                tail,
+                exact_implicit_entry,
+            } => self
+                .walk_beneath(&candidate, tail, exact_implicit_entry, logical_path)
+                .map(|_| ()),
+            // `theorem_implicit_authority_stays_beneath`: implicit authority
+            // never selects the external or parent-reduction route.
+            GuideRoute::CheckExternalEntry
+            | GuideRoute::ReduceParents(_)
+            | GuideRoute::RejectImplicitEscape => Err(implicit_escape(logical_path)),
+        }
     }
 
     pub(crate) fn read(
@@ -174,30 +189,46 @@ impl GuideAnchor {
         validate_explicit_path(path)?;
 
         let candidate = lexical_absolute(path, &self.current_dir, path)?;
-        let (access_path, metadata) = match classify_candidate(&self.spelling, &candidate) {
-            CandidateClass::ProvenInAnchor(tail) => {
-                let metadata = self.validate_beneath(&candidate, tail, logical_path)?;
-                if authority == GuideAuthority::Implicit {
-                    validate_exact_implicit_entry(&candidate, logical_path)?;
-                }
+        // The verified `proven::authority::guide_route` decides the
+        // validation from the authority and the candidate's place; this glue
+        // performs the I/O that route names.
+        let place = classify_candidate(&self.spelling, &candidate).place();
+        let (access_path, metadata) = match guide_route(authority, place) {
+            GuideRoute::WalkBeneath {
+                tail,
+                exact_implicit_entry,
+            } => {
+                let metadata =
+                    self.walk_beneath(&candidate, tail, exact_implicit_entry, logical_path)?;
                 (candidate.clone(), metadata)
             }
-            CandidateClass::ProvenExternal if authority == GuideAuthority::Explicit => {
+            GuideRoute::CheckExternalEntry => {
                 let metadata = validate_final_entry(&candidate, logical_path)?;
                 (candidate.clone(), metadata)
             }
-            CandidateClass::ParentContaining(tail) if authority == GuideAuthority::Explicit => {
+            GuideRoute::ReduceParents(tail) => {
                 self.validate_parent_containing(&candidate, tail, logical_path)?
             }
-            CandidateClass::ProvenExternal | CandidateClass::ParentContaining(_) => {
-                return Err(GuideInputError::UnsafePath {
-                    path: logical_path.to_path_buf(),
-                    reason: "an implicit guide must remain beneath its trust anchor",
-                });
-            }
+            GuideRoute::RejectImplicitEscape => return Err(implicit_escape(logical_path)),
         };
 
         open_and_read(&access_path, logical_path, &metadata)
+    }
+
+    /// The `WalkBeneath` route: walk the in-anchor tail and then, when the
+    /// route asks for it, require an exactly matching implicit entry.
+    fn walk_beneath(
+        &self,
+        candidate: &Path,
+        tail: &Path,
+        exact_implicit_entry: bool,
+        logical_path: &Path,
+    ) -> Result<Metadata, GuideInputError> {
+        let metadata = self.validate_beneath(candidate, tail, logical_path)?;
+        if exact_implicit_entry {
+            validate_exact_implicit_entry(candidate, logical_path)?;
+        }
+        Ok(metadata)
     }
 
     fn validate_beneath(
@@ -313,21 +344,26 @@ impl GuideAnchor {
                     operation: "inspect",
                     source,
                 })?;
-            if is_link_like(&metadata) {
-                return Err(GuideInputError::UnsafePath {
-                    path: logical_path.to_path_buf(),
-                    reason: if final_entry {
-                        "the final guide entry is a link or reparse point"
-                    } else {
-                        "a guide-path ancestor below the trust anchor is a link or reparse point"
-                    },
-                });
-            }
-            if !final_entry && !metadata.is_dir() {
-                return Err(GuideInputError::UnsafePath {
-                    path: logical_path.to_path_buf(),
-                    reason: "a guide-path ancestor below the trust anchor is not a directory",
-                });
+            // The verified `proven::authority::walk_entry_verdict` decides
+            // the step from the no-follow metadata.
+            match walk_entry_verdict(final_entry, entry_facts(&metadata)) {
+                WalkVerdict::Continue => {}
+                WalkVerdict::LinkLike => {
+                    return Err(GuideInputError::UnsafePath {
+                        path: logical_path.to_path_buf(),
+                        reason: if final_entry {
+                            "the final guide entry is a link or reparse point"
+                        } else {
+                            "a guide-path ancestor below the trust anchor is a link or reparse point"
+                        },
+                    });
+                }
+                WalkVerdict::NotDirectory => {
+                    return Err(GuideInputError::UnsafePath {
+                        path: logical_path.to_path_buf(),
+                        reason: "a guide-path ancestor below the trust anchor is not a directory",
+                    });
+                }
             }
         }
 
@@ -382,6 +418,22 @@ pub(crate) fn validate_implicit_name(name: &str) -> Result<(), GuideInputError> 
 
 pub(crate) fn is_link_like(metadata: &Metadata) -> bool {
     platform_is_link_like(metadata)
+}
+
+/// The no-follow facts the verified entry checks decide from.
+fn entry_facts(metadata: &Metadata) -> EntryFacts {
+    EntryFacts {
+        link_like: is_link_like(metadata),
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+    }
+}
+
+fn implicit_escape(logical_path: &Path) -> GuideInputError {
+    GuideInputError::UnsafePath {
+        path: logical_path.to_path_buf(),
+        reason: "an implicit guide must remain beneath its trust anchor",
+    }
 }
 
 pub(crate) fn render_path(path: &Path) -> String {
@@ -439,19 +491,17 @@ fn validate_component_before_parent(
         operation: "inspect the component before '..' in",
         source,
     })?;
-    if is_link_like(&metadata) {
-        return Err(GuideInputError::UnsafePath {
+    match directory_entry_verdict(entry_facts(&metadata)) {
+        WalkVerdict::Continue => Ok(()),
+        WalkVerdict::LinkLike => Err(GuideInputError::UnsafePath {
             path: logical_path.to_path_buf(),
             reason: "a parent-containing guide path crosses a link or reparse point before '..'",
-        });
-    }
-    if !metadata.is_dir() {
-        return Err(GuideInputError::UnsafePath {
+        }),
+        WalkVerdict::NotDirectory => Err(GuideInputError::UnsafePath {
             path: logical_path.to_path_buf(),
             reason: "a guide-path component before '..' is not a directory",
-        });
+        }),
     }
-    Ok(())
 }
 
 pub(crate) fn canonicalize_anchor_preserving_parent_order(path: &Path) -> io::Result<PathBuf> {
@@ -499,23 +549,16 @@ fn validate_final_entry(path: &Path, logical_path: &Path) -> Result<Metadata, Gu
         operation: "inspect",
         source,
     })?;
-    if is_link_like(&metadata) {
-        return Err(GuideInputError::UnsafePath {
-            path: logical_path.to_path_buf(),
-            reason: "the final guide entry is a link or reparse point",
-        });
-    }
-    if !metadata.is_file() {
-        return Err(GuideInputError::UnsafePath {
-            path: logical_path.to_path_buf(),
-            reason: if metadata.is_dir() {
-                "the selected guide entry is a directory"
-            } else {
-                "the selected guide entry is not a regular file"
-            },
-        });
-    }
-    Ok(metadata)
+    let reason = match classify_entry(entry_facts(&metadata)) {
+        EntryClass::RegularFile => return Ok(metadata),
+        EntryClass::LinkLike => "the final guide entry is a link or reparse point",
+        EntryClass::Directory => "the selected guide entry is a directory",
+        EntryClass::Other => "the selected guide entry is not a regular file",
+    };
+    Err(GuideInputError::UnsafePath {
+        path: logical_path.to_path_buf(),
+        reason,
+    })
 }
 
 #[cfg(windows)]

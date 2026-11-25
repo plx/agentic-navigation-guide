@@ -11,6 +11,7 @@
 //! the trusted base and how to re-run the proofs.
 
 pub(crate) mod anchor;
+pub(crate) mod authority;
 pub(crate) mod choice;
 pub(crate) mod discovery;
 pub(crate) mod document;
@@ -20,6 +21,8 @@ pub(crate) mod glob;
 pub(crate) mod layout;
 pub(crate) mod marker;
 pub(crate) mod outcome;
+pub(crate) mod output_path;
 pub(crate) mod path_rules;
 pub(crate) mod placeholder;
+pub(crate) mod settings;
 pub(crate) mod windows_names;

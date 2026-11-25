@@ -6,6 +6,11 @@
 //! without accepting raw guide source.
 
 use crate::errors::{AppError, ErrorFormatter, Result as AppResult};
+use crate::proven::anchor::ComponentKind;
+use crate::proven::authority::{
+    classify_entry, directory_entry_verdict, EntryClass, EntryFacts, WalkVerdict,
+};
+use crate::proven::output_path::{is_plain_descent, OutputSpelling};
 use crate::types::{Config, ExecutionMode};
 use std::env;
 use std::fmt;
@@ -375,23 +380,18 @@ impl PreparedOutput {
             }
         };
 
-        let creation_parent =
-            match lexical_output
-                .strip_prefix(&lexical_root)
-                .ok()
-                .filter(|relative| {
-                    let mut components = relative.components();
-                    components.clone().next().is_some()
-                        && components.all(|component| matches!(component, Component::Normal(_)))
-                }) {
-                Some(relative) => Self::prepare_in_root_parent(
-                    &lexical_root,
-                    relative,
-                    requested_path,
-                    &final_name,
-                )?,
-                None => Self::prepare_external_parent(&lexical_output, requested_path)?,
-            };
+        // The verified `proven::output_path::is_plain_descent` selects the
+        // in-root route exactly for a nonempty tail of ordinary names.
+        let creation_parent = match lexical_output
+            .strip_prefix(&lexical_root)
+            .ok()
+            .filter(|relative| is_plain_descent(&component_kinds(relative)))
+        {
+            Some(relative) => {
+                Self::prepare_in_root_parent(&lexical_root, relative, requested_path, &final_name)?
+            }
+            None => Self::prepare_external_parent(&lexical_output, requested_path)?,
+        };
         ensure_writable_parent(&creation_parent, requested_path)?;
 
         let creation_path = creation_parent.join(&final_name);
@@ -420,10 +420,7 @@ impl PreparedOutput {
         final_name: &std::ffi::OsStr,
     ) -> Result<PathBuf, OutputError> {
         let components: Vec<_> = relative_output.components().collect();
-        if components.is_empty()
-            || !components
-                .iter()
-                .all(|component| matches!(component, Component::Normal(_)))
+        if !is_plain_descent(&component_kinds(relative_output))
             || !matches!(
                 components.last(),
                 Some(Component::Normal(name)) if *name == final_name
@@ -474,18 +471,21 @@ impl PreparedOutput {
                     });
                 }
             };
-            if is_link_like(&metadata) {
-                return Err(OutputError::Unsafe {
-                    path: requested_path.to_path_buf(),
-                    reason:
-                        "an ancestor below the selected generation root is a link or reparse point"
-                            .to_string(),
-                });
-            }
-            if !metadata.is_dir() {
-                return Err(OutputError::ParentNotDirectory {
-                    path: requested_path.to_path_buf(),
-                });
+            match directory_entry_verdict(entry_facts(&metadata)) {
+                WalkVerdict::Continue => {}
+                WalkVerdict::LinkLike => {
+                    return Err(OutputError::Unsafe {
+                        path: requested_path.to_path_buf(),
+                        reason:
+                            "an ancestor below the selected generation root is a link or reparse point"
+                                .to_string(),
+                    });
+                }
+                WalkVerdict::NotDirectory => {
+                    return Err(OutputError::ParentNotDirectory {
+                        path: requested_path.to_path_buf(),
+                    });
+                }
             }
         }
 
@@ -753,8 +753,9 @@ fn ensure_writable_parent(parent: &Path, requested_path: &Path) -> Result<(), Ou
         // Treat a directory with no declared write or search permission as
         // contractually read-only even if a privileged identity could bypass
         // discretionary access control. `access` below separately checks the
-        // current identity and ACLs when the mode admits creation.
-        if mode & 0o222 == 0 || mode & 0o111 == 0 {
+        // current identity and ACLs when the mode admits creation. The
+        // verified `proven::output_path::mode_admits_creation` decides.
+        if !crate::proven::output_path::mode_admits_creation(mode) {
             return Err(OutputError::ParentNotWritable {
                 path: requested_path.to_path_buf(),
             });
@@ -814,22 +815,45 @@ fn ensure_writable_parent(parent: &Path, requested_path: &Path) -> Result<(), Ou
 }
 
 fn existing_entry_error(requested_path: &Path, metadata: &Metadata) -> OutputError {
-    if is_link_like(metadata) {
-        return OutputError::Unsafe {
-            path: requested_path.to_path_buf(),
-            reason: "the final destination is a link or reparse point".to_string(),
-        };
-    }
+    // The verified `proven::authority::classify_entry` classifies the
+    // existing entry, a link before its type.
+    let kind = match classify_entry(entry_facts(metadata)) {
+        EntryClass::LinkLike => {
+            return OutputError::Unsafe {
+                path: requested_path.to_path_buf(),
+                reason: "the final destination is a link or reparse point".to_string(),
+            };
+        }
+        EntryClass::RegularFile => ExistingKind::RegularFile,
+        EntryClass::Directory => ExistingKind::Directory,
+        EntryClass::Other => ExistingKind::SpecialEntry,
+    };
     OutputError::Existing {
         path: requested_path.to_path_buf(),
-        kind: if metadata.is_file() {
-            ExistingKind::RegularFile
-        } else if metadata.is_dir() {
-            ExistingKind::Directory
-        } else {
-            ExistingKind::SpecialEntry
-        },
+        kind,
     }
+}
+
+/// The no-follow facts the verified entry checks decide from.
+fn entry_facts(metadata: &Metadata) -> EntryFacts {
+    EntryFacts {
+        link_like: is_link_like(metadata),
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+    }
+}
+
+/// The kind of each host path component, as the verified kernels see it.
+fn component_kinds(path: &Path) -> Vec<ComponentKind> {
+    path.components()
+        .map(|component| match component {
+            Component::Prefix(_) => ComponentKind::Prefix,
+            Component::RootDir => ComponentKind::RootDir,
+            Component::CurDir => ComponentKind::CurDir,
+            Component::ParentDir => ComponentKind::ParentDir,
+            Component::Normal(_) => ComponentKind::Normal,
+        })
+        .collect()
 }
 
 fn classify_racing_entry(creation_path: &Path, requested_path: &Path) -> OutputError {
@@ -1121,35 +1145,30 @@ fn is_no_follow_error(_error: &io::Error) -> bool {
 #[cfg(not(any(unix, windows)))]
 compile_error!("exclusive output identity validation is implemented only for Unix and Windows");
 
+/// The diagnostic of a rejected output spelling.
+fn spelling_reason(verdict: OutputSpelling) -> Option<&'static str> {
+    match verdict {
+        OutputSpelling::Ordinary => None,
+        OutputSpelling::Empty => Some("the path is empty"),
+        OutputSpelling::TrailingSeparator => Some("the path ends with a directory separator"),
+        OutputSpelling::DotSegment => Some("the path must end in an ordinary file name"),
+    }
+}
+
+/// Validate a Unix output spelling. The verified
+/// `proven::output_path::unix_output_spelling` decides from the raw bytes.
 #[cfg(unix)]
 fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
     use std::os::unix::ffi::OsStrExt;
 
-    if path.as_os_str().is_empty() {
-        return Err(OutputError::InvalidPath {
+    let verdict = crate::proven::output_path::unix_output_spelling(path.as_os_str().as_bytes());
+    match spelling_reason(verdict) {
+        None => Ok(()),
+        Some(reason) => Err(OutputError::InvalidPath {
             path: path.to_path_buf(),
-            reason: "the path is empty".to_string(),
-        });
+            reason: reason.to_string(),
+        }),
     }
-    if path.as_os_str().as_bytes().ends_with(b"/") {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path ends with a directory separator".to_string(),
-        });
-    }
-    if path
-        .as_os_str()
-        .as_bytes()
-        .rsplit(|unit| *unit == b'/')
-        .next()
-        .is_some_and(|component| component == b"." || component == b"..")
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path must end in an ordinary file name".to_string(),
-        });
-    }
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -1158,30 +1177,13 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
     use std::path::Prefix;
 
     let raw: Vec<u16> = path.as_os_str().encode_wide().collect();
-    if raw.is_empty() {
+    // The verified `proven::output_path::windows_output_spelling` decides
+    // from the raw code units, before the namespace and component checks.
+    let verdict = crate::proven::output_path::windows_output_spelling(&raw);
+    if let Some(reason) = spelling_reason(verdict) {
         return Err(OutputError::InvalidPath {
             path: path.to_path_buf(),
-            reason: "the path is empty".to_string(),
-        });
-    }
-    if raw
-        .last()
-        .is_some_and(|unit| *unit == u16::from(b'\\') || *unit == u16::from(b'/'))
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path ends with a directory separator".to_string(),
-        });
-    }
-    let final_component = raw
-        .rsplit(|unit| *unit == u16::from(b'\\') || *unit == u16::from(b'/'))
-        .next()
-        .unwrap_or_default();
-    if final_component == [u16::from(b'.')] || final_component == [u16::from(b'.'), u16::from(b'.')]
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path must end in an ordinary file name".to_string(),
+            reason: reason.to_string(),
         });
     }
     if crate::proven::windows_names::has_namespace_prefix(&raw) {
