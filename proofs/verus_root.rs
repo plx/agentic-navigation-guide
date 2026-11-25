@@ -13,3 +13,8 @@ mod entry_type;
 mod path_codec;
 #[path = "../src/proven/mod.rs"]
 mod proven;
+
+// Proof-only theorems composed from the kernels' specifications; this file
+// is not part of the Cargo package.
+#[path = "round_trip.rs"]
+mod round_trip;
