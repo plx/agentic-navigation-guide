@@ -1,9 +1,8 @@
 //! Syntax validation for navigation guides
 
 use crate::errors::{Result, SyntaxError};
-use crate::path_codec::{
-    contains_forbidden_control, has_windows_drive_prefix, render_utf8_component,
-};
+use crate::path_codec::render_utf8_component;
+use crate::proven::path_rules::{self, PathVerdict};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use std::collections::HashSet;
 
@@ -92,66 +91,30 @@ impl Validator {
     }
 
     /// Validate path structure without restricting character classes.
+    ///
+    /// The decision is the Verus-verified
+    /// [`crate::proven::path_rules::check_path_structure`] kernel, which
+    /// applies these rules in this precedence: an empty path, a leading `/`,
+    /// or (at the guide root) a leading `\` is an invalid format; then each
+    /// raw `/`-delimited component, left to right and before any
+    /// normalization, is rejected when it is empty, `.` or `..` (a special
+    /// directory), contains a forbidden control, or (as the first component
+    /// at the guide root) begins with an ASCII letter and `:`.
     fn validate_path_structure(&self, item: &NavigationGuideLine, at_root: bool) -> Result<()> {
         let path = item.path();
-        let diagnostic_path = render_utf8_component(path);
-
-        // Check for empty path
-        if path.is_empty() {
-            return Err(SyntaxError::InvalidPathFormat {
+        match path_rules::check_path_structure(path, at_root) {
+            PathVerdict::Valid => Ok(()),
+            PathVerdict::InvalidFormat => Err(SyntaxError::InvalidPathFormat {
                 line: item.line_number,
-                path: diagnostic_path,
+                path: render_utf8_component(path),
             }
-            .into());
-        }
-
-        // `/` is the sole logical separator, but a leading backslash is still
-        // a rooted Windows spelling and rejects on every host.
-        if path.starts_with('/') || (at_root && path.starts_with('\\')) {
-            return Err(SyntaxError::InvalidPathFormat {
+            .into()),
+            PathVerdict::SpecialDirectory => Err(SyntaxError::InvalidSpecialDirectory {
                 line: item.line_number,
-                path: diagnostic_path,
+                path: render_utf8_component(path),
             }
-            .into());
+            .into()),
         }
-
-        // Validate raw slash-delimited components before any normalization so
-        // `.` / `..` and empty components remain observable.
-        for (index, component) in path.split('/').enumerate() {
-            if component.is_empty() {
-                return Err(SyntaxError::InvalidPathFormat {
-                    line: item.line_number,
-                    path: diagnostic_path,
-                }
-                .into());
-            }
-
-            if component == "." || component == ".." {
-                return Err(SyntaxError::InvalidSpecialDirectory {
-                    line: item.line_number,
-                    path: diagnostic_path,
-                }
-                .into());
-            }
-
-            if contains_forbidden_control(component) {
-                return Err(SyntaxError::InvalidPathFormat {
-                    line: item.line_number,
-                    path: diagnostic_path,
-                }
-                .into());
-            }
-
-            if at_root && index == 0 && has_windows_drive_prefix(component) {
-                return Err(SyntaxError::InvalidPathFormat {
-                    line: item.line_number,
-                    path: diagnostic_path,
-                }
-                .into());
-            }
-        }
-
-        Ok(())
     }
 
     fn validate_unique_full_paths(
@@ -211,7 +174,10 @@ impl Validator {
                     if let Some(item) = self.find_item_with_indent(items, level) {
                         return Err(SyntaxError::InconsistentIndentation {
                             line: item.line_number,
-                            expected: ((level / base) + 1) * base,
+                            // Saturating arithmetic only differs on hand-built
+                            // trees with levels near `usize::MAX`; the parser
+                            // caps logical depth far below that.
+                            expected: (level / base).saturating_add(1).saturating_mul(base),
                             found: level,
                         }
                         .into());
@@ -291,8 +257,10 @@ impl Validator {
         for item in items {
             if let Some(children) = item.children() {
                 for child in children {
-                    // Children should be exactly one level deeper than parent
-                    if child.indent_level != item.indent_level + 1 {
+                    // Children should be exactly one level deeper than parent.
+                    // A parent at `usize::MAX` (reachable only in hand-built
+                    // trees) can have no valid child level.
+                    if item.indent_level.checked_add(1) != Some(child.indent_level) {
                         return Err(SyntaxError::InvalidIndentationLevel {
                             line: child.line_number,
                         }
@@ -641,6 +609,118 @@ mod tests {
             result,
             Err(crate::errors::AppError::Syntax(
                 SyntaxError::InvalidIndentationLevel { line: 2 }
+            ))
+        ));
+    }
+
+    fn single_file_guide(path: &str) -> NavigationGuide {
+        let mut guide = NavigationGuide::new();
+        guide.items.push(NavigationGuideLine {
+            line_number: 4,
+            indent_level: 0,
+            item: FilesystemItem::File {
+                path: path.to_string(),
+                comment: None,
+            },
+        });
+        guide
+    }
+
+    #[test]
+    fn test_validate_path_structure_reports_rendered_path_per_verdict() {
+        let result = Validator::new().validate_syntax(&single_file_guide("src/../main.rs"));
+        match result {
+            Err(crate::errors::AppError::Syntax(SyntaxError::InvalidSpecialDirectory {
+                line,
+                path,
+            })) => {
+                assert_eq!(line, 4);
+                assert_eq!(path, "\"src/../main.rs\"");
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
+
+        let result = Validator::new().validate_syntax(&single_file_guide("a\tb/C:x"));
+        match result {
+            Err(crate::errors::AppError::Syntax(SyntaxError::InvalidPathFormat { line, path })) => {
+                assert_eq!(line, 4);
+                assert_eq!(path, "\"a\\tb/C:x\"");
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
+
+        let result = Validator::new().validate_syntax(&single_file_guide("C:notes"));
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidPathFormat { line: 4, .. }
+            ))
+        ));
+        assert!(Validator::new()
+            .validate_syntax(&single_file_guide("dir/C:notes"))
+            .is_ok());
+    }
+
+    #[test]
+    fn test_validate_nesting_rejects_child_of_maximum_level_without_overflow() {
+        let mut guide = NavigationGuide::new();
+        guide.items = vec![NavigationGuideLine {
+            line_number: 1,
+            indent_level: usize::MAX,
+            item: FilesystemItem::Directory {
+                path: "root".to_string(),
+                comment: None,
+                children: vec![NavigationGuideLine {
+                    line_number: 2,
+                    indent_level: 0,
+                    item: FilesystemItem::File {
+                        path: "child".to_string(),
+                        comment: None,
+                    },
+                }],
+            },
+        }];
+
+        let result = Validator::new().validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InvalidIndentationLevel { line: 2 }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_indentation_expected_level_saturates_without_overflow() {
+        let mut guide = NavigationGuide::new();
+        guide.items = vec![
+            NavigationGuideLine {
+                line_number: 1,
+                indent_level: 2,
+                item: FilesystemItem::File {
+                    path: "even".to_string(),
+                    comment: None,
+                },
+            },
+            NavigationGuideLine {
+                line_number: 2,
+                indent_level: usize::MAX,
+                item: FilesystemItem::File {
+                    path: "odd".to_string(),
+                    comment: None,
+                },
+            },
+        ];
+
+        let result = Validator::new().validate_syntax(&guide);
+        assert!(matches!(
+            result,
+            Err(crate::errors::AppError::Syntax(
+                SyntaxError::InconsistentIndentation {
+                    line: 2,
+                    expected: usize::MAX,
+                    found: usize::MAX
+                }
             ))
         ));
     }

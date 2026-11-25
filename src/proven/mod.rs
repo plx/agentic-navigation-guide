@@ -11,3 +11,4 @@
 //! the trusted base and how to re-run the proofs.
 
 pub(crate) mod marker;
+pub(crate) mod path_rules;
