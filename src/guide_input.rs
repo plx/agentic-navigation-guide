@@ -3,6 +3,7 @@
 //! This binary-private module is the single implementation shared by every
 //! CLI and internal guide-reading route. It is not a downstream Rust API.
 
+use crate::proven::windows_names::{implicit_name_shape, ImplicitNameShape};
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
@@ -333,17 +334,20 @@ impl GuideAnchor {
 }
 
 pub(crate) fn validate_implicit_name(name: &str) -> Result<(), GuideInputError> {
-    if name.is_empty() {
-        return Err(GuideInputError::InvalidName {
-            name: name.to_string(),
-            reason: "the name must contain exactly one nonempty filename component",
-        });
-    }
-    if name.contains(['/', '\\']) {
-        return Err(GuideInputError::InvalidName {
-            name: name.to_string(),
-            reason: "directory separators are not allowed",
-        });
+    match implicit_name_shape(name) {
+        ImplicitNameShape::Empty => {
+            return Err(GuideInputError::InvalidName {
+                name: name.to_string(),
+                reason: "the name must contain exactly one nonempty filename component",
+            });
+        }
+        ImplicitNameShape::ContainsSeparator => {
+            return Err(GuideInputError::InvalidName {
+                name: name.to_string(),
+                reason: "directory separators are not allowed",
+            });
+        }
+        ImplicitNameShape::Candidate => {}
     }
 
     let path = Path::new(name);
@@ -887,7 +891,7 @@ fn validate_explicit_path_spelling(path: &Path) -> Result<(), GuideInputError> {
             reason: "the path is empty",
         });
     }
-    if has_windows_namespace_prefix(&raw) {
+    if crate::proven::windows_names::has_namespace_prefix(&raw) {
         return Err(GuideInputError::InvalidPath {
             path: path.to_path_buf(),
             reason: "device, named-pipe, and verbatim namespaces are not supported",
@@ -916,10 +920,9 @@ fn validate_explicit_path_spelling(path: &Path) -> Result<(), GuideInputError> {
             Component::Prefix(prefix) => match prefix.kind() {
                 Prefix::Disk(_) => {}
                 Prefix::UNC(server, share) => {
-                    if windows_name_eq_ascii(share, "pipe")
-                        || windows_name_eq_ascii(share, "mailslot")
-                        || windows_name_eq_ascii(share, "IPC$")
-                    {
+                    if crate::proven::windows_names::is_non_filesystem_share(
+                        share.to_string_lossy().as_bytes(),
+                    ) {
                         return Err(GuideInputError::InvalidPath {
                             path: path.to_path_buf(),
                             reason: "named-pipe and mailslot namespaces are not filesystem shares",
@@ -957,33 +960,17 @@ fn validate_explicit_path_spelling(path: &Path) -> Result<(), GuideInputError> {
     }
 }
 
-#[cfg(windows)]
-fn has_windows_namespace_prefix(raw: &[u16]) -> bool {
-    let separator = |unit| unit == u16::from(b'\\') || unit == u16::from(b'/');
-    (raw.len() >= 4
-        && separator(raw[0])
-        && separator(raw[1])
-        && matches!(raw[2], 46 | 63)
-        && separator(raw[3]))
-        || (raw.len() >= 4
-            && separator(raw[0])
-            && raw[1] == u16::from(b'?')
-            && raw[2] == u16::from(b'?')
-            && separator(raw[3]))
-        || (raw.len() >= 5
-            && separator(raw[0])
-            && separator(raw[1])
-            && raw[2] == u16::from(b'?')
-            && raw[3] == u16::from(b'?')
-            && separator(raw[4]))
-}
-
+/// Validate one Windows path component. The verified kernel decides the
+/// spelling rules; this glue supplies the component's UTF-16 code units and
+/// the host's Unicode uppercase form of its text, and maps the verdict to the
+/// diagnostic.
 #[cfg(windows)]
 fn validate_windows_component(
     path: &Path,
     component: &std::ffi::OsStr,
     explicit: bool,
 ) -> Result<(), GuideInputError> {
+    use crate::proven::windows_names::{windows_component_verdict, WindowsComponentVerdict};
     use std::os::windows::ffi::OsStrExt;
 
     let invalid = |reason| {
@@ -1001,68 +988,22 @@ fn validate_windows_component(
     };
 
     let units: Vec<u16> = component.encode_wide().collect();
-    if units.contains(&u16::from(b':')) {
-        return Err(invalid("alternate data stream syntax is not allowed"));
-    }
-    if units.iter().any(|unit| {
-        *unit < 32
-            || matches!(
-                *unit,
-                value
-                    if value == u16::from(b'<')
-                        || value == u16::from(b'>')
-                        || value == u16::from(b'"')
-                        || value == u16::from(b'|')
-                        || value == u16::from(b'?')
-                        || value == u16::from(b'*')
-            )
-    }) {
-        return Err(invalid(
-            "the name contains a character Windows does not allow in filesystem names",
-        ));
-    }
-    if units
-        .last()
-        .is_some_and(|unit| *unit == u16::from(b' ') || *unit == u16::from(b'.'))
-    {
-        return Err(invalid(
-            "Windows path components may not end in a space or dot",
-        ));
-    }
-
     let uppercase = component.to_string_lossy().to_uppercase();
-    let base = uppercase
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(' ');
-    let reserved = matches!(
-        base,
-        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
-    ) || reserved_numbered_alias(base, "COM")
-        || reserved_numbered_alias(base, "LPT");
-    if reserved {
-        return Err(invalid(
+    match windows_component_verdict(&units, &uppercase) {
+        WindowsComponentVerdict::Ordinary => Ok(()),
+        WindowsComponentVerdict::AlternateDataStream => {
+            Err(invalid("alternate data stream syntax is not allowed"))
+        }
+        WindowsComponentVerdict::ForbiddenCharacter => Err(invalid(
+            "the name contains a character Windows does not allow in filesystem names",
+        )),
+        WindowsComponentVerdict::TrailingSpaceOrDot => Err(invalid(
+            "Windows path components may not end in a space or dot",
+        )),
+        WindowsComponentVerdict::ReservedDevice => Err(invalid(
             "a reserved DOS device alias is not an ordinary filesystem name",
-        ));
+        )),
     }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn windows_name_eq_ascii(name: &std::ffi::OsStr, expected: &str) -> bool {
-    name.to_string_lossy().eq_ignore_ascii_case(expected)
-}
-
-#[cfg(windows)]
-fn reserved_numbered_alias(name: &str, prefix: &str) -> bool {
-    let Some(suffix) = name.strip_prefix(prefix) else {
-        return false;
-    };
-    matches!(
-        suffix,
-        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-    )
 }
 
 #[cfg(not(any(unix, windows)))]
