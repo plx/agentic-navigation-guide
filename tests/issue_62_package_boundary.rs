@@ -36,6 +36,8 @@ const EXPECTED_PACKAGE_PATHS: &[&str] = &[
     "src/main.rs",
     "src/parser.rs",
     "src/path_codec.rs",
+    "src/proven/document.rs",
+    "src/proven/layout.rs",
     "src/proven/marker.rs",
     "src/proven/mod.rs",
     "src/proven/path_rules.rs",

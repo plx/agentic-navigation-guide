@@ -10,5 +10,7 @@
 //! plain Rust and the product gains no dependency. See `proofs/README.md` for
 //! the trusted base and how to re-run the proofs.
 
+pub(crate) mod document;
+pub(crate) mod layout;
 pub(crate) mod marker;
 pub(crate) mod path_rules;

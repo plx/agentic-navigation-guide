@@ -2,13 +2,13 @@
 
 use crate::errors::{Result, SyntaxError};
 use crate::path_codec::{has_windows_drive_prefix, render_utf8_component};
+use crate::proven::document::{self, EnvelopeError, EnvelopeScan};
+use crate::proven::layout::{self, IndentState, LayoutError};
 use crate::proven::marker::{self, MarkerClass};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
-use regex::Regex;
 use std::collections::HashSet;
 
-const MAX_INDENT_SIZE: usize = 16;
-const MAX_LOGICAL_DEPTH: usize = 256;
+const MAX_LOGICAL_DEPTH: usize = layout::MAX_LOGICAL_DEPTH;
 const MIN_CHOICE_ALTERNATIVES: usize = 2;
 const MAX_CHOICE_ALTERNATIVES: usize = 256;
 
@@ -55,17 +55,30 @@ impl HierarchyObserver for () {
 }
 
 /// Parser for navigation guide markdown content
-pub(crate) struct Parser {
-    /// Regular expression for detecting list items
-    list_item_regex: Regex,
+pub(crate) struct Parser;
+
+/// Map a verified envelope-scan error to its diagnostic.
+fn envelope_syntax_error(error: EnvelopeError) -> SyntaxError {
+    match error {
+        EnvelopeError::MultipleGuideBlocks { line } => SyntaxError::MultipleGuideBlocks { line },
+        EnvelopeError::MissingOpeningMarker { line } => SyntaxError::MissingOpeningMarker { line },
+        EnvelopeError::MissingClosingMarker { line } => SyntaxError::MissingClosingMarker { line },
+    }
+}
+
+/// Map a verified body-layout error on `line` to its diagnostic.
+fn layout_syntax_error(error: LayoutError, line: usize) -> SyntaxError {
+    match error {
+        LayoutError::BlankLine => SyntaxError::BlankLineInGuide { line },
+        LayoutError::InvalidListFormat => SyntaxError::InvalidListFormat { line },
+        LayoutError::InvalidIndentationLevel => SyntaxError::InvalidIndentationLevel { line },
+    }
 }
 
 impl Parser {
     /// Create a new parser instance
     pub(crate) fn new() -> Self {
-        Self {
-            list_item_regex: Regex::new(r"^(\s*)- (.+)$").unwrap(),
-        }
+        Self
     }
 
     /// Parse navigation guide content from a markdown string.
@@ -104,39 +117,30 @@ impl Parser {
         Self::validate_line_endings(content)?;
 
         let lines: Vec<&str> = content.lines().collect();
-        let mut start_idx = None;
-        let mut end_idx = None;
-        let mut ignore = false;
 
         // Find and validate opening/closing markers across the full document.
-        // We require exactly one opening marker and exactly one closing marker.
+        // The Verus-verified envelope scan requires exactly one opening marker
+        // and exactly one closing marker after it, and reports the first
+        // offending line (see `crate::proven::document`).
+        let mut scan = EnvelopeScan::BeforeOpening;
         for (idx, line) in lines.iter().enumerate() {
-            match Self::classify_marker_line(line, idx + 1)? {
-                MarkerLine::Ordinary => {}
-                MarkerLine::Opening {
-                    ignore: marker_ignore,
-                } => {
-                    if start_idx.is_some() || end_idx.is_some() {
-                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
-                    }
-                    start_idx = Some(idx);
-                    ignore = marker_ignore;
-                }
-                MarkerLine::Closing => match (start_idx, end_idx) {
-                    (Some(_), None) => end_idx = Some(idx),
-                    (None, None) => {
-                        return Err(SyntaxError::MissingOpeningMarker { line: idx + 1 }.into());
-                    }
-                    _ => {
-                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
-                    }
-                },
-            }
+            let line_number = idx + 1;
+            let class = match Self::classify_marker_line(line, line_number)? {
+                MarkerLine::Ordinary => MarkerClass::Ordinary,
+                MarkerLine::Opening { ignore: false } => MarkerClass::Opening,
+                MarkerLine::Opening { ignore: true } => MarkerClass::IgnoredOpening,
+                MarkerLine::Closing => MarkerClass::Closing,
+            };
+            scan = document::scan_marker_line(scan, line_number, class)
+                .map_err(envelope_syntax_error)?;
         }
+        let envelope =
+            document::finish_envelope(scan, lines.len()).map_err(envelope_syntax_error)?;
 
-        // Validate markers
-        let start = start_idx.ok_or(SyntaxError::MissingOpeningMarker { line: 1 })?;
-        let end = end_idx.ok_or(SyntaxError::MissingClosingMarker { line: lines.len() })?;
+        // The scan reports 1-based marker lines with opening < closing.
+        let start = envelope.opening_line - 1;
+        let end = envelope.closing_line - 1;
+        let ignore = envelope.ignore;
 
         // Extract prologue, guide content, and epilogue
         let prologue = if start > 0 {
@@ -160,29 +164,14 @@ impl Parser {
     }
 
     /// Reject lone carriage returns before line-oriented parsing.
+    ///
+    /// The scan is the Verus-verified
+    /// [`crate::proven::document::first_lone_cr_line`] kernel.
     fn validate_line_endings(content: &str) -> Result<()> {
-        let bytes = content.as_bytes();
-        let mut idx = 0;
-        let mut line = 1;
-
-        while idx < bytes.len() {
-            match bytes[idx] {
-                b'\r' if bytes.get(idx + 1) == Some(&b'\n') => {
-                    idx += 2;
-                    line += 1;
-                }
-                b'\r' => {
-                    return Err(SyntaxError::MissingOpeningMarker { line }.into());
-                }
-                b'\n' => {
-                    idx += 1;
-                    line += 1;
-                }
-                _ => idx += 1,
-            }
+        match document::first_lone_cr_line(content.as_bytes()) {
+            Some(line) => Err(SyntaxError::MissingOpeningMarker { line }.into()),
+            None => Ok(()),
         }
-
-        Ok(())
     }
 
     /// Classify a complete line using the exact v0.2 marker grammar.
@@ -211,159 +200,90 @@ impl Parser {
         content: &str,
         line_offset: usize,
     ) -> Result<Vec<NavigationGuideLine>> {
-        if content.trim().is_empty() {
+        if layout::is_blank(content) {
             return Err(SyntaxError::EmptyGuideBlock.into());
         }
 
         let mut items = Vec::new();
-        let mut indent_size = None;
-        let mut previous_depth = None;
-        let mut previous_line_can_own_children = false;
+        let mut indentation = IndentState::new();
         let lines: Vec<&str> = content.lines().collect();
 
         for (idx, line) in lines.iter().enumerate() {
             // Calculate the actual line number in the file
             let line_number = idx + 1 + line_offset;
 
-            // Check for blank lines
-            if line.trim().is_empty() {
-                return Err(SyntaxError::BlankLineInGuide { line: line_number }.into());
-            }
+            // Blank lines, the list-item shape, space-only indentation, the
+            // indentation unit, the depth bound, and parentage are decided by
+            // the Verus-verified layout kernel (see `crate::proven::layout`).
+            let entry = layout::layout_entry_line(indentation, line)
+                .map_err(|error| layout_syntax_error(error, line_number))?;
+            let indent_level = entry.depth;
+            let content = entry.content;
 
-            // Parse the list item
-            if let Some(captures) = self.list_item_regex.captures(line) {
-                let indent_text = captures.get(1).unwrap().as_str();
-                if !indent_text.bytes().all(|byte| byte == b' ') {
-                    return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
-                }
-                let indent = indent_text.len();
-                let content = captures.get(2).unwrap().as_str();
-                if content.starts_with(' ') || content.starts_with('\t') {
-                    return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
-                }
-
-                // Determine indent size from first indented item
-                if indent > 0 && indent_size.is_none() {
-                    if indent > MAX_INDENT_SIZE {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    indent_size = Some(indent);
-                }
-
-                // Validate indentation
-                let indent_level = if indent == 0 {
-                    0
-                } else if let Some(size) = indent_size {
-                    let depth = indent
-                        .checked_div(size)
-                        .ok_or(SyntaxError::InvalidIndentationLevel { line: line_number })?;
-                    if depth.checked_mul(size) != Some(indent) {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    depth
-                } else {
-                    unreachable!("a positive first indentation always establishes its unit")
-                };
-
-                if indent_level > MAX_LOGICAL_DEPTH {
-                    return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
-                }
-
-                match previous_depth {
-                    None if indent_level != 0 => {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    Some(depth)
-                        if indent_level > depth
-                            && (depth.checked_add(1) != Some(indent_level)
-                                || !previous_line_can_own_children) =>
-                    {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    _ => {}
-                }
-
-                // Parse path and comment
-                let (expression, comment) = self.parse_path_comment(content, line_number)?;
-                let (parsed_items, line_can_own_children) = match expression {
-                    ParsedPathExpression::Placeholder => (
-                        vec![FilesystemItem::Placeholder {
+            // Parse path and comment
+            let (expression, comment) = self.parse_path_comment(content, line_number)?;
+            let (parsed_items, line_can_own_children) = match expression {
+                ParsedPathExpression::Placeholder => (
+                    vec![FilesystemItem::Placeholder {
+                        comment: comment.clone(),
+                    }],
+                    false,
+                ),
+                ParsedPathExpression::Quoted { path, directory } => {
+                    let item = if directory {
+                        FilesystemItem::Directory {
+                            path,
                             comment: comment.clone(),
-                        }],
-                        false,
-                    ),
-                    ParsedPathExpression::Quoted { path, directory } => {
-                        let item = if directory {
-                            FilesystemItem::Directory {
-                                path,
+                            children: Vec::new(),
+                        }
+                    } else {
+                        FilesystemItem::File {
+                            path,
+                            comment: comment.clone(),
+                        }
+                    };
+                    (vec![item], directory)
+                }
+                ParsedPathExpression::Bare(path) => {
+                    let (expanded_paths, is_choice) = Self::expand_wildcard_path_with_kind(
+                        &path,
+                        line_number,
+                        indent_level == 0,
+                    )?;
+                    let line_can_own_children =
+                        !is_choice && expanded_paths.len() == 1 && expanded_paths[0].ends_with('/');
+                    let mut parsed_items = Vec::with_capacity(expanded_paths.len());
+                    for expanded in expanded_paths {
+                        Self::validate_bare_expansion(&expanded, line_number, indent_level == 0)?;
+                        if expanded.ends_with('/') {
+                            parsed_items.push(FilesystemItem::Directory {
+                                path: expanded
+                                    .strip_suffix('/')
+                                    .expect("ends_with established one directory marker")
+                                    .to_string(),
                                 comment: comment.clone(),
                                 children: Vec::new(),
-                            }
+                            });
                         } else {
-                            FilesystemItem::File {
-                                path,
+                            parsed_items.push(FilesystemItem::File {
+                                path: expanded,
                                 comment: comment.clone(),
-                            }
-                        };
-                        (vec![item], directory)
-                    }
-                    ParsedPathExpression::Bare(path) => {
-                        let (expanded_paths, is_choice) = Self::expand_wildcard_path_with_kind(
-                            &path,
-                            line_number,
-                            indent_level == 0,
-                        )?;
-                        let line_can_own_children = !is_choice
-                            && expanded_paths.len() == 1
-                            && expanded_paths[0].ends_with('/');
-                        let mut parsed_items = Vec::with_capacity(expanded_paths.len());
-                        for expanded in expanded_paths {
-                            Self::validate_bare_expansion(
-                                &expanded,
-                                line_number,
-                                indent_level == 0,
-                            )?;
-                            if expanded.ends_with('/') {
-                                parsed_items.push(FilesystemItem::Directory {
-                                    path: expanded
-                                        .strip_suffix('/')
-                                        .expect("ends_with established one directory marker")
-                                        .to_string(),
-                                    comment: comment.clone(),
-                                    children: Vec::new(),
-                                });
-                            } else {
-                                parsed_items.push(FilesystemItem::File {
-                                    path: expanded,
-                                    comment: comment.clone(),
-                                });
-                            }
+                            });
                         }
-                        (parsed_items, line_can_own_children)
                     }
-                };
-
-                for item in parsed_items {
-                    items.push(NavigationGuideLine {
-                        line_number,
-                        indent_level,
-                        item,
-                    });
+                    (parsed_items, line_can_own_children)
                 }
+            };
 
-                previous_depth = Some(indent_level);
-                previous_line_can_own_children = line_can_own_children;
-            } else {
-                return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
+            for item in parsed_items {
+                items.push(NavigationGuideLine {
+                    line_number,
+                    indent_level,
+                    item,
+                });
             }
+
+            indentation = layout::advance(&entry, line_can_own_children);
         }
 
         // Build the hierarchy
@@ -1444,7 +1364,7 @@ mod tests {
 
     #[test]
     fn test_accepts_one_and_sixteen_space_indentation_units() {
-        for indent in [1, MAX_INDENT_SIZE] {
+        for indent in [1, layout::MAX_INDENT_UNIT] {
             let content = format!(
                 "<agentic-navigation-guide>\n- root/\n{}- child.txt\n</agentic-navigation-guide>",
                 " ".repeat(indent)
