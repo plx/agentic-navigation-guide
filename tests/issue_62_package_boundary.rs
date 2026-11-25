@@ -52,6 +52,7 @@ const EXPECTED_PACKAGE_PATHS: &[&str] = &[
     "src/proven/path_rules.rs",
     "src/proven/placeholder.rs",
     "src/proven/settings.rs",
+    "src/proven/tree_rules.rs",
     "src/proven/windows_names.rs",
     "src/recursive.rs",
     "src/types.rs",

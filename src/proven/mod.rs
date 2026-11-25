@@ -25,4 +25,5 @@ pub(crate) mod output_path;
 pub(crate) mod path_rules;
 pub(crate) mod placeholder;
 pub(crate) mod settings;
+pub(crate) mod tree_rules;
 pub(crate) mod windows_names;
