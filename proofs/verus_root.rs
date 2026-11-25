@@ -1,0 +1,11 @@
+//! Verus verification root for the formally verified kernels.
+//!
+//! This file is not part of the Cargo package. It re-includes the product
+//! modules at their real source paths so that Verus checks exactly the code
+//! that `cargo build` compiles. Run `proofs/run.sh` (or `just verify-proofs`).
+
+#![feature(proc_macro_hygiene)]
+#![allow(dead_code, unused_imports)]
+
+#[path = "../src/proven/mod.rs"]
+mod proven;

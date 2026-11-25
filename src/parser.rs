@@ -2,6 +2,7 @@
 
 use crate::errors::{Result, SyntaxError};
 use crate::path_codec::{has_windows_drive_prefix, render_utf8_component};
+use crate::proven::marker::{self, MarkerClass};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
 use regex::Regex;
 use std::collections::HashSet;
@@ -10,9 +11,6 @@ const MAX_INDENT_SIZE: usize = 16;
 const MAX_LOGICAL_DEPTH: usize = 256;
 const MIN_CHOICE_ALTERNATIVES: usize = 2;
 const MAX_CHOICE_ALTERNATIVES: usize = 256;
-const OPENING_MARKER_PREFIX: &str = "<agentic-navigation-guide";
-const CLOSING_MARKER_PREFIX: &str = "</agentic-navigation-guide";
-const CLOSING_MARKER: &str = "</agentic-navigation-guide>";
 
 #[derive(Clone, Copy)]
 enum MarkerLine {
@@ -188,115 +186,23 @@ impl Parser {
     }
 
     /// Classify a complete line using the exact v0.2 marker grammar.
+    ///
+    /// The decision is made by the Verus-verified
+    /// [`crate::proven::marker::classify_marker_line`] kernel, whose
+    /// specification restates the contract marker productions.
     fn classify_marker_line(line: &str, line_number: usize) -> Result<MarkerLine> {
-        let candidate = Self::trim_outer_wsp(line);
-
-        // A BOM is not outer whitespace and cannot be silently discarded to
-        // turn the remainder of the line into a marker. Reject a run of BOMs
-        // as well as one BOM, including SP/HTAB between them.
-        let mut after_bom = candidate;
-        let mut saw_bom = false;
-        while let Some(remainder) = after_bom.strip_prefix('\u{feff}') {
-            saw_bom = true;
-            after_bom = remainder.trim_start_matches([' ', '\t']);
-        }
-        if saw_bom {
-            if after_bom.starts_with(OPENING_MARKER_PREFIX) {
-                return Err(SyntaxError::MissingOpeningMarker { line: line_number }.into());
+        match marker::classify_marker_line(line.as_bytes()) {
+            MarkerClass::Ordinary => Ok(MarkerLine::Ordinary),
+            MarkerClass::Opening => Ok(MarkerLine::Opening { ignore: false }),
+            MarkerClass::IgnoredOpening => Ok(MarkerLine::Opening { ignore: true }),
+            MarkerClass::Closing => Ok(MarkerLine::Closing),
+            MarkerClass::MalformedOpening => {
+                Err(SyntaxError::MissingOpeningMarker { line: line_number }.into())
             }
-            if after_bom.starts_with(CLOSING_MARKER_PREFIX) {
-                return Err(SyntaxError::MissingClosingMarker { line: line_number }.into());
-            }
-        }
-
-        if candidate.starts_with(OPENING_MARKER_PREFIX) {
-            return match Self::parse_opening_marker(candidate) {
-                Some(ignore) => Ok(MarkerLine::Opening { ignore }),
-                None => Err(SyntaxError::MissingOpeningMarker { line: line_number }.into()),
-            };
-        }
-
-        if candidate.starts_with(CLOSING_MARKER_PREFIX) {
-            return if candidate == CLOSING_MARKER {
-                Ok(MarkerLine::Closing)
-            } else {
+            MarkerClass::MalformedClosing => {
                 Err(SyntaxError::MissingClosingMarker { line: line_number }.into())
-            };
+            }
         }
-
-        Ok(MarkerLine::Ordinary)
-    }
-
-    fn trim_outer_wsp(line: &str) -> &str {
-        line.trim_matches([' ', '\t'])
-    }
-
-    /// Parse the only two permitted opening-marker forms.
-    fn parse_opening_marker(candidate: &str) -> Option<bool> {
-        let suffix = candidate.strip_prefix(OPENING_MARKER_PREFIX)?;
-        if suffix == ">" {
-            return Some(false);
-        }
-
-        let bytes = suffix.as_bytes();
-        let mut idx = 0;
-
-        // Attributed markers require at least one SP or HTAB after the name.
-        if !bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            return None;
-        }
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-
-        if !suffix[idx..].starts_with("ignore") {
-            return None;
-        }
-        idx += "ignore".len();
-
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-        if bytes.get(idx) != Some(&b'=') {
-            return None;
-        }
-        idx += 1;
-
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-        if suffix[idx..].starts_with("\"true\"") {
-            idx += "\"true\"".len();
-        } else if suffix[idx..].starts_with("true") {
-            idx += "true".len();
-        } else {
-            return None;
-        }
-
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-
-        (bytes.get(idx) == Some(&b'>') && idx + 1 == bytes.len()).then_some(true)
-    }
-
-    fn is_marker_wsp(byte: u8) -> bool {
-        matches!(byte, b' ' | b'\t')
     }
 
     /// Parse the guide content into navigation guide lines

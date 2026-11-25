@@ -28,6 +28,7 @@ mod exclusion;
 mod guide_input;
 mod parser;
 mod path_codec;
+mod proven;
 mod recursive;
 mod types;
 mod validator;
