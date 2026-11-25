@@ -15,6 +15,7 @@
   - proven/ # Verus-verified decision kernels (see proofs/README.md)
     - mod.rs
     - anchor.rs # guide-path parent-reduction plan
+    - authority.rs # guide-path route by authority and per-entry walk checks
     - choice.rs # choice-list tokenizing and expansion
     - discovery.rs # recursive-discovery per-entry decision
     - document.rs # lone-CR scan and guide-envelope fold
@@ -24,8 +25,10 @@
     - layout.rs # list-item splitting and indentation rules
     - marker.rs # marker-line grammar
     - outcome.rs # ignored-guide policy, exit status, recursive outcomes
+    - output_path.rs # --output spelling, in-root route, destination mode rule
     - path_rules.rs # validator path rules and containment theorems
     - placeholder.rs # placeholder accounting and item resolution
+    - settings.rs # environment-variable scope, value acceptance, precedence
     - windows_names.rs # Windows namespace and component rules
   - validator.rs # logic for validating syntax of guide
   - verifier.rs # logic for verifying guide against file system

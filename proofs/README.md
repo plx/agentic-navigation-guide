@@ -79,8 +79,10 @@ A proof is only as strong as what it assumes. These kernels trust:
   `RangeInclusive::contains`; `Option::is_some`, `Result::is_ok`, and the
   `?` operator; and derived `==` on kernel enums;
 - inputs that glue computes with `std` and hands to a kernel:
-  `Path::components` splits, `OsStr` conversions and UTF-16 encoding,
-  `str::to_uppercase` for Windows device names, and file metadata;
+  `Path::components`, `Path::file_name`, and `Path::strip_prefix` results,
+  `OsStr` conversions and UTF-16 encoding, `str::to_uppercase` for Windows
+  device names, file metadata (`is_dir`, `is_file`, link checks, permission
+  modes), and `std::env` values;
 - that the stable `rustc` used for the product (1.85 or newer) gives the
   same meaning to the verified Rust as Verus's front end does;
 - the unverified glue that calls the kernels: reading the guide file,
@@ -117,6 +119,7 @@ that specification. Theorem names are searchable in the source.
 | Configuration and depth limits | `src/proven/generation.rs` | `theorem_configuration_table`; `theorem_explicit_depth_is_exact` (an explicit `--depth` never errors and bounds the logical depth); `theorem_default_depth_fails_closed`. The CLI's `--indent` and `--depth` parsing uses the same verified bounds; clap's argument order decides which error wins when both are out of range. |
 | Guide lines | `src/proven/generation.rs` | `format_entry_line` emits exactly indentation, `- `, the name, an optional `/`, and a newline (`entry_line_spec`). |
 | Name admission and integers | `src/proven/generation.rs` | `host_name_verdict` is the shared representability rule; `parse_unsigned_decimal` equals `str::parse::<usize>`. |
+| Output destinations | `src/proven/output_path.rs` | `theorem_output_spelling_rule`, `theorem_accepted_unix_output_names_a_file`, `theorem_accepted_windows_output_names_a_file` (an accepted `--output` spelling ends in a non-empty, separator-free final segment that is not `.` or `..`); `theorem_plain_descent_walks_to_its_final_entry`; `theorem_mode_rule`. |
 
 ### Filesystem decisions (`verify`, recursive discovery)
 
@@ -125,9 +128,11 @@ that specification. Theorem names are searchable in the source.
 | Entry types | `src/entry_type.rs` (in place) | `theorem_fail_closed`: a supported kind is returned exactly when there is no reparse, link, FIFO, socket, or device evidence and exactly one of the file and directory flags is set. |
 | Placeholders and resolution | `src/proven/placeholder.rs` | `theorem_placeholder_acceptance`; `theorem_resolution_descends_only_through_directories`. A comment satisfies a placeholder when it has a non-`White_Space` scalar, which is wider than the parser's SP/HTAB comment trimming. |
 | Recursive discovery | `src/proven/discovery.rs` | The per-entry decision: an excluded entry gets no action, a link is never descended or accepted as a guide, a guide-named entry is always validated and never descended, and only non-link, non-excluded directories are descended. That the traversal consults the exclusion verdict before metadata access and pushes exactly the descended entries is a property of the unverified loop in `src/recursive.rs`, which `pushed_entries` models. |
+| Guide authority and entry checks | `src/proven/authority.rs` | `theorem_implicit_authority_stays_beneath` (implicit authority never takes the external or parent-reduction route), `theorem_explicit_authority_routes_by_place`, `theorem_walk_step_rejects_links_and_non_directory_ancestors`, `theorem_walk_accepts_only_real_directory_chains`, `theorem_link_classification_precedes_type`. |
 | Guide-path reduction | `src/proven/anchor.rs` | The reduction is an ordered plan that the glue executes. `theorem_plan_follows_components`, `theorem_every_erased_component_is_inspected`, `theorem_reduction_tracks_lexical_depth`, `theorem_left_path_is_never_in_anchor`. |
 | Windows spellings | `src/proven/windows_names.rs` | Namespace prefixes and the component verdict in its exact order; `theorem_accepted_component_is_ordinary`. Unicode uppercasing stays a trusted `std` input. |
 | Exclusion patterns | `src/proven/glob.rs` | `compile_pattern` returns exactly the grammar-defined `compiled_from(text)`, including which diagnostic it reports, and the matcher equals a declarative glob semantics. Over pattern text: `**` excludes exactly the non-empty paths; `*`, `?`, escapes, ranges, and plain names behave as the contract states; `a/**` and `a/**/b` match as expected; and, given components that are non-empty and contain no `/` (which `Path::components` guarantees), wildcards never cross a separator. |
+| Configuration precedence | `src/proven/settings.rs` | `theorem_consulted_iff_relevant_and_unshadowed` (an environment variable is read exactly when it applies to the command and nothing on the command line shadows it), `theorem_explicit_path_shadows_implicit_name`, `theorem_scope_table`, `theorem_choices_are_exact`, `theorem_log_precedence`, `theorem_execution_mode_precedence`. |
 | Outcomes and exit status | `src/proven/outcome.rs` | `theorem_exit_status_table`, `theorem_denied_ignored_never_succeeds`, `theorem_recursive_run_succeeds`. Once arguments and environment defaults are resolved, `main` routes every exit, success included, through the verified table; clap's own exits (usage errors, `--help`, `--version`) do not pass through it. No decision takes the log level, although a stdout write that only non-quiet mode performs can still fail in the unverified output glue. |
 
 ### Round trip
@@ -192,9 +197,11 @@ runs in ordinary `cargo test`, without Verus, and fails if:
 - **Host path semantics.** `std::path` component parsing, Windows prefixes,
   `OsStr` conversions, and Unicode case mapping have no Verus model; kernels
   consume their already-split outputs instead.
-- **Command-line parsing, environment defaults, logging, and output
-  streams.** These are `clap`, `std::env`, `env_logger`, and formatting
-  plumbing.
+- **Command-line parsing, environment reads, logging, and output streams.**
+  These are `clap`, `std::env`, `env_logger`, and formatting plumbing; the
+  precedence and value-acceptance decisions over them are verified.
+- **Diagnostic assembly.** Messages are built with `format!`, which Verus
+  cannot reason about; the name and path renderers they embed are verified.
 - **Resource exhaustion.** Allocation failure and stack depth are not
   modeled.
 
