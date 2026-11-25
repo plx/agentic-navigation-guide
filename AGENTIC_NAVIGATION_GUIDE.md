@@ -175,6 +175,7 @@
   - issue_55_platform_conformance.rs # Three-platform full-suite, capability, skip, and release-dependency policy
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
+  - parent_output_destination.rs # Parent-containing --output reduction, link rejection, and documentation alignment
   - issue_66_readme_examples.rs # Cross-platform README, package lifecycle, and immutable-CI smoke contract
   - issue_58_test_hermeticity.rs # Subprocess isolation, transient owner, and empty-facade acceptance contract
   - verus_kernel_discipline.rs # Ghost-gating, proof-escape, and proof-reachability guards

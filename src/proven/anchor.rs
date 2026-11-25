@@ -4,7 +4,10 @@
 //!
 //! These kernels make the pure decisions of `guide_input.rs` for the
 //! `docs/v0.2-contract.md` rules in "Trust anchors and path provenance" and
-//! "Guide-file input". Glue parses each spelling with
+//! "Guide-file input"; `cli/output.rs` runs the same parent-containing
+//! reduction ([`parent_reduction_plan`] and [`parent_reduction_outcome`])
+//! for `--output` destinations below the generation root, under "Filesystem
+//! output destinations". Glue parses each spelling with
 //! `std::path::Path::components` (trusted) and passes only the kind of every
 //! component ([`ComponentKind`]); the kernels return the classification or an
 //! ordered plan with one step per component, and glue performs exactly the
@@ -18,7 +21,7 @@
 //!   as the final entry, and rejects at the first component that is not
 //!   `Normal`; an empty tail names the anchor itself;
 //! - [`parent_reduction_plan`]: the parent-containing reduction of an
-//!   explicit guide tail descends into each `Normal` component, inspects the
+//!   explicit guide tail or an output-destination tail descends into each `Normal` component, inspects the
 //!   most recent uncancelled component before each `..` erases it, ascends
 //!   above the anchor (recording that it left) when a `..` has nothing below
 //!   the anchor to erase, ignores `.`, and rejects at the first root or

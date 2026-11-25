@@ -16,10 +16,15 @@
 //!   on the raw code units before the namespace-prefix check
 //!   (`windows_names::has_namespace_prefix`) and before host component
 //!   parsing;
-//! - [`is_plain_descent`]: a destination takes the in-root route exactly when
-//!   its lexical spelling lies below the lexical generation root by a
-//!   nonempty sequence of ordinary names; any `.`, `..`, root, or prefix
-//!   component in that tail selects the explicit external route instead;
+//! - [`is_plain_descent`]: a tail below the lexical generation root is a
+//!   nonempty sequence of ordinary names;
+//! - [`output_route`]: a destination takes the in-root route exactly when its
+//!   lexical spelling lies below the lexical generation root by a plain
+//!   descent; any other nonempty tail below the root spelling (one with a
+//!   `.`, `..`, root, or prefix component) takes the ordered parent reduction
+//!   of `anchor::parent_reduction_plan` before any route is chosen; only a
+//!   spelling that does not start with the complete root spelling, or that
+//!   names the root itself, takes the explicit external route directly;
 //! - [`mode_admits_creation`]: on Unix, a parent directory whose mode grants
 //!   no write permission or no search permission to any class is read-only,
 //!   before the identity-specific `access` check.
@@ -42,6 +47,12 @@
 //!   verified below-anchor walk of that tail inspects every component and
 //!   reaches its final entry; conversely, a tail whose below-anchor walk
 //!   reaches its final entry is a plain descent;
+//! - `theorem_output_route`: the route is in-root exactly for a plain descent
+//!   below the root spelling, and the external route is taken directly only
+//!   when the spelling does not start with the root spelling or names the
+//!   root itself; in particular, a tail below the root spelling that contains
+//!   `..` always takes the parent reduction, never the external route
+//!   directly, and an in-root tail contains no `..`;
 //! - `theorem_mode_rule`: creation is admitted exactly when some class has
 //!   write permission and some class has search permission.
 
@@ -72,6 +83,23 @@ pub(crate) enum OutputSpelling {
     TrailingSeparator,
     /// The final separator-delimited segment is `.` or `..`.
     DotSegment,
+}
+
+/// The route a requested destination takes, decided from whether its lexical
+/// spelling starts with the complete lexical generation-root spelling and
+/// from the kind of every component of the remaining tail.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OutputRoute {
+    /// A plain descent below the root spelling: walk it from the canonical
+    /// generation root.
+    InRoot,
+    /// Any other nonempty tail below the root spelling: reduce it in order
+    /// from the canonical generation root before choosing a route.
+    ReduceParents,
+    /// A spelling that does not start with the root spelling, or that names
+    /// the root itself: explicit external authority.
+    External,
 }
 
 #[cfg(verus_keep_ghost)]
@@ -130,6 +158,18 @@ pub(crate) open spec fn final_segment_start<A>(s: Seq<A>, sep: spec_fn(A) -> boo
 /// The tail is a nonempty sequence of ordinary names.
 pub(crate) open spec fn plain_descent(kinds: Seq<ComponentKind>) -> bool {
     kinds.len() > 0 && all_normal_before(kinds, kinds.len() as int)
+}
+
+/// The route of a destination whose spelling starts with the complete root
+/// spelling exactly when `beneath_root`, with tail component kinds `kinds`.
+pub(crate) open spec fn output_route_spec(beneath_root: bool, kinds: Seq<ComponentKind>) -> OutputRoute {
+    if !beneath_root || kinds.len() == 0 {
+        OutputRoute::External
+    } else if plain_descent(kinds) {
+        OutputRoute::InRoot
+    } else {
+        OutputRoute::ReduceParents
+    }
 }
 
 /// Some permission class may write: `0o200`, `0o020`, or `0o002`.
@@ -233,6 +273,23 @@ pub(crate) fn is_plain_descent(kinds: &[ComponentKind]) -> bool {
         index += 1;
     }
     true
+}
+
+/// Choose the route of a destination from whether its lexical spelling
+/// starts with the complete lexical generation-root spelling and from the
+/// kind of every component of the remaining tail.
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r == output_route_spec(beneath_root, kinds@),
+))]
+pub(crate) fn output_route(beneath_root: bool, kinds: &[ComponentKind]) -> OutputRoute {
+    if !beneath_root || kinds.is_empty() {
+        OutputRoute::External
+    } else if is_plain_descent(kinds) {
+        OutputRoute::InRoot
+    } else {
+        OutputRoute::ReduceParents
+    }
 }
 
 /// Return whether a parent directory's permission bits admit creating an
@@ -470,6 +527,41 @@ pub(crate) proof fn theorem_plain_descent_walks_to_its_final_entry(
     }
 }
 
+/// The route is in-root exactly for a plain descent below the root spelling
+/// and external exactly when the spelling does not start with the root
+/// spelling or names the root itself; every other tail below the root
+/// spelling takes the parent reduction. In particular, a tail below the root
+/// spelling that contains `..` is always reduced and never routed external
+/// directly, and an in-root tail contains no `..`, so the anchor kernel
+/// classifies it in-anchor.
+pub(crate) proof fn theorem_output_route(beneath_root: bool, kinds: Seq<ComponentKind>)
+    ensures
+        (output_route_spec(beneath_root, kinds) == OutputRoute::InRoot) == (beneath_root
+            && plain_descent(kinds)),
+        (output_route_spec(beneath_root, kinds) == OutputRoute::External) == (!beneath_root
+            || kinds.len() == 0),
+        (output_route_spec(beneath_root, kinds) == OutputRoute::ReduceParents) == (beneath_root
+            && exists|i: int| 0 <= i < kinds.len() && #[trigger] kinds[i] != ComponentKind::Normal),
+        beneath_root && has_parent(kinds) ==> output_route_spec(beneath_root, kinds)
+            == OutputRoute::ReduceParents,
+        output_route_spec(beneath_root, kinds) == OutputRoute::InRoot ==> !has_parent(kinds)
+            && tail_class_spec(kinds) == TailClass::InAnchor,
+{
+    if has_parent(kinds) {
+        let i = choose|i: int| 0 <= i < kinds.len() && kinds[i] == ComponentKind::ParentDir;
+        assert(kinds[i] != ComponentKind::Normal);
+    }
+    if exists|i: int| 0 <= i < kinds.len() && #[trigger] kinds[i] != ComponentKind::Normal {
+        let i = choose|i: int| 0 <= i < kinds.len() && #[trigger] kinds[i] != ComponentKind::Normal;
+        assert(!all_normal_before(kinds, kinds.len() as int));
+    }
+    if kinds.len() > 0 && !plain_descent(kinds) {
+        assert(!all_normal_before(kinds, kinds.len() as int));
+        let i = choose|i: int| 0 <= i < kinds.len() && kinds[i] != ComponentKind::Normal;
+        assert(kinds[i] != ComponentKind::Normal);
+    }
+}
+
 /// Creation is admitted exactly when some class has write permission and
 /// some class has search permission; a mode with no write bit or no search
 /// bit is read-only whatever the current identity.
@@ -606,6 +698,33 @@ mod tests {
             assert!(!is_plain_descent(&[other]));
             assert!(!is_plain_descent(&[Normal, other]));
             assert!(!is_plain_descent(&[other, Normal]));
+        }
+    }
+
+    #[test]
+    fn output_route_reduces_every_non_plain_tail_below_the_root() {
+        assert_eq!(output_route(false, &[Normal]), OutputRoute::External);
+        assert_eq!(
+            output_route(false, &[Normal, ParentDir]),
+            OutputRoute::External
+        );
+        assert_eq!(output_route(true, &[]), OutputRoute::External);
+        assert_eq!(output_route(true, &[Normal]), OutputRoute::InRoot);
+        assert_eq!(output_route(true, &[Normal, Normal]), OutputRoute::InRoot);
+        assert_eq!(
+            output_route(true, &[Normal, ParentDir, Normal]),
+            OutputRoute::ReduceParents
+        );
+        assert_eq!(
+            output_route(true, &[ParentDir, Normal]),
+            OutputRoute::ReduceParents
+        );
+        for other in [CurDir, ParentDir, RootDir, Prefix] {
+            assert_eq!(output_route(true, &[other]), OutputRoute::ReduceParents);
+            assert_eq!(
+                output_route(true, &[Normal, other, Normal]),
+                OutputRoute::ReduceParents
+            );
         }
     }
 

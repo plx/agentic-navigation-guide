@@ -326,6 +326,10 @@ fn issue_58_subprocess_inventory_is_explicit_and_process_global_state_is_untouch
             "tests/issue_68_normative_source.rs",
             "support/process_cli.rs",
         ),
+        (
+            "tests/parent_output_destination.rs",
+            "support/assert_cli.rs",
+        ),
     ];
     for (path, harness) in required_harnesses {
         assert!(

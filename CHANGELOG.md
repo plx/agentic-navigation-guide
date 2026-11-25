@@ -228,6 +228,14 @@ complete and the final candidate is revalidated.
   erased by `..` are checked in order, in-anchor results retain every
   link/reparse-ancestor rejection, and real-directory reductions plus paths
   proven genuinely external remain supported.
+- Parent-containing `--output` destinations no longer gain external authority
+  merely because their tail below the generation root contains `..`.
+  `dump --output` and `init --output` reduce such a spelling in order from the
+  canonical generation root: a link, reparse entry, missing entry, or
+  non-directory erased by `..` is rejected instead of followed, a spelling that
+  leaves and then returns to the root fails closed, an in-root result retains
+  every link/reparse-ancestor rejection, and a result proven to remain outside
+  the root is created beneath the reduced path's resolved parent.
 - On Windows, guide reads reject alternate streams, named-pipe/device
   namespaces, reserved DOS aliases, and unsupported verbatim forms. Output
   destinations reject the corresponding stream/device forms and validate a
@@ -256,7 +264,8 @@ complete and the final candidate is revalidated.
   name codec, path validation, duplicate full paths, placeholder siblings,
   and hierarchy assembly), generation limits, line formatting, and output
   destinations, entry-type classification, placeholder accounting,
-  recursive discovery, guide-path authority and reduction, Windows name
+  recursive discovery, guide-path authority, guide- and output-path
+  parent reduction, Windows name
   rules, exclusion pattern compilation and matching, configuration
   precedence, and exit-status policy now run through kernels that Verus
   proves against the contract, including the dump-to-parse round trip. Specifications compile only for Verus, so
