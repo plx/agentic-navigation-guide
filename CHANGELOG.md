@@ -160,7 +160,8 @@ complete and the final candidate is revalidated.
   be empty, but its envelope is still validated.
 - An active body is nonempty and contains only entry lines. The list delimiter
   is exactly `- `; a tab or a second unescaped space after the dash is
-  invalid. Blank lines and other Markdown inside the active body are invalid.
+  invalid. Blank lines and other Markdown inside the active body are invalid,
+  including a blank last body line immediately before the closing marker.
 - Indentation is space-only. The first entry is at depth zero; the first
   indented entry establishes a 1–16-space unit; later indentation is an exact
   multiple of that unit; depth may increase by one only beneath the

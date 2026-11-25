@@ -238,7 +238,11 @@ impl Parser {
 
         let mut items = Vec::new();
         let mut indentation = IndentState::new();
-        let lines: Vec<&str> = content.lines().collect();
+        // `content` joins the physical body lines with "\n", so splitting on
+        // "\n" recovers exactly those lines. `str::lines` would drop an empty
+        // last body line and let a blank line before the closing marker
+        // bypass the layout kernel's blank-line rule.
+        let lines: Vec<&str> = content.split('\n').collect();
 
         for (idx, line) in lines.iter().enumerate() {
             // Calculate the actual line number in the file
@@ -412,6 +416,7 @@ impl Default for Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::AppError;
     use std::hint::black_box;
     use std::time::{Duration, Instant};
 
@@ -1179,6 +1184,49 @@ More prose mentions </agentic-navigation-guides>."#;
             assert_eq!(children[0].path(), "qux.rs");
         } else {
             panic!("baz/ should have children");
+        }
+    }
+
+    #[test]
+    fn test_rejects_blank_body_line_before_closing_marker() {
+        // The contract forbids blank body lines; the last body line used to
+        // be lost when the body was re-split with `str::lines`.
+        for (content, line) in [
+            (
+                "<agentic-navigation-guide>\n- a\n\n</agentic-navigation-guide>\n",
+                3,
+            ),
+            (
+                "<agentic-navigation-guide>\r\n- a\r\n\r\n</agentic-navigation-guide>\r\n",
+                3,
+            ),
+            (
+                "# Title\n<agentic-navigation-guide>\n- a\n- b\n\n</agentic-navigation-guide>",
+                5,
+            ),
+        ] {
+            let error = Parser::new()
+                .parse(content)
+                .expect_err("a trailing blank body line must be rejected");
+            assert!(
+                matches!(
+                    error,
+                    AppError::Syntax(SyntaxError::BlankLineInGuide { line: reported })
+                        if reported == line
+                ),
+                "{content:?} produced {error:?}"
+            );
+        }
+
+        // A whitespace-only body is still the empty-guide error.
+        for content in [
+            "<agentic-navigation-guide>\n\n</agentic-navigation-guide>",
+            "<agentic-navigation-guide>\n  \n\n</agentic-navigation-guide>",
+        ] {
+            assert!(matches!(
+                Parser::new().parse(content),
+                Err(AppError::Syntax(SyntaxError::EmptyGuideBlock))
+            ));
         }
     }
 
