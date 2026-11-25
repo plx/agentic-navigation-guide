@@ -68,10 +68,19 @@ Verus locates its verified standard library next to the binary.
 A proof is only as strong as what it assumes. These kernels trust:
 
 - the Verus verifier, the Rust 1.100 front end it embeds, and Z3;
-- `vstd`'s specifications of the standard-library operations the kernels use
-  (`str` as a sequence of Unicode scalar values and its UTF-8 encoding,
-  `str::chars`, `String::push`, slice and `Vec` indexing and length,
-  `char::is_whitespace` as the Unicode `White_Space` property);
+- `vstd`'s specifications of the standard-library operations the kernels
+  call: `str` as a sequence of Unicode scalar values with its UTF-8
+  encoding (`as_bytes`, `len`, `is_empty`, `chars`, `split_at` at a char
+  boundary, range slicing, `to_owned`); `char::is_whitespace` as the
+  Unicode `White_Space` property, `char::len_utf8`, and
+  `char::is_ascii_digit`; `String::new`, `push`, and `push_str`; `Vec::new`,
+  `with_capacity`, `push`, `pop`, `as_slice`, `vec!`, indexing, and length;
+  `usize::checked_add`, `checked_mul`, and `saturating_add`;
+  `RangeInclusive::contains`; `Option::is_some`, `Result::is_ok`, and the
+  `?` operator; and derived `==` on kernel enums;
+- inputs that glue computes with `std` and hands to a kernel:
+  `Path::components` splits, `OsStr` conversions and UTF-16 encoding,
+  `str::to_uppercase` for Windows device names, and file metadata;
 - that the stable `rustc` used for the product (1.85 or newer) gives the
   same meaning to the verified Rust as Verus's front end does;
 - the unverified glue that calls the kernels: reading the guide file,
@@ -119,7 +128,7 @@ that specification. Theorem names are searchable in the source.
 | Guide-path reduction | `src/proven/anchor.rs` | The reduction is an ordered plan that the glue executes. `theorem_plan_follows_components`, `theorem_every_erased_component_is_inspected`, `theorem_reduction_tracks_lexical_depth`, `theorem_left_path_is_never_in_anchor`. |
 | Windows spellings | `src/proven/windows_names.rs` | Namespace prefixes and the component verdict in its exact order; `theorem_accepted_component_is_ordinary`. Unicode uppercasing stays a trusted `std` input. |
 | Exclusion patterns | `src/proven/glob.rs` | The matcher equals a declarative glob semantics; `*` and `?` never cross a component, a literal pattern matches only itself, `**` matches every non-empty path, and the compiler emits only well-formed patterns. |
-| Outcomes and exit status | `src/proven/outcome.rs` | `theorem_exit_status_table`, `theorem_denied_ignored_never_succeeds`, `theorem_recursive_run_succeeds`. `main` routes every exit, success included, through the verified table. No decision takes the log level, although a stdout write that only non-quiet mode performs can still fail in the unverified output glue. |
+| Outcomes and exit status | `src/proven/outcome.rs` | `theorem_exit_status_table`, `theorem_denied_ignored_never_succeeds`, `theorem_recursive_run_succeeds`. Once arguments and environment defaults are resolved, `main` routes every exit, success included, through the verified table; clap's own exits (usage errors, `--help`, `--version`) do not pass through it. No decision takes the log level, although a stdout write that only non-quiet mode performs can still fail in the unverified output glue. |
 
 ### Round trip
 

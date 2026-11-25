@@ -71,8 +71,9 @@ fn main() {
         Command::Verify(args) => args.execute(&mut config),
     };
 
-    // Handle the result and exit with appropriate code. Every status,
-    // success included, comes from the verified exit-status table.
+    // Handle the result and exit with appropriate code. Every status from
+    // here on, success included, comes from the verified exit-status table;
+    // argument and environment errors above exit through clap.
     match result {
         Ok(CommandOutcome::Completed) => std::process::exit(cli::get_exit_code(&config, false)),
         Ok(CommandOutcome::Ignored { count }) => {
