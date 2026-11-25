@@ -7,6 +7,8 @@
 #![feature(proc_macro_hygiene)]
 #![allow(dead_code, unused_imports)]
 
+#[path = "../src/entry_type.rs"]
+mod entry_type;
 #[path = "../src/path_codec.rs"]
 mod path_codec;
 #[path = "../src/proven/mod.rs"]

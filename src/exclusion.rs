@@ -1,40 +1,20 @@
+//! Exclusion-pattern compilation and the shared exclusion matcher.
+//!
+//! The pattern compiler, the compiled pattern types, and the matcher are the
+//! Verus-verified kernel in `proven::glob`; this module reports invalid
+//! patterns with their usage diagnostics and maps physical root-relative
+//! paths to the UTF-8 component sequences that the kernel decides.
+
 use crate::errors::{AppError, Result};
 use crate::path_codec::{render_os_component, render_utf8_component};
-use std::iter::Peekable;
+use crate::proven::glob::{self, CompiledPattern, PatternError};
 use std::path::{Component, Path};
-use std::str::Chars;
 
 const MAX_PATTERN_DIAGNOSTIC_CHARS: usize = 320;
 
 #[derive(Default)]
 pub(crate) struct ExclusionMatcher {
     patterns: Vec<CompiledPattern>,
-}
-
-enum CompiledPattern {
-    Basename(SegmentPattern),
-    RootRelative(Vec<PathComponentPattern>),
-}
-
-enum PathComponentPattern {
-    Recursive,
-    Segment(SegmentPattern),
-}
-
-struct SegmentPattern {
-    tokens: Vec<SegmentToken>,
-}
-
-enum SegmentToken {
-    Literal(char),
-    ZeroOrMore,
-    Any,
-    Class(CharacterClass),
-}
-
-struct CharacterClass {
-    negated: bool,
-    ranges: Vec<(char, char)>,
 }
 
 impl ExclusionMatcher {
@@ -72,6 +52,8 @@ impl ExclusionMatcher {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // The traversal root itself is never excluded. The verified kernel
+        // makes the same decision (`theorem_empty_path_never_excluded`).
         if components.is_empty() {
             return Ok(false);
         }
@@ -79,12 +61,7 @@ impl ExclusionMatcher {
     }
 
     fn matches_components(&self, components: &[&str]) -> bool {
-        self.patterns.iter().any(|pattern| match pattern {
-            CompiledPattern::Basename(pattern) => components
-                .iter()
-                .any(|component| pattern.is_match(component)),
-            CompiledPattern::RootRelative(pattern) => path_pattern_matches(pattern, components),
-        })
+        glob::matches_components(&self.patterns, components)
     }
 }
 
@@ -102,229 +79,362 @@ fn render_pattern(pattern: &str) -> String {
     }
 }
 
-impl SegmentPattern {
-    fn is_match(&self, value: &str) -> bool {
-        let characters = value.chars().collect::<Vec<_>>();
-        let mut matched = vec![false; characters.len() + 1];
-        matched[0] = true;
-
-        for token in &self.tokens {
-            let mut next = vec![false; characters.len() + 1];
-            match token {
-                SegmentToken::ZeroOrMore => {
-                    next[0] = matched[0];
-                    for index in 1..=characters.len() {
-                        next[index] = matched[index] || next[index - 1];
-                    }
-                }
-                SegmentToken::Literal(expected) => {
-                    for index in 1..=characters.len() {
-                        next[index] = matched[index - 1] && characters[index - 1] == *expected;
-                    }
-                }
-                SegmentToken::Any => {
-                    next[1..(characters.len() + 1)].copy_from_slice(&matched[..characters.len()]);
-                }
-                SegmentToken::Class(class) => {
-                    for index in 1..=characters.len() {
-                        next[index] = matched[index - 1] && class.matches(characters[index - 1]);
-                    }
-                }
-            }
-            matched = next;
-        }
-
-        matched[characters.len()]
-    }
+fn compile_pattern(pattern: &str) -> std::result::Result<CompiledPattern, &'static str> {
+    glob::compile_pattern(pattern).map_err(pattern_error_message)
 }
 
-impl CharacterClass {
-    fn matches(&self, value: char) -> bool {
-        let contained = self
-            .ranges
-            .iter()
-            .any(|(start, end)| *start <= value && value <= *end);
-        contained != self.negated
-    }
-}
-
-fn compile_pattern(pattern: &str) -> std::result::Result<CompiledPattern, String> {
-    if pattern.is_empty() {
-        return Err("the pattern cannot be empty".to_string());
-    }
-
-    let has_separator = pattern.contains('/');
-    let mut components = Vec::new();
-    for component in pattern.split('/') {
-        if component.is_empty() {
-            return Err(
-                "leading, trailing, and repeated `/` separators are not allowed".to_string(),
-            );
+/// The usage diagnostic for each reason a pattern does not compile.
+fn pattern_error_message(error: PatternError) -> &'static str {
+    match error {
+        PatternError::Empty => "the pattern cannot be empty",
+        PatternError::EmptyComponent => {
+            "leading, trailing, and repeated `/` separators are not allowed"
         }
-        if matches!(component, "." | "..") {
-            return Err("`.` and `..` path components are not allowed".to_string());
+        PatternError::DotComponent => "`.` and `..` path components are not allowed",
+        PatternError::EmbeddedGlobstar => "`**` is recursive only as a complete path component",
+        PatternError::TrailingEscape => "a trailing `\\` escape is not allowed",
+        PatternError::UnknownEscape => "a backslash may escape only `\\`, `*`, `?`, `[`, or `]`",
+        PatternError::UnescapedClose => "`]` must be escaped outside a character class",
+        PatternError::SeparatorInSegment => "`/` is only a path-component separator",
+        PatternError::UnterminatedClass => "unterminated character class",
+        PatternError::EmptyClass => "character classes cannot be empty",
+        PatternError::MissingRangeEndpoint => "a character-class range requires an endpoint",
+        PatternError::DescendingRange => {
+            "character-class ranges must ascend by Unicode scalar value"
         }
-        if component == "**" {
-            components.push(PathComponentPattern::Recursive);
-        } else {
-            components.push(PathComponentPattern::Segment(compile_segment(component)?));
+        PatternError::SeparatorInClass => "`/` cannot be matched by a character class",
+        PatternError::UnescapedDash => "a literal `-` in a character class must be escaped",
+        PatternError::DanglingClassEscape => "a dangling character-class escape is not allowed",
+        PatternError::UnknownClassEscape => {
+            "a character-class backslash may escape only `\\`, `]`, or `-`"
         }
+        PatternError::UnescapedCloseInClass => "a literal `]` in a character class must be escaped",
     }
-
-    if !has_separator {
-        return match components.pop().expect("one nonempty pattern component") {
-            PathComponentPattern::Recursive => Ok(CompiledPattern::RootRelative(vec![
-                PathComponentPattern::Recursive,
-            ])),
-            PathComponentPattern::Segment(pattern) => Ok(CompiledPattern::Basename(pattern)),
-        };
-    }
-
-    Ok(CompiledPattern::RootRelative(components))
-}
-
-fn compile_segment(component: &str) -> std::result::Result<SegmentPattern, String> {
-    let mut characters = component.chars().peekable();
-    let mut tokens = Vec::new();
-    let mut previous_was_star = false;
-
-    while let Some(character) = characters.next() {
-        let token = match character {
-            '*' => {
-                if previous_was_star {
-                    return Err("`**` is recursive only as a complete path component".to_string());
-                }
-                previous_was_star = true;
-                SegmentToken::ZeroOrMore
-            }
-            '?' => {
-                previous_was_star = false;
-                SegmentToken::Any
-            }
-            '[' => {
-                previous_was_star = false;
-                SegmentToken::Class(parse_class(&mut characters)?)
-            }
-            '\\' => {
-                previous_was_star = false;
-                let escaped = characters
-                    .next()
-                    .ok_or_else(|| "a trailing `\\` escape is not allowed".to_string())?;
-                if !matches!(escaped, '\\' | '*' | '?' | '[' | ']') {
-                    return Err(
-                        "a backslash may escape only `\\`, `*`, `?`, `[`, or `]`".to_string()
-                    );
-                }
-                SegmentToken::Literal(escaped)
-            }
-            ']' => {
-                return Err("`]` must be escaped outside a character class".to_string());
-            }
-            '/' => {
-                return Err("`/` is only a path-component separator".to_string());
-            }
-            literal => {
-                previous_was_star = false;
-                SegmentToken::Literal(literal)
-            }
-        };
-        tokens.push(token);
-    }
-
-    Ok(SegmentPattern { tokens })
-}
-
-fn parse_class(
-    characters: &mut Peekable<Chars<'_>>,
-) -> std::result::Result<CharacterClass, String> {
-    let negated = characters.next_if_eq(&'!').is_some();
-    let mut ranges = Vec::new();
-
-    loop {
-        match characters.peek().copied() {
-            None => return Err("unterminated character class".to_string()),
-            Some(']') => {
-                characters.next();
-                if ranges.is_empty() {
-                    return Err("character classes cannot be empty".to_string());
-                }
-                return Ok(CharacterClass { negated, ranges });
-            }
-            Some(_) => {}
-        }
-
-        let start = parse_class_character(characters)?;
-        if characters.next_if_eq(&'-').is_some() {
-            if matches!(characters.peek(), None | Some(']')) {
-                return Err("a character-class range requires an endpoint".to_string());
-            }
-            let end = parse_class_character(characters)?;
-            if start > end {
-                return Err(
-                    "character-class ranges must ascend by Unicode scalar value".to_string()
-                );
-            }
-            ranges.push((start, end));
-        } else {
-            ranges.push((start, start));
-        }
-    }
-}
-
-fn parse_class_character(
-    characters: &mut Peekable<Chars<'_>>,
-) -> std::result::Result<char, String> {
-    match characters
-        .next()
-        .ok_or_else(|| "unterminated character class".to_string())?
-    {
-        '/' => Err("`/` cannot be matched by a character class".to_string()),
-        '-' => Err("a literal `-` in a character class must be escaped".to_string()),
-        '\\' => {
-            let escaped = characters
-                .next()
-                .ok_or_else(|| "a dangling character-class escape is not allowed".to_string())?;
-            if !matches!(escaped, '\\' | ']' | '-') {
-                return Err(
-                    "a character-class backslash may escape only `\\`, `]`, or `-`".to_string(),
-                );
-            }
-            Ok(escaped)
-        }
-        ']' => Err("a literal `]` in a character class must be escaped".to_string()),
-        literal => Ok(literal),
-    }
-}
-
-fn path_pattern_matches(pattern: &[PathComponentPattern], components: &[&str]) -> bool {
-    let mut matched = vec![false; components.len() + 1];
-    matched[0] = true;
-
-    for component_pattern in pattern {
-        let mut next = vec![false; components.len() + 1];
-        match component_pattern {
-            PathComponentPattern::Recursive => {
-                next[0] = matched[0];
-                for index in 1..=components.len() {
-                    next[index] = matched[index] || next[index - 1];
-                }
-            }
-            PathComponentPattern::Segment(segment) => {
-                for index in 1..=components.len() {
-                    next[index] = matched[index - 1] && segment.is_match(components[index - 1]);
-                }
-            }
-        }
-        matched = next;
-    }
-
-    matched[components.len()]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ExclusionMatcher;
+    use super::{compile_pattern, ExclusionMatcher};
+    use crate::proven::glob::{
+        CharacterClass, CompiledPattern, PathComponentPattern, SegmentPattern, SegmentToken,
+    };
+    use std::iter::Peekable;
     use std::path::PathBuf;
+    use std::str::Chars;
+
+    // The compiler exactly as this module stated it before it moved into the
+    // verified kernel, kept as an oracle for the differential tests below.
+    fn reference_compile_pattern(pattern: &str) -> std::result::Result<CompiledPattern, String> {
+        if pattern.is_empty() {
+            return Err("the pattern cannot be empty".to_string());
+        }
+
+        let has_separator = pattern.contains('/');
+        let mut components = Vec::new();
+        for component in pattern.split('/') {
+            if component.is_empty() {
+                return Err(
+                    "leading, trailing, and repeated `/` separators are not allowed".to_string(),
+                );
+            }
+            if matches!(component, "." | "..") {
+                return Err("`.` and `..` path components are not allowed".to_string());
+            }
+            if component == "**" {
+                components.push(PathComponentPattern::Recursive);
+            } else {
+                components.push(PathComponentPattern::Segment(reference_compile_segment(
+                    component,
+                )?));
+            }
+        }
+
+        if !has_separator {
+            return match components.pop().expect("one nonempty pattern component") {
+                PathComponentPattern::Recursive => Ok(CompiledPattern::RootRelative(vec![
+                    PathComponentPattern::Recursive,
+                ])),
+                PathComponentPattern::Segment(pattern) => Ok(CompiledPattern::Basename(pattern)),
+            };
+        }
+
+        Ok(CompiledPattern::RootRelative(components))
+    }
+
+    fn reference_compile_segment(component: &str) -> std::result::Result<SegmentPattern, String> {
+        let mut characters = component.chars().peekable();
+        let mut tokens = Vec::new();
+        let mut previous_was_star = false;
+
+        while let Some(character) = characters.next() {
+            let token = match character {
+                '*' => {
+                    if previous_was_star {
+                        return Err(
+                            "`**` is recursive only as a complete path component".to_string()
+                        );
+                    }
+                    previous_was_star = true;
+                    SegmentToken::ZeroOrMore
+                }
+                '?' => {
+                    previous_was_star = false;
+                    SegmentToken::Any
+                }
+                '[' => {
+                    previous_was_star = false;
+                    SegmentToken::Class(reference_parse_class(&mut characters)?)
+                }
+                '\\' => {
+                    previous_was_star = false;
+                    let escaped = characters
+                        .next()
+                        .ok_or_else(|| "a trailing `\\` escape is not allowed".to_string())?;
+                    if !matches!(escaped, '\\' | '*' | '?' | '[' | ']') {
+                        return Err(
+                            "a backslash may escape only `\\`, `*`, `?`, `[`, or `]`".to_string()
+                        );
+                    }
+                    SegmentToken::Literal(escaped)
+                }
+                ']' => {
+                    return Err("`]` must be escaped outside a character class".to_string());
+                }
+                '/' => {
+                    return Err("`/` is only a path-component separator".to_string());
+                }
+                literal => {
+                    previous_was_star = false;
+                    SegmentToken::Literal(literal)
+                }
+            };
+            tokens.push(token);
+        }
+
+        Ok(SegmentPattern { tokens })
+    }
+
+    fn reference_parse_class(
+        characters: &mut Peekable<Chars<'_>>,
+    ) -> std::result::Result<CharacterClass, String> {
+        let negated = characters.next_if_eq(&'!').is_some();
+        let mut ranges = Vec::new();
+
+        loop {
+            match characters.peek().copied() {
+                None => return Err("unterminated character class".to_string()),
+                Some(']') => {
+                    characters.next();
+                    if ranges.is_empty() {
+                        return Err("character classes cannot be empty".to_string());
+                    }
+                    return Ok(CharacterClass { negated, ranges });
+                }
+                Some(_) => {}
+            }
+
+            let start = reference_parse_class_character(characters)?;
+            if characters.next_if_eq(&'-').is_some() {
+                if matches!(characters.peek(), None | Some(']')) {
+                    return Err("a character-class range requires an endpoint".to_string());
+                }
+                let end = reference_parse_class_character(characters)?;
+                if start > end {
+                    return Err(
+                        "character-class ranges must ascend by Unicode scalar value".to_string()
+                    );
+                }
+                ranges.push((start, end));
+            } else {
+                ranges.push((start, start));
+            }
+        }
+    }
+
+    fn reference_parse_class_character(
+        characters: &mut Peekable<Chars<'_>>,
+    ) -> std::result::Result<char, String> {
+        match characters
+            .next()
+            .ok_or_else(|| "unterminated character class".to_string())?
+        {
+            '/' => Err("`/` cannot be matched by a character class".to_string()),
+            '-' => Err("a literal `-` in a character class must be escaped".to_string()),
+            '\\' => {
+                let escaped = characters.next().ok_or_else(|| {
+                    "a dangling character-class escape is not allowed".to_string()
+                })?;
+                if !matches!(escaped, '\\' | ']' | '-') {
+                    return Err(
+                        "a character-class backslash may escape only `\\`, `]`, or `-`".to_string(),
+                    );
+                }
+                Ok(escaped)
+            }
+            ']' => Err("a literal `]` in a character class must be escaped".to_string()),
+            literal => Ok(literal),
+        }
+    }
+
+    /// A canonical description of a compiled pattern.
+    fn describe(pattern: &CompiledPattern) -> String {
+        fn segment(segment: &SegmentPattern) -> String {
+            segment
+                .tokens
+                .iter()
+                .map(|token| match token {
+                    SegmentToken::Literal(character) => format!("L{character:?}"),
+                    SegmentToken::ZeroOrMore => "*".to_string(),
+                    SegmentToken::Any => "?".to_string(),
+                    SegmentToken::Class(class) => format!(
+                        "C{}{:?}",
+                        if class.negated { "!" } else { "" },
+                        class.ranges
+                    ),
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        match pattern {
+            CompiledPattern::Basename(pattern) => format!("B[{}]", segment(pattern)),
+            CompiledPattern::RootRelative(components) => format!(
+                "R[{}]",
+                components
+                    .iter()
+                    .map(|component| match component {
+                        PathComponentPattern::Recursive => "**".to_string(),
+                        PathComponentPattern::Segment(pattern) => segment(pattern),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ),
+        }
+    }
+
+    fn compare_with_reference(pattern: &str) {
+        let observed = compile_pattern(pattern).map(|compiled| describe(&compiled));
+        let expected = reference_compile_pattern(pattern)
+            .map(|compiled| describe(&compiled))
+            .map_err(|reason| reason.to_string());
+        assert_eq!(observed.map_err(str::to_string), expected, "{pattern:?}");
+    }
+
+    #[test]
+    fn every_pattern_error_has_its_usage_diagnostic() {
+        use super::pattern_error_message;
+        use crate::proven::glob::PatternError;
+        let cases = [
+            (PatternError::Empty, "the pattern cannot be empty"),
+            (
+                PatternError::EmptyComponent,
+                "leading, trailing, and repeated `/` separators are not allowed",
+            ),
+            (
+                PatternError::DotComponent,
+                "`.` and `..` path components are not allowed",
+            ),
+            (
+                PatternError::EmbeddedGlobstar,
+                "`**` is recursive only as a complete path component",
+            ),
+            (
+                PatternError::TrailingEscape,
+                "a trailing `\\` escape is not allowed",
+            ),
+            (
+                PatternError::UnknownEscape,
+                "a backslash may escape only `\\`, `*`, `?`, `[`, or `]`",
+            ),
+            (
+                PatternError::UnescapedClose,
+                "`]` must be escaped outside a character class",
+            ),
+            (
+                PatternError::SeparatorInSegment,
+                "`/` is only a path-component separator",
+            ),
+            (
+                PatternError::UnterminatedClass,
+                "unterminated character class",
+            ),
+            (
+                PatternError::EmptyClass,
+                "character classes cannot be empty",
+            ),
+            (
+                PatternError::MissingRangeEndpoint,
+                "a character-class range requires an endpoint",
+            ),
+            (
+                PatternError::DescendingRange,
+                "character-class ranges must ascend by Unicode scalar value",
+            ),
+            (
+                PatternError::SeparatorInClass,
+                "`/` cannot be matched by a character class",
+            ),
+            (
+                PatternError::UnescapedDash,
+                "a literal `-` in a character class must be escaped",
+            ),
+            (
+                PatternError::DanglingClassEscape,
+                "a dangling character-class escape is not allowed",
+            ),
+            (
+                PatternError::UnknownClassEscape,
+                "a character-class backslash may escape only `\\`, `]`, or `-`",
+            ),
+            (
+                PatternError::UnescapedCloseInClass,
+                "a literal `]` in a character class must be escaped",
+            ),
+        ];
+        for (error, message) in cases {
+            assert_eq!(pattern_error_message(error), message, "{error:?}");
+        }
+    }
+
+    #[test]
+    fn compiler_matches_reference_on_every_short_pattern() {
+        let alphabet = ['a', '*', '?', '[', ']', '\\', '-', '!', '/', '.', 'é'];
+        let mut frontier = vec![String::new()];
+        compare_with_reference("");
+        for _ in 0..5 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for character in alphabet {
+                    let mut pattern = prefix.clone();
+                    pattern.push(character);
+                    compare_with_reference(&pattern);
+                    next.push(pattern);
+                }
+            }
+            frontier = next;
+        }
+    }
+
+    #[test]
+    fn compiler_matches_reference_on_longer_patterns() {
+        for pattern in [
+            "projects/**/target",
+            "a/**/**/b",
+            "**/*.tmp",
+            "[a-z0-9]*.rs",
+            "[!a-c\\]\\-]x",
+            "[\\\\-\\]]",
+            "src/[",
+            "src/[a-",
+            "src/[a-]",
+            "src/[z-a]",
+            "src/\\",
+            "a/b/c/d/e/f",
+            "x*y*z?",
+            "é/λ/[α-ω]",
+        ] {
+            compare_with_reference(pattern);
+        }
+    }
 
     fn matcher(patterns: &[&str]) -> ExclusionMatcher {
         ExclusionMatcher::compile(

@@ -11,6 +11,8 @@
 //! the trusted base and how to re-run the proofs.
 
 pub(crate) mod document;
+pub(crate) mod glob;
 pub(crate) mod layout;
 pub(crate) mod marker;
+pub(crate) mod outcome;
 pub(crate) mod path_rules;

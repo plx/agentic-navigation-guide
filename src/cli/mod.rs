@@ -9,8 +9,11 @@ pub(crate) mod output;
 pub(crate) mod verify;
 
 use crate::errors::{AppError, Result};
+use crate::proven::outcome::{self, IgnoredPolicyDecision, StatusMode};
 use crate::types::{Config, ExecutionMode, LogLevel};
 use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand};
+
+pub(crate) use crate::proven::outcome::CommandOutcome;
 
 const ENVIRONMENT_HELP: &str = "\
 Environment defaults (precedence: CLI > environment > built-in):
@@ -31,12 +34,6 @@ Only a relevant, unshadowed environment value is parsed and applied. Empty
 path/root defaults and invalid name/mode defaults fail without printing their
 contents.";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CommandOutcome {
-    Completed,
-    Ignored { count: usize },
-}
-
 pub(crate) fn denied_ignored_message(ignored_count: usize) -> String {
     let noun = if ignored_count == 1 {
         "navigation guide was"
@@ -46,24 +43,20 @@ pub(crate) fn denied_ignored_message(ignored_count: usize) -> String {
     format!("--deny-ignored rejected the run because {ignored_count} ignored {noun} discovered")
 }
 
+/// Apply the ignored-guide policy (verified in `proven::outcome`) to a run
+/// that finished its work, reporting a `--deny-ignored` rejection.
 pub(crate) fn finish_ignored_policy(
     ignored_count: usize,
     deny_ignored: bool,
 ) -> Result<CommandOutcome> {
-    if ignored_count == 0 {
-        return Ok(CommandOutcome::Completed);
+    match outcome::decide_ignored_policy(ignored_count, deny_ignored) {
+        IgnoredPolicyDecision::Accept(accepted) => Ok(accepted),
+        IgnoredPolicyDecision::Deny => {
+            let message = denied_ignored_message(ignored_count);
+            output::stderr_line(&message)?;
+            Err(AppError::Other(message).reported())
+        }
     }
-
-    let outcome = CommandOutcome::Ignored {
-        count: ignored_count,
-    };
-    if !deny_ignored {
-        return Ok(outcome);
-    }
-
-    let message = denied_ignored_message(ignored_count);
-    output::stderr_line(&message)?;
-    Err(AppError::Other(message).reported())
 }
 
 /// CLI arguments structure
@@ -258,14 +251,75 @@ pub(crate) fn init_logging(config: &Config) {
         .init();
 }
 
-/// Get the appropriate exit code based on execution mode
+/// Get the appropriate exit code based on execution mode.
+///
+/// The status is decided by the verified `proven::outcome::exit_status`
+/// from the execution mode alone; the log level is not an input.
 pub(crate) fn get_exit_code(config: &Config, is_error: bool) -> i32 {
-    if is_error {
-        match config.execution_mode {
-            ExecutionMode::PostToolUse => 2,
-            _ => 1,
+    outcome::exit_status(status_mode(config.execution_mode), is_error)
+}
+
+/// The exit-status policy's view of an execution mode.
+fn status_mode(mode: ExecutionMode) -> StatusMode {
+    match mode {
+        ExecutionMode::Default => StatusMode::Default,
+        ExecutionMode::PostToolUse => StatusMode::PostToolUse,
+        ExecutionMode::PreCommitHook => StatusMode::PreCommitHook,
+        ExecutionMode::GitHubActions => StatusMode::GitHubActions,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(execution_mode: ExecutionMode, log_level: LogLevel) -> Config {
+        Config {
+            execution_mode,
+            log_level,
+            root_path: None,
+            guide_path: None,
+            original_guide_path: None,
+            original_root_path: None,
         }
-    } else {
-        0
+    }
+
+    #[test]
+    fn exit_codes_depend_only_on_execution_mode() {
+        let modes = [
+            (ExecutionMode::Default, 1),
+            (ExecutionMode::PostToolUse, 2),
+            (ExecutionMode::PreCommitHook, 1),
+            (ExecutionMode::GitHubActions, 1),
+        ];
+        for (mode, failure) in modes {
+            for level in [LogLevel::Quiet, LogLevel::Default, LogLevel::Verbose] {
+                let config = config(mode, level);
+                assert_eq!(get_exit_code(&config, false), 0, "{mode:?} {level:?}");
+                assert_eq!(get_exit_code(&config, true), failure, "{mode:?} {level:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn ignored_policy_completes_allows_or_rejects() {
+        assert_eq!(
+            finish_ignored_policy(0, false).expect("no ignored guide"),
+            CommandOutcome::Completed
+        );
+        assert_eq!(
+            finish_ignored_policy(0, true).expect("no ignored guide"),
+            CommandOutcome::Completed
+        );
+        assert_eq!(
+            finish_ignored_policy(2, false).expect("allowed ignored guides"),
+            CommandOutcome::Ignored { count: 2 }
+        );
+        let error = finish_ignored_policy(1, true).expect_err("denied ignored guide");
+        assert!(error.is_reported());
+        assert_eq!(
+            error.root_cause().to_string(),
+            AppError::Other(denied_ignored_message(1)).to_string()
+        );
     }
 }
