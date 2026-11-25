@@ -7,23 +7,23 @@
 //! of the table-filling algorithm, and Verus proves that the executable
 //! matcher agrees with it on every input:
 //!
-//! - [`seg_match`]: a segment pattern matches one complete component; `*`
+//! - `seg_match`: a segment pattern matches one complete component; `*`
 //!   extends whatever its preceding tokens matched by any number of scalars,
 //!   and a literal, `?`, or class consumes exactly one scalar;
-//! - [`path_match`]: a root-relative pattern matches the complete component
+//! - `path_match`: a root-relative pattern matches the complete component
 //!   sequence; `**` extends whatever its preceding components matched by any
 //!   number of whole components, and a segment consumes exactly one;
-//! - [`excluded`]: a path is excluded when it has at least one component and
+//! - `excluded`: a path is excluded when it has at least one component and
 //!   some pattern matches it, where a basename pattern matches when any
 //!   single component matches and a root-relative pattern must match the
 //!   whole sequence.
 //!
 //! [`compile_pattern`] is verified to produce only well-formed patterns
-//! ([`pattern_well_formed`]: every segment has a token, every class has at
+//! (`pattern_well_formed`: every segment has a token, every class has at
 //! least one ascending range, no two `*` tokens are adjacent, and a
 //! root-relative pattern is `**` alone or has at least two components), to
 //! compile a plain name to exactly its literal scalars, and never to report
-//! the three diagnostics that no input can reach ([`is_unreachable_error`]).
+//! the three diagnostics that no input can reach (`is_unreachable_error`).
 //! Its accept/reject decisions and diagnostic precedence are checked against
 //! the previous implementation by exhaustive differential tests in
 //! `exclusion.rs`.
@@ -167,7 +167,7 @@ pub(crate) open spec fn class_accepts(class: CharacterClass, c: char) -> bool {
 
 /// The single-scalar tokens: a literal matches itself, `?` matches any
 /// scalar, and a class matches its members. `*` is never a single-scalar
-/// token; [`seg_match`] treats it separately.
+/// token; `seg_match` treats it separately.
 pub(crate) open spec fn token_accepts(token: SegmentToken, c: char) -> bool {
     match token {
         SegmentToken::Literal(expected) => c == expected,

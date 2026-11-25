@@ -32,7 +32,7 @@
 //!
 //! Whether the reduced path still starts with the canonical anchor is a
 //! component-wise comparison of host paths that glue performs and passes to
-//! [`parent_reduction_outcome`]. The lexical model below ([`model_path`])
+//! [`parent_reduction_outcome`]. The lexical model below (`model_path`)
 //! states that comparison over abstract component sequences, with
 //! `PathBuf::pop` at the filesystem root modeled as a no-op.
 //!

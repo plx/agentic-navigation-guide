@@ -155,9 +155,13 @@ pub(crate) open spec fn is_contained_relative_path(s: Seq<char>, at_root: bool) 
 }
 
 /// The lexical depth below the starting directory after resolving each
-/// component the way POSIX and Windows path resolution do: `..` climbs one
-/// level (possibly above the start), `.` and empty components (repeated
-/// separators) stay, and every other component descends one level.
+/// `/`-separated component: `..` climbs one level (possibly above the
+/// start), `.` and empty components (repeated separators) stay, and every
+/// other component descends one level. The model treats `/` as the only
+/// separator; on Windows, where `\` and drive forms are also meaningful
+/// inside later components, containment additionally rests on the
+/// verifier's exact matching against directory snapshots, which is not
+/// part of this proof.
 pub(crate) open spec fn lexical_depth(comps: Seq<Seq<char>>) -> int
     decreases comps.len(),
 {

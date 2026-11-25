@@ -243,7 +243,13 @@ pub(crate) open spec fn trim_start_spaces(s: Seq<char>) -> Seq<char>
     }
 }
 
-/// `s` without its trailing U+0020 spaces (`line-padding`).
+/// `s` without its trailing U+0020 spaces, including escaped ones.
+///
+/// This is the production behavior, and it differs from the contract's
+/// `line-padding`, which removes only unescaped spaces after escape
+/// tokenization: `foo\ ` loses its escaped space here and is then rejected
+/// as an incomplete escape instead of as an invalid edge-space path. Both
+/// reject the line; only the diagnostic differs.
 pub(crate) open spec fn trim_end_spaces(s: Seq<char>) -> Seq<char>
     decreases s.len(),
 {

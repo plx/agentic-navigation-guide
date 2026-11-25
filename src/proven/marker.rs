@@ -8,6 +8,12 @@
 //! and Verus proves that the executable classifier agrees with it on every
 //! byte sequence.
 //!
+//! One rule goes beyond the contract text, which rejects a byte-order mark
+//! only before the opening marker: `marker_class` also rejects a line whose
+//! byte-order mark precedes `</agentic-navigation-guide`, as the parser did
+//! before this kernel existed. Such a line is otherwise an ordinary epilogue
+//! line under the contract's candidate definition.
+//!
 //! The grammar is ASCII apart from the rejected UTF-8 byte-order mark, and
 //! UTF-8 never encodes a non-ASCII scalar with an ASCII byte, so classifying
 //! the UTF-8 bytes of a line is equivalent to classifying its scalars.

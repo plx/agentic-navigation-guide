@@ -1188,6 +1188,54 @@ More prose mentions </agentic-navigation-guides>."#;
     }
 
     #[test]
+    fn test_malformed_marker_glue_matches_verified_envelope_step() {
+        // `Parser::classify_marker_line` returns malformed-marker errors before
+        // the verified envelope fold sees the line. This glue must report
+        // exactly what `document::scan_marker_line` reports for that class in
+        // every scan state, so the envelope theorems describe shipped output.
+        let states = [
+            EnvelopeScan::BeforeOpening,
+            EnvelopeScan::InBlock {
+                opening_line: 1,
+                ignore: false,
+            },
+            EnvelopeScan::AfterClosing {
+                opening_line: 1,
+                closing_line: 2,
+                ignore: true,
+            },
+        ];
+        for (line, class) in [
+            (
+                "<agentic-navigation-guide ignore=false>",
+                MarkerClass::MalformedOpening,
+            ),
+            (
+                "  </agentic-navigation-guide >",
+                MarkerClass::MalformedClosing,
+            ),
+            (
+                "\u{feff}<agentic-navigation-guide>",
+                MarkerClass::MalformedOpening,
+            ),
+        ] {
+            assert_eq!(marker::classify_marker_line(line.as_bytes()), class);
+            let glue = Parser::classify_marker_line(line, 7)
+                .err()
+                .expect("malformed marker lines are rejected");
+            for state in states {
+                let kernel = document::scan_marker_line(state, 7, class)
+                    .expect_err("the envelope step rejects malformed markers");
+                assert_eq!(
+                    format!("{glue:?}"),
+                    format!("{:?}", AppError::from(envelope_syntax_error(kernel))),
+                    "{line:?} in {state:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_rejects_blank_body_line_before_closing_marker() {
         // The contract forbids blank body lines; the last body line used to
         // be lost when the body was re-split with `str::lines`.
