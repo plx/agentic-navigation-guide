@@ -190,12 +190,7 @@ impl<'a, C: VerificationControl> VerificationRun<'a, C> {
                 if !has_unmentioned_item && !Verifier::placeholder_has_meaningful_comment(item) {
                     return Err(SemanticError::PlaceholderNoUnmentionedItems {
                         line: item.line_number,
-                        parent: self
-                            .verifier
-                            .root_path
-                            .join(logical_parent)
-                            .to_string_lossy()
-                            .to_string(),
+                        parent: self.verifier.root_path.join(logical_parent),
                     }
                     .into());
                 }
@@ -2011,5 +2006,82 @@ mod tests {
             }
             other => panic!("unexpected containment error: {other:?}"),
         }
+    }
+
+    /// Verify `body` against `root` and return the rendered failure after
+    /// requiring it to be free of C0 controls, DEL, and U+FFFD.
+    #[cfg(unix)]
+    fn control_safe_root_diagnostic(root: &Path, body: &str) -> String {
+        let guide = crate::parser::Parser::new()
+            .parse(&format!(
+                "<agentic-navigation-guide>\n{body}</agentic-navigation-guide>"
+            ))
+            .expect("root-derived diagnostic guide must parse");
+        let diagnostic = Verifier::new(root)
+            .verify(&guide)
+            .expect_err("root-derived diagnostic guide must fail verification")
+            .to_string();
+        assert!(
+            !diagnostic
+                .chars()
+                .any(|ch| ch <= '\u{1f}' || ch == '\u{7f}' || ch == '\u{fffd}'),
+            "diagnostic carried a raw control or lossy replacement: {diagnostic:?}"
+        );
+        diagnostic
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_derived_paths_render_terminal_escapes_reversibly() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path().join("r\u{1b}[31mX");
+        std::fs::create_dir(&root).expect("Unix hosts accept an ESC-bearing name");
+        std::fs::write(root.join("listed.txt"), "").unwrap();
+
+        let missing = control_safe_root_diagnostic(&root, "- missing.txt\n");
+        assert!(
+            missing.contains("file 'missing.txt' not found at \"")
+                && missing.ends_with("r\\u{001B}[31mX/missing.txt\""),
+            "{missing:?}"
+        );
+
+        let placeholder = control_safe_root_diagnostic(&root, "- listed.txt\n- ...\n");
+        assert!(
+            placeholder.contains("must refer to at least one unlisted item in \"")
+                && placeholder.ends_with("r\\u{001B}[31mX/\""),
+            "{placeholder:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_derived_paths_preserve_non_utf8_bytes() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path().join(std::ffi::OsStr::from_bytes(b"r\xFF"));
+        if let Err(error) = std::fs::create_dir(&root) {
+            if cfg!(target_os = "linux") {
+                panic!("Linux must accept a non-UTF-8 directory name: {error}");
+            }
+            eprintln!(
+                "non_utf8_verifier_root unavailable_on={} expected=host-rejects-non-utf8-names ({error})",
+                std::env::consts::OS
+            );
+            return;
+        }
+        std::fs::write(root.join("listed.txt"), "").unwrap();
+
+        let missing = control_safe_root_diagnostic(&root, "- missing.txt\n");
+        assert!(
+            missing.ends_with(
+                "\\x72\\xFF\\x2F\\x6D\\x69\\x73\\x73\\x69\\x6E\\x67\\x2E\\x74\\x78\\x74\""
+            ),
+            "{missing:?}"
+        );
+
+        let placeholder = control_safe_root_diagnostic(&root, "- listed.txt\n- ...\n");
+        assert!(
+            placeholder.ends_with("\\x72\\xFF\\x2F\""),
+            "{placeholder:?}"
+        );
     }
 }

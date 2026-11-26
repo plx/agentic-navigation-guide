@@ -1,5 +1,6 @@
 //! Error types for the agentic navigation guide
 
+use crate::path_codec::render_os_component;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -140,7 +141,14 @@ pub(crate) enum SyntaxError {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(crate) enum SemanticError {
     /// File or directory not found
-    #[error("line {line}: {item_type} '{path}' not found at {full_path}")]
+    ///
+    /// `full_path` begins with the caller-selected or recursively discovered
+    /// root, so it may carry controls or non-UTF-8 data. It is rendered only
+    /// through the reversible, control-free diagnostic form.
+    #[error(
+        "line {line}: {item_type} '{path}' not found at {}",
+        render_os_component(.full_path.as_os_str())
+    )]
     ItemNotFound {
         line: usize,
         item_type: String,
@@ -162,10 +170,14 @@ pub(crate) enum SemanticError {
     PermissionDenied { line: usize, path: String },
 
     /// Placeholder with no unmentioned items
+    ///
+    /// `parent` is root-derived and retained exactly; like `full_path` above,
+    /// it is rendered only through the reversible, control-free form.
     #[error(
-        "line {line}: placeholder (...) must refer to at least one unlisted item in '{parent}'"
+        "line {line}: placeholder (...) must refer to at least one unlisted item in {}",
+        render_os_component(.parent.as_os_str())
     )]
-    PlaceholderNoUnmentionedItems { line: usize, parent: String },
+    PlaceholderNoUnmentionedItems { line: usize, parent: PathBuf },
 
     /// Path resolves outside the configured verification root
     #[error("line {line}: '{path}' crosses the configured verification root boundary")]
@@ -251,5 +263,77 @@ impl ErrorFormatter {
         } else {
             error_msg
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SemanticError;
+    use std::path::PathBuf;
+
+    fn item_not_found(full_path: PathBuf) -> String {
+        SemanticError::ItemNotFound {
+            line: 2,
+            item_type: "file".to_string(),
+            path: "missing.txt".to_string(),
+            full_path,
+        }
+        .to_string()
+    }
+
+    fn unsatisfied_placeholder(parent: PathBuf) -> String {
+        SemanticError::PlaceholderNoUnmentionedItems { line: 3, parent }.to_string()
+    }
+
+    #[test]
+    fn root_derived_paths_render_controls_reversibly() {
+        assert_eq!(
+            item_not_found(PathBuf::from("r\u{1b}[31mX\u{7f}/missing.txt")),
+            "line 2: file 'missing.txt' not found at \"r\\u{001B}[31mX\\u{007F}/missing.txt\""
+        );
+        assert_eq!(
+            unsatisfied_placeholder(PathBuf::from("r\u{1b}[31mX\n/")),
+            "line 3: placeholder (...) must refer to at least one unlisted item in \
+             \"r\\u{001B}[31mX\\n/\""
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_derived_paths_preserve_every_non_utf8_byte() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = || PathBuf::from(OsString::from_vec(b"r\xFF".to_vec()));
+        assert_eq!(
+            item_not_found(root().join("x")),
+            "line 2: file 'missing.txt' not found at \"\\x72\\xFF\\x2F\\x78\""
+        );
+        let placeholder = unsatisfied_placeholder(root());
+        assert_eq!(
+            placeholder,
+            "line 3: placeholder (...) must refer to at least one unlisted item in \"\\x72\\xFF\""
+        );
+        assert!(!placeholder.contains('\u{FFFD}'));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn root_derived_paths_preserve_every_ill_formed_utf16_unit() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+
+        let root = || PathBuf::from(OsString::from_wide(&[0x0072, 0xD800]));
+        assert_eq!(
+            item_not_found(root()),
+            "line 2: file 'missing.txt' not found at \"\\u{0072}\\u{D800}\""
+        );
+        let placeholder = unsatisfied_placeholder(root());
+        assert_eq!(
+            placeholder,
+            "line 3: placeholder (...) must refer to at least one unlisted item in \
+             \"\\u{0072}\\u{D800}\""
+        );
+        assert!(!placeholder.contains('\u{FFFD}'));
     }
 }
