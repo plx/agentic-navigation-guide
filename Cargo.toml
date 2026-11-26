@@ -35,11 +35,17 @@ include = [
     "/src/guide_input.rs",
     "/src/parser.rs",
     "/src/path_codec.rs",
+    "/src/proven/*.rs",
     "/src/recursive.rs",
     "/src/types.rs",
     "/src/validator.rs",
     "/src/verifier.rs",
 ]
+
+# Verus compiles the formally verified kernels with `--cfg verus_keep_ghost`;
+# ordinary builds never set it. See proofs/README.md.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(verus_keep_ghost)"] }
 
 [[bin]]
 name = "agentic-navigation-guide"
@@ -50,7 +56,6 @@ clap = { version = "4.5", features = ["derive"] }
 thiserror = "2.0"
 walkdir = "2.5"
 globset = "0.4"
-regex = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
@@ -65,6 +70,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+regex = "1.10"
 tempfile = "3.10"
 assert_cmd = "2.0"
 predicates = "3.1"

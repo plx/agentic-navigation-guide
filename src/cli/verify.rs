@@ -4,6 +4,7 @@ use super::output::{self, GuideCommand};
 use crate::errors::{AppError, Result};
 use crate::guide_input::{self, GuideAnchor, GuideAuthority};
 use crate::parser::Parser;
+use crate::proven::outcome::{self, EmptyDiscoveryDecision, RecursiveCompletion};
 use crate::recursive::{self, GuideLocation, GuideVerificationResult};
 use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
@@ -100,17 +101,25 @@ impl RecursiveDiscovery {
     }
 }
 
+/// Finish an absent recursive search; the verified
+/// `proven::outcome::empty_discovery_decision` accepts it only under
+/// `--allow-empty`.
 fn finish_empty_discovery(error: NoGuidesFound, allow_empty: bool, config: &Config) -> Result<()> {
-    if allow_empty {
-        if config.log_level != LogLevel::Quiet {
-            output::stdout_line("--allow-empty accepted: zero navigation guides were verified")?;
-            output::stdout_line(&format!("  {}", error.aggregate))?;
+    match outcome::empty_discovery_decision(allow_empty) {
+        EmptyDiscoveryDecision::Accept => {
+            if config.log_level != LogLevel::Quiet {
+                output::stdout_line(
+                    "--allow-empty accepted: zero navigation guides were verified",
+                )?;
+                output::stdout_line(&format!("  {}", error.aggregate))?;
+            }
+            Ok(())
         }
-        Ok(())
-    } else {
-        output::stderr_line(&error.to_string())?;
-        output::stderr_line(&format!("  {}", error.aggregate))?;
-        Err(AppError::Other(error.to_string()).reported())
+        EmptyDiscoveryDecision::Reject => {
+            output::stderr_line(&error.to_string())?;
+            output::stderr_line(&format!("  {}", error.aggregate))?;
+            Err(AppError::Other(error.to_string()).reported())
+        }
     }
 }
 
@@ -373,30 +382,39 @@ impl VerifyArgs {
         let results = recursive::verify_guides(&guides, config)?;
         let aggregate = RecursiveAggregate::from_results(&results);
 
-        // Display results and determine exit status
+        // Display results and determine exit status with the verified
+        // `proven::outcome::recursive_completion` decision.
         let all_passed = recursive::display_results(&results, config)?;
 
-        if self.deny_ignored && aggregate.ignored != 0 {
-            // Quiet suppresses ordinary success chatter, not the aggregate
-            // attached to a policy failure.
-            if config.log_level == LogLevel::Quiet {
-                output::stderr_line(&format!("  {aggregate}"))?;
+        match outcome::recursive_completion(all_passed, aggregate.ignored, self.deny_ignored) {
+            RecursiveCompletion::Accept(accepted) => Ok(accepted),
+            RecursiveCompletion::Failed => {
+                Err(AppError::Other("Some guides failed verification".to_string()).reported())
             }
-            if !all_passed {
+            RecursiveCompletion::FailedAndDenied => {
+                report_quiet_policy_aggregate(config, &aggregate)?;
                 let message = format!(
                     "Some guides failed verification, and {}",
                     super::denied_ignored_message(aggregate.ignored)
                 );
                 output::stderr_line(&message)?;
-                return Err(AppError::Other(message).reported());
+                Err(AppError::Other(message).reported())
             }
-            return super::finish_ignored_policy(aggregate.ignored, true);
-        }
-
-        if !all_passed {
-            Err(AppError::Other("Some guides failed verification".to_string()).reported())
-        } else {
-            super::finish_ignored_policy(aggregate.ignored, self.deny_ignored)
+            RecursiveCompletion::Denied => {
+                report_quiet_policy_aggregate(config, &aggregate)?;
+                let message = super::denied_ignored_message(aggregate.ignored);
+                output::stderr_line(&message)?;
+                Err(AppError::Other(message).reported())
+            }
         }
     }
+}
+
+/// Quiet suppresses ordinary success chatter, not the aggregate attached to a
+/// `--deny-ignored` policy failure.
+fn report_quiet_policy_aggregate(config: &Config, aggregate: &RecursiveAggregate) -> Result<()> {
+    if config.log_level == LogLevel::Quiet {
+        output::stderr_line(&format!("  {aggregate}"))?;
+    }
+    Ok(())
 }

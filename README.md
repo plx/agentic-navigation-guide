@@ -200,14 +200,17 @@ The hook exits `2` for verification failure in post-tool-use mode. Omit
 Active guides contain one nonempty, exact list between the
 `<agentic-navigation-guide>` markers. They are partial by default. Logical
 paths use `/`; indentation is space-only; quoted paths and documented escapes
-represent syntax-sensitive names; and bare `...` is a placeholder. A valid
-`ignore=true` guide has an opaque body and produces a distinct ignored outcome,
-not verified success.
+represent syntax-sensitive names; and bare `...` is a placeholder. Each decoded
+path appears once, and no entry may be listed below a path the guide lists as
+a regular file. A valid `ignore=true` guide has an opaque body and produces a
+distinct ignored outcome, not verified success.
 
 `dump` and `init` reject invalid roots, empty generated output, unsupported
 entries, and unrepresentable names before delivering guide bytes. `check`,
 single-guide `verify`, and recursive `verify` share fail-closed guide opening
-and bounded diagnostics.
+and bounded diagnostics: guide text is quoted only up to the offending token,
+at most 256 characters and never a comment, and every control character,
+C1 controls included, is escaped.
 
 `init --output` and `dump --output` exclusively create a new destination but
 do not provide atomic content publication: a concurrent reader may observe an
@@ -222,6 +225,13 @@ scanner or access-control boundary.
 An unresolved `..` in a path that starts beneath the anchor does not automatically grant external authority. Parent components are classified in order,
 and only a spelling proven to remain outside the anchor receives the external
 authority explicitly granted by its configured guide path.
+
+The guide-language, generation, and filesystem decisions behind these rules
+run through kernels that are formally verified with Verus against the
+contract, including the dump-to-parse round trip. The
+[formal verification notes](proofs/README.md) list what is proven and what is
+trusted; the proofs complement the test suite and do not extend the
+stable-filesystem guarantee above.
 
 Use these maintained references rather than copying detailed rules from this
 README:
@@ -245,9 +255,24 @@ findings in a public GitHub issue.
 ## Known Intentional Divergences
 
 This is the concise dated index of deliberate v0.2 breaks from published
-`0.1.4`. The [changelog](CHANGELOG.md#migration-from-014) and
+`0.1.4`, and of behavior kept deliberately where the contract text was
+narrower and has been clarified to match. The
+[changelog](CHANGELOG.md#migration-from-014) and
 [normative contract](docs/v0.2-contract.md) retain the complete behavior and
 migration details.
+
+- **2026-11-25 — `check` rejects an entry listed below a regular file.** A
+  guide such as `- a` with `- a/b` describes no filesystem tree, so `check`
+  now reports it instead of leaving `verify` to fail on every tree.
+- **2026-11-25 — A byte-order mark before either marker is rejected.** The
+  contract named only the opening marker; the closing-marker rejection is
+  kept because an invisible U+FEFF would otherwise let a line that looks like
+  a closing marker pass as ordinary text, for example inside an ignored body.
+- **2026-11-25 — Whitespace-only placeholder comments are not meaningful.**
+  The contract did not define a meaningful comment; the existing rule is kept
+  that a comment needs a character that is not Unicode whitespace, because a
+  comment such as a lone U+3000 looks like no comment yet would waive the
+  placeholder's unlisted-child requirement.
 
 - **2026-07-26 — The package is CLI-only.** The Rust library and in-process
   facade were removed so v0.2 has one supported product and process contract.

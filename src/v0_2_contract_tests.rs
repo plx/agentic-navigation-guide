@@ -2802,6 +2802,115 @@ fn issue_41_parser_diagnostics_escape_rejected_controls() {
     }
 }
 
+/// A malformed quoted path is reported through its first offending scalar,
+/// so no output mode echoes the comment or other text after it, and a raw
+/// excerpt is cut to 256 scalars ("Diagnostic confidentiality").
+#[test]
+fn malformed_quoted_path_diagnostics_exclude_later_text() {
+    let temp = TempDir::new().expect("temporary quoted-excerpt fixture");
+    let guide_path = temp.path().join("guide.md");
+    let long = format!("\"{}", "z".repeat(1000));
+    let long_shown = format!("\"\\\"{}\"…", "z".repeat(255));
+    let cases = [
+        ("\"a\\q\" # private note", "\"\\\"a\\\\q\"", "private note"),
+        ("\"a\"x # private note", "\"\\\"a\\\"x\"", "private note"),
+        (
+            long.as_str(),
+            long_shown.as_str(),
+            "z".repeat(256).leak() as &str,
+        ),
+    ];
+    for (entry, shown, hidden) in cases {
+        fs::write(
+            &guide_path,
+            format!("<agentic-navigation-guide>\n- {entry}\n</agentic-navigation-guide>"),
+        )
+        .expect("write malformed quoted guide");
+        for flags in [
+            &[][..],
+            &["--quiet"][..],
+            &["--verbose"][..],
+            &["--github-actions-check"][..],
+            &["--post-tool-use-hook"][..],
+        ] {
+            let output = Command::new(crate::test_support::cli_binary())
+                .arg("check")
+                .arg("--guide")
+                .arg(&guide_path)
+                .args(flags)
+                .output()
+                .expect("run check on a malformed quoted path");
+            assert!(
+                !output.status.success(),
+                "check {flags:?} accepted {entry:?}"
+            );
+            let mut diagnostics = output.stdout;
+            diagnostics.extend_from_slice(&output.stderr);
+            let diagnostics = String::from_utf8(diagnostics).expect("UTF-8 diagnostic");
+            assert!(
+                diagnostics.contains(shown),
+                "check {flags:?} did not show {shown:?} for {entry:?}:\n{diagnostics}"
+            );
+            assert!(
+                !diagnostics.contains(hidden),
+                "check {flags:?} echoed text after the offense for {entry:?}:\n{diagnostics}"
+            );
+        }
+    }
+}
+
+/// C1 controls (U+0080 through U+009F) are legal in names, but a terminal
+/// may act on them (U+009B is the 8-bit control-sequence introducer), so
+/// every diagnostic that renders guide text escapes them like C0 controls.
+#[test]
+fn c1_controls_are_escaped_in_cli_diagnostics() {
+    let temp = TempDir::new().expect("temporary C1 diagnostic fixture");
+    let guide_path = temp.path().join("guide.md");
+    for (command, entry, expected) in [
+        // A missing file whose name carries a C1 control: `verify` names it.
+        (
+            "verify",
+            "csi\u{9b}31mname.txt",
+            "\"csi\\u{009B}31mname.txt\"",
+        ),
+        // A choice error renders its expression.
+        (
+            "check",
+            "x[a\u{85}, a\u{85}]y",
+            "\"x[a\\u{0085}, a\\u{0085}]y\"",
+        ),
+        // A bare-path rule renders the decoded path.
+        ("check", "a/../b\u{80}", "\"a/../b\\u{0080}\""),
+    ] {
+        fs::write(
+            &guide_path,
+            format!("<agentic-navigation-guide>\n- {entry}\n</agentic-navigation-guide>"),
+        )
+        .expect("write C1-bearing guide");
+
+        let mut invocation = Command::new(crate::test_support::cli_binary());
+        invocation.arg(command).arg("--guide").arg(&guide_path);
+        if command == "verify" {
+            invocation.arg("--root").arg(temp.path());
+        }
+        let output = invocation.output().expect("run CLI with a C1-bearing path");
+        assert!(!output.status.success(), "{command} accepted {entry:?}");
+        let mut diagnostics = output.stdout;
+        diagnostics.extend_from_slice(&output.stderr);
+        let diagnostics = String::from_utf8(diagnostics).expect("control-safe UTF-8 diagnostic");
+        assert!(
+            diagnostics.contains(expected),
+            "{command} did not escape {entry:?}:\n{diagnostics}"
+        );
+        assert!(
+            !diagnostics
+                .chars()
+                .any(|ch| ('\u{80}'..='\u{9f}').contains(&ch)),
+            "{command} emitted a raw C1 control for {entry:?}: {diagnostics:?}"
+        );
+    }
+}
+
 #[test]
 fn issue_41_rejected_name_diagnostics_are_reversible_and_double_quoted() {
     let temp = TempDir::new().expect("temporary issue-41 quoted diagnostic fixture");
@@ -2809,7 +2918,7 @@ fn issue_41_rejected_name_diagnostics_are_reversible_and_double_quoted() {
     for (expression, expected) in [
         ("\"\"", "\"\""),
         ("bad\\q.txt", "\"bad\\\\q.txt\""),
-        ("\"bad\\q\"", "\"\\\"bad\\\\q\\\"\""),
+        ("\"bad\\q\"", "\"\\\"bad\\\\q\""),
         ("\"C:root\"", "\"C:root\""),
         ("\\\\root", "\"\\\\root\""),
     ] {
@@ -3012,6 +3121,85 @@ fn byte_order_mark_is_not_silently_discarded() {
     let source = "\u{feff}<agentic-navigation-guide>\n- Cargo.toml\n</agentic-navigation-guide>";
 
     assert_eq!(observe(source), ObservedResult::Reject);
+}
+
+/// A byte-order mark before either marker name makes a malformed marker
+/// candidate wherever the line appears, so an invisible prefix never turns
+/// something that looks like a marker into ordinary text.
+#[test]
+fn byte_order_mark_before_either_marker_is_a_malformed_candidate() {
+    for source in [
+        // In place of the real closing marker.
+        "<agentic-navigation-guide>\n- a.txt\n\u{feff}</agentic-navigation-guide>",
+        // In the epilogue, after a complete block.
+        "<agentic-navigation-guide>\n- a.txt\n</agentic-navigation-guide>\n\u{feff}</agentic-navigation-guide>",
+        // In the prologue.
+        "\u{feff}</agentic-navigation-guide>\n<agentic-navigation-guide>\n- a.txt\n</agentic-navigation-guide>",
+        // In an ignored body, where it would look like the end of the block.
+        "<agentic-navigation-guide ignore=true>\n\u{feff}</agentic-navigation-guide>\nnot epilogue\n</agentic-navigation-guide>",
+        // With outer whitespace and repeated marks.
+        "<agentic-navigation-guide>\n- a.txt\n</agentic-navigation-guide>\n \u{feff}\t\u{feff}</agentic-navigation-guide>",
+    ] {
+        assert_eq!(observe(source), ObservedResult::Reject, "{source:?}");
+    }
+    // Any other U+FEFF is an ordinary scalar.
+    for source in [
+        "x\u{feff}</agentic-navigation-guide>\n<agentic-navigation-guide>\n- a.txt\n</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- a.txt\n</agentic-navigation-guide>\nnote \u{feff}</agentic-navigation-guide>",
+        "<agentic-navigation-guide>\n- a\u{feff}.txt\n</agentic-navigation-guide>",
+    ] {
+        assert!(
+            matches!(observe(source), ObservedResult::Accept { .. }),
+            "{source:?}"
+        );
+    }
+}
+
+/// A placeholder comment made only of whitespace other than spaces and tabs
+/// survives parsing as comment text but is not meaningful, so it does not
+/// waive the unlisted-child requirement.
+#[test]
+fn whitespace_only_placeholder_comments_do_not_waive_the_child_requirement() {
+    let temp = TempDir::new().expect("temporary placeholder-comment root");
+    fs::create_dir(temp.path().join("empty")).expect("empty directory");
+    for (comment, retained, satisfied) in [
+        ("", None, false),
+        (" \t ", None, false),
+        ("\u{3000}", Some("\u{3000}"), false),
+        (" \u{a0}\u{2003} ", Some("\u{a0}\u{2003}"), false),
+        ("future modules", Some("future modules"), true),
+        (
+            "\u{3000}future\u{3000}",
+            Some("\u{3000}future\u{3000}"),
+            true,
+        ),
+    ] {
+        let source = format!(
+            "<agentic-navigation-guide>\n- empty/\n  - ... #{comment}\n</agentic-navigation-guide>"
+        );
+        assert_eq!(
+            comment_snapshot(&source),
+            vec![
+                ("empty".to_string(), None),
+                ("empty/...".to_string(), retained.map(str::to_string)),
+            ],
+            "{comment:?}"
+        );
+        let guide = Parser::new()
+            .parse(&source)
+            .expect("placeholder guide parses");
+        Validator::new()
+            .validate_syntax(&guide)
+            .expect("placeholder guide validates");
+        match Verifier::new(temp.path()).verify(&guide) {
+            Ok(()) => assert!(satisfied, "{comment:?} waived the requirement"),
+            Err(AppError::Semantic(SemanticError::PlaceholderNoUnmentionedItems {
+                line: 3,
+                ..
+            })) => assert!(!satisfied, "{comment:?} did not waive the requirement"),
+            Err(other) => panic!("{comment:?}: unexpected {other:?}"),
+        }
+    }
 }
 
 fn matches_expected_operation(

@@ -151,8 +151,9 @@ complete and the final candidate is revalidated.
   closing marker names are case-sensitive, occupy complete lines, and accept
   only surrounding horizontal whitespace. Malformed marker prefixes,
   duplicate/nested blocks, stray closing markers, marker attributes on the
-  closing line, a UTF-8 BOM on the opening line, and lone carriage returns are
-  rejected.
+  closing line, a UTF-8 BOM before either marker name (on any line, so an
+  invisible prefix cannot turn a marker into ordinary text), and lone
+  carriage returns are rejected.
 - The only opening-marker attribute is one exact `ignore=true` assignment,
   quoted or unquoted, with optional horizontal whitespace around `=`.
   Unknown, duplicate, false, valueless, concatenated, single-quoted, or
@@ -160,7 +161,8 @@ complete and the final candidate is revalidated.
   be empty, but its envelope is still validated.
 - An active body is nonempty and contains only entry lines. The list delimiter
   is exactly `- `; a tab or a second unescaped space after the dash is
-  invalid. Blank lines and other Markdown inside the active body are invalid.
+  invalid. Blank lines and other Markdown inside the active body are invalid,
+  including a blank last body line immediately before the closing marker.
 - Indentation is space-only. The first entry is at depth zero; the first
   indented entry establishes a 1–16-space unit; later indentation is an exact
   multiple of that unit; depth may increase by one only beneath the
@@ -170,11 +172,15 @@ complete and the final candidate is revalidated.
 - Exactly one trailing `/` marks a directory. Logical paths use `/`, are
   relative, and reject absolute or drive-prefixed forms, empty components,
   `.` or `..`, repeated separators, repeated trailing separators, and
-  duplicate decoded paths. A line without an unescaped `#` treats everything
-  after the exact list delimiter as its path.
+  duplicate decoded paths. An entry listed below a path that the guide also
+  lists as a regular file (for example `- a` with `- a/b`) is rejected by
+  `check`, since no filesystem can satisfy it. A line without an unescaped
+  `#` treats everything after the exact list delimiter as its path.
 - Outside a whole quoted path, the first unescaped `#` starts the comment.
   Bare paths support exactly `\#`, `\\`, `\[`, `\]`, `\,`, `\"`, and `\ `;
-  dangling or unknown escapes fail. Whole quoted paths preserve syntax
+  dangling or unknown escapes fail. Line padding is only the unescaped
+  trailing spaces, so `foo\ ` is the edge-space path `foo ` (invalid unless
+  quoted) rather than a dangling escape. Whole quoted paths preserve syntax
   characters and edge spaces and support only `\"` and `\\`.
 - Bare `...` remains the placeholder; quoted `"..."` is the literal filename.
   Empty or whitespace-only comments are normalized to no comment.
@@ -182,7 +188,9 @@ complete and the final candidate is revalidated.
   already-mentioned descendants cannot make their parent look unmentioned.
   An uncommented placeholder requires at least one unlisted immediate child;
   a meaningfully commented placeholder may describe a fully listed or empty
-  directory. Placeholder matching remains type-agnostic and does not make a
+  directory. A comment is meaningful when it has a scalar that is not
+  Unicode `White_Space`; a comment of only other whitespace, such as U+3000,
+  is kept but does not waive the requirement. Placeholder matching remains type-agnostic and does not make a
   link or special sibling listable.
 - Choice expressions permit 2–256 alternatives in one bare regular-file path,
   preserve quoted alternative whitespace, parent, order, and comments, and
@@ -193,7 +201,9 @@ complete and the final candidate is revalidated.
 - UTF-8 names, including non-ASCII punctuation and symbols, are supported
   without the old character allowlist. NUL, CR, LF, HTAB, other C0 controls,
   DEL, and non-UTF-8 filesystem names are rejected. Diagnostics render
-  rejected names reversibly instead of using lossy conversion.
+  rejected names reversibly instead of using lossy conversion, and escape C1
+  controls (U+0080–U+009F) as well as C0 controls and DEL, because terminals
+  may act on them; C1 controls remain valid in names.
 - `dump` and `init` emit one canonical spelling for every supported name,
   preserve hierarchy, and sort siblings by ascending UTF-8 bytes. Generated
   active output is nonempty and must round-trip through `check`.
@@ -242,7 +252,9 @@ complete and the final candidate is revalidated.
 - Diagnostics no longer reproduce raw guide source lines, raw untrusted
   environment values, or resolved external targets. Logical paths and
   filesystem names use bounded, control-safe rendering in default, hook, and
-  GitHub Actions output.
+  GitHub Actions output. A malformed quoted path is quoted only through its
+  first offending scalar, never its comment, and quoted guide text is cut to
+  256 scalars with a trailing `…`.
 
 ### Quality and performance gates
 
@@ -250,6 +262,19 @@ complete and the final candidate is revalidated.
   and correctness-critical line floor, an 80% overall branch floor, a reviewed
   original-blocker mutation sentinel set, exact audit-regression traceability,
   and fixed release timing/RSS baselines through 100,000 flat entries.
+- The guide-language decisions (line endings, physical lines, markers, the
+  guide envelope, list items and indentation, entry text, choice lists, the
+  name codec, path validation, duplicate full paths, entries below regular
+  files, placeholder siblings, and hierarchy assembly), generation limits, line formatting, and output
+  destinations, entry-type classification, placeholder accounting,
+  recursive discovery, guide-path authority and reduction, Windows name
+  rules, exclusion pattern compilation and matching, configuration
+  precedence, and exit-status policy now run through kernels that Verus
+  proves against the contract, including the dump-to-parse round trip. Specifications compile only for Verus, so
+  the product gains no dependency. An advisory `Verus Proofs` workflow
+  re-checks the proofs, and ordinary `cargo test` rejects gated executable
+  code, proof escapes, and unchecked specifications. See
+  `proofs/README.md`.
 
 ### Packaging, documentation, and licensing
 

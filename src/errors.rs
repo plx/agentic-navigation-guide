@@ -127,6 +127,16 @@ pub(crate) enum SyntaxError {
         message: String,
     },
 
+    /// An entry listed below a path that the guide lists as a regular file
+    #[error(
+        "line {line}: entry '{path}' is listed below '{file}', which the guide lists as a regular file"
+    )]
+    EntryBelowFile {
+        line: usize,
+        path: String,
+        file: String,
+    },
+
     /// Adjacent placeholders
     #[error("line {line}: placeholder entries (...) cannot be adjacent to each other")]
     AdjacentPlaceholders { line: usize },
@@ -145,7 +155,7 @@ pub(crate) enum SemanticError {
         line: usize,
         item_type: String,
         path: String,
-        full_path: PathBuf,
+        full_path: String,
     },
 
     /// Type mismatch (file vs directory)
@@ -195,6 +205,7 @@ impl SyntaxError {
             | Self::BlankLineInGuide { line }
             | Self::InvalidPathFormat { line, .. }
             | Self::InvalidWildcardSyntax { line, .. }
+            | Self::EntryBelowFile { line, .. }
             | Self::AdjacentPlaceholders { line }
             | Self::PlaceholderWithChildren { line } => Some(*line),
             Self::EmptyGuideBlock => None,

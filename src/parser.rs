@@ -1,38 +1,23 @@
 //! Parser for navigation guide markdown files
 
 use crate::errors::{Result, SyntaxError};
-use crate::path_codec::{has_windows_drive_prefix, render_utf8_component};
+use crate::path_codec::render_utf8_component;
+use crate::proven::choice::{ChoiceError, MAX_CHOICE_ALTERNATIVES, MIN_CHOICE_ALTERNATIVES};
+use crate::proven::document::{self, EnvelopeError, EnvelopeScan};
+use crate::proven::entry::{self, EntryErrorKind, EntryFailure, EntryShape, ParsedEntry};
+use crate::proven::hierarchy;
+use crate::proven::layout::{self, IndentState, LayoutError};
+use crate::proven::lines::{self, split_lines};
+use crate::proven::marker::{self, MarkerClass};
 use crate::types::{FilesystemItem, NavigationGuide, NavigationGuideLine};
-use regex::Regex;
-use std::collections::HashSet;
 
-const MAX_INDENT_SIZE: usize = 16;
-const MAX_LOGICAL_DEPTH: usize = 256;
-const MIN_CHOICE_ALTERNATIVES: usize = 2;
-const MAX_CHOICE_ALTERNATIVES: usize = 256;
-const OPENING_MARKER_PREFIX: &str = "<agentic-navigation-guide";
-const CLOSING_MARKER_PREFIX: &str = "</agentic-navigation-guide";
-const CLOSING_MARKER: &str = "</agentic-navigation-guide>";
+const MAX_LOGICAL_DEPTH: usize = layout::MAX_LOGICAL_DEPTH;
 
 #[derive(Clone, Copy)]
 enum MarkerLine {
     Ordinary,
     Opening { ignore: bool },
     Closing,
-}
-
-#[derive(Clone, Copy)]
-enum ChoiceState {
-    LeadingLayout,
-    Unquoted,
-    Quoted,
-    QuotedClosed,
-}
-
-enum ParsedPathExpression {
-    Placeholder,
-    Bare(String),
-    Quoted { path: String, directory: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -57,17 +42,82 @@ impl HierarchyObserver for () {
 }
 
 /// Parser for navigation guide markdown content
-pub(crate) struct Parser {
-    /// Regular expression for detecting list items
-    list_item_regex: Regex,
+pub(crate) struct Parser;
+
+/// Map a verified envelope-scan error to its diagnostic.
+fn envelope_syntax_error(error: EnvelopeError) -> SyntaxError {
+    match error {
+        EnvelopeError::MultipleGuideBlocks { line } => SyntaxError::MultipleGuideBlocks { line },
+        EnvelopeError::MissingOpeningMarker { line } => SyntaxError::MissingOpeningMarker { line },
+        EnvelopeError::MissingClosingMarker { line } => SyntaxError::MissingClosingMarker { line },
+    }
+}
+
+/// The `SyntaxError::InvalidWildcardSyntax` message for a verified
+/// choice-list error.
+fn choice_message(error: ChoiceError) -> String {
+    let message = match error {
+        ChoiceError::IncompleteEscape => "incomplete escape sequence",
+        ChoiceError::InvalidBareEscape => "invalid escape in bare path",
+        ChoiceError::MultipleBlocks => "multiple wildcard choice blocks are not supported",
+        ChoiceError::UnmatchedClosingBracket => "unmatched closing bracket",
+        ChoiceError::UnescapedQuote => "unescaped quote in bare path",
+        ChoiceError::UnterminatedBlock => "unterminated wildcard choice block",
+        ChoiceError::InvalidUnquotedEscape => "invalid escape in unquoted choice",
+        ChoiceError::UnescapedBracket => "unescaped bracket in unquoted choice",
+        ChoiceError::MisplacedQuote => "quote must begin a choice alternative",
+        ChoiceError::InvalidQuotedEscape => "invalid escape in quoted choice",
+        ChoiceError::QuotedTrailingText => "quoted choice must end before the separator",
+        ChoiceError::UnterminatedQuote => "unterminated quoted string in wildcard choices",
+        ChoiceError::EmptyBlock => "choice block cannot be empty",
+        ChoiceError::AlternativeCount => {
+            return format!(
+                "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
+                 {MAX_CHOICE_ALTERNATIVES} alternatives"
+            );
+        }
+        ChoiceError::InvalidExpansion => "choice expansions must be valid regular-file paths",
+        ChoiceError::NotSiblings => "choice expansions must be sibling files",
+        ChoiceError::DuplicateExpansion => "choice expansions must be unique",
+    };
+    message.to_string()
+}
+
+/// Map a verified entry-text error on `line` to its diagnostic. The kernel
+/// supplies the exact text each diagnostic renders: the decoded path for a
+/// bare-path rule, empty text, or a bounded excerpt of raw entry text (a
+/// malformed quoted path through its first offending scalar, never its
+/// comment, or the bare expression of a choice error). A cut excerpt is
+/// marked with `…` after its closing quote, outside the reversible form.
+fn entry_syntax_error(failure: EntryFailure, line: usize) -> SyntaxError {
+    let mut path = render_utf8_component(&failure.subject);
+    if failure.truncated {
+        path.push('…');
+    }
+    match failure.kind {
+        EntryErrorKind::InvalidPath => SyntaxError::InvalidPathFormat { line, path },
+        EntryErrorKind::SpecialDirectory => SyntaxError::InvalidSpecialDirectory { line, path },
+        EntryErrorKind::Choice(error) => SyntaxError::InvalidWildcardSyntax {
+            line,
+            path,
+            message: choice_message(error),
+        },
+    }
+}
+
+/// Map a verified body-layout error on `line` to its diagnostic.
+fn layout_syntax_error(error: LayoutError, line: usize) -> SyntaxError {
+    match error {
+        LayoutError::BlankLine => SyntaxError::BlankLineInGuide { line },
+        LayoutError::InvalidListFormat => SyntaxError::InvalidListFormat { line },
+        LayoutError::InvalidIndentationLevel => SyntaxError::InvalidIndentationLevel { line },
+    }
 }
 
 impl Parser {
     /// Create a new parser instance
     pub(crate) fn new() -> Self {
-        Self {
-            list_item_regex: Regex::new(r"^(\s*)- (.+)$").unwrap(),
-        }
+        Self
     }
 
     /// Parse navigation guide content from a markdown string.
@@ -77,7 +127,7 @@ impl Parser {
     /// opaque and may be empty; the returned guide has no parsed items.
     pub(crate) fn parse(&self, content: &str) -> Result<NavigationGuide> {
         // Find the guide block
-        let (prologue, guide_content, epilogue, line_offset, ignore) =
+        let (prologue, body_lines, epilogue, line_offset, ignore) =
             self.extract_guide_block(content)?;
 
         // The exact envelope and global marker-candidate scan above always
@@ -86,7 +136,7 @@ impl Parser {
         let items = if ignore {
             Vec::new()
         } else {
-            self.parse_guide_content(&guide_content, line_offset)?
+            self.parse_guide_content(&body_lines, line_offset)?
         };
 
         Ok(NavigationGuide {
@@ -97,48 +147,44 @@ impl Parser {
         })
     }
 
-    /// Extract the guide block from the markdown content
+    /// Extract the guide block from the markdown content: the joined
+    /// prologue, the physical body lines, the joined epilogue, the number of
+    /// lines before the body, and the ignore flag.
     #[allow(clippy::type_complexity)]
-    fn extract_guide_block(
+    fn extract_guide_block<'a>(
         &self,
-        content: &str,
-    ) -> Result<(Option<String>, String, Option<String>, usize, bool)> {
+        content: &'a str,
+    ) -> Result<(Option<String>, Vec<&'a str>, Option<String>, usize, bool)> {
         Self::validate_line_endings(content)?;
 
-        let lines: Vec<&str> = content.lines().collect();
-        let mut start_idx = None;
-        let mut end_idx = None;
-        let mut ignore = false;
+        // The Verus-verified splitter is exactly `str::lines` (see
+        // `crate::proven::lines`); after the lone-CR check above, no line
+        // contains CR or LF.
+        let lines = split_lines(content);
 
         // Find and validate opening/closing markers across the full document.
-        // We require exactly one opening marker and exactly one closing marker.
+        // The Verus-verified envelope scan requires exactly one opening marker
+        // and exactly one closing marker after it, and reports the first
+        // offending line (see `crate::proven::document`).
+        let mut scan = EnvelopeScan::BeforeOpening;
         for (idx, line) in lines.iter().enumerate() {
-            match Self::classify_marker_line(line, idx + 1)? {
-                MarkerLine::Ordinary => {}
-                MarkerLine::Opening {
-                    ignore: marker_ignore,
-                } => {
-                    if start_idx.is_some() || end_idx.is_some() {
-                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
-                    }
-                    start_idx = Some(idx);
-                    ignore = marker_ignore;
-                }
-                MarkerLine::Closing => match (start_idx, end_idx) {
-                    (Some(_), None) => end_idx = Some(idx),
-                    (None, None) => {
-                        return Err(SyntaxError::MissingOpeningMarker { line: idx + 1 }.into());
-                    }
-                    _ => {
-                        return Err(SyntaxError::MultipleGuideBlocks { line: idx + 1 }.into());
-                    }
-                },
-            }
+            let line_number = idx + 1;
+            let class = match Self::classify_marker_line(line, line_number)? {
+                MarkerLine::Ordinary => MarkerClass::Ordinary,
+                MarkerLine::Opening { ignore: false } => MarkerClass::Opening,
+                MarkerLine::Opening { ignore: true } => MarkerClass::IgnoredOpening,
+                MarkerLine::Closing => MarkerClass::Closing,
+            };
+            scan = document::scan_marker_line(scan, line_number, class)
+                .map_err(envelope_syntax_error)?;
         }
+        let envelope =
+            document::finish_envelope(scan, lines.len()).map_err(envelope_syntax_error)?;
 
-        // Validate markers
-        let start = start_idx.ok_or(SyntaxError::MissingOpeningMarker { line: 1 })?;
-        let end = end_idx.ok_or(SyntaxError::MissingClosingMarker { line: lines.len() })?;
+        // The scan reports 1-based marker lines with opening < closing.
+        let start = envelope.opening_line - 1;
+        let end = envelope.closing_line - 1;
+        let ignore = envelope.ignore;
 
         // Extract prologue, guide content, and epilogue
         let prologue = if start > 0 {
@@ -147,7 +193,7 @@ impl Parser {
             None
         };
 
-        let guide_content = lines[start + 1..end].join("\n");
+        let body_lines = lines[start + 1..end].to_vec();
 
         let epilogue = if end + 1 < lines.len() {
             Some(lines[end + 1..].join("\n"))
@@ -158,306 +204,86 @@ impl Parser {
         // Calculate line offset: prologue lines + opening tag line
         let line_offset = start + 1;
 
-        Ok((prologue, guide_content, epilogue, line_offset, ignore))
+        Ok((prologue, body_lines, epilogue, line_offset, ignore))
     }
 
     /// Reject lone carriage returns before line-oriented parsing.
+    ///
+    /// The scan is the Verus-verified
+    /// [`crate::proven::document::first_lone_cr_line`] kernel.
     fn validate_line_endings(content: &str) -> Result<()> {
-        let bytes = content.as_bytes();
-        let mut idx = 0;
-        let mut line = 1;
-
-        while idx < bytes.len() {
-            match bytes[idx] {
-                b'\r' if bytes.get(idx + 1) == Some(&b'\n') => {
-                    idx += 2;
-                    line += 1;
-                }
-                b'\r' => {
-                    return Err(SyntaxError::MissingOpeningMarker { line }.into());
-                }
-                b'\n' => {
-                    idx += 1;
-                    line += 1;
-                }
-                _ => idx += 1,
-            }
+        match document::first_lone_cr_line(content.as_bytes()) {
+            Some(line) => Err(SyntaxError::MissingOpeningMarker { line }.into()),
+            None => Ok(()),
         }
-
-        Ok(())
     }
 
     /// Classify a complete line using the exact v0.2 marker grammar.
+    ///
+    /// The decision is made by the Verus-verified
+    /// [`crate::proven::marker::classify_marker_line`] kernel, whose
+    /// specification restates the contract marker productions.
     fn classify_marker_line(line: &str, line_number: usize) -> Result<MarkerLine> {
-        let candidate = Self::trim_outer_wsp(line);
-
-        // A BOM is not outer whitespace and cannot be silently discarded to
-        // turn the remainder of the line into a marker. Reject a run of BOMs
-        // as well as one BOM, including SP/HTAB between them.
-        let mut after_bom = candidate;
-        let mut saw_bom = false;
-        while let Some(remainder) = after_bom.strip_prefix('\u{feff}') {
-            saw_bom = true;
-            after_bom = remainder.trim_start_matches([' ', '\t']);
-        }
-        if saw_bom {
-            if after_bom.starts_with(OPENING_MARKER_PREFIX) {
-                return Err(SyntaxError::MissingOpeningMarker { line: line_number }.into());
+        match marker::classify_marker_line(line.as_bytes()) {
+            MarkerClass::Ordinary => Ok(MarkerLine::Ordinary),
+            MarkerClass::Opening => Ok(MarkerLine::Opening { ignore: false }),
+            MarkerClass::IgnoredOpening => Ok(MarkerLine::Opening { ignore: true }),
+            MarkerClass::Closing => Ok(MarkerLine::Closing),
+            MarkerClass::MalformedOpening => {
+                Err(SyntaxError::MissingOpeningMarker { line: line_number }.into())
             }
-            if after_bom.starts_with(CLOSING_MARKER_PREFIX) {
-                return Err(SyntaxError::MissingClosingMarker { line: line_number }.into());
-            }
-        }
-
-        if candidate.starts_with(OPENING_MARKER_PREFIX) {
-            return match Self::parse_opening_marker(candidate) {
-                Some(ignore) => Ok(MarkerLine::Opening { ignore }),
-                None => Err(SyntaxError::MissingOpeningMarker { line: line_number }.into()),
-            };
-        }
-
-        if candidate.starts_with(CLOSING_MARKER_PREFIX) {
-            return if candidate == CLOSING_MARKER {
-                Ok(MarkerLine::Closing)
-            } else {
+            MarkerClass::MalformedClosing => {
                 Err(SyntaxError::MissingClosingMarker { line: line_number }.into())
-            };
+            }
         }
-
-        Ok(MarkerLine::Ordinary)
     }
 
-    fn trim_outer_wsp(line: &str) -> &str {
-        line.trim_matches([' ', '\t'])
-    }
-
-    /// Parse the only two permitted opening-marker forms.
-    fn parse_opening_marker(candidate: &str) -> Option<bool> {
-        let suffix = candidate.strip_prefix(OPENING_MARKER_PREFIX)?;
-        if suffix == ">" {
-            return Some(false);
-        }
-
-        let bytes = suffix.as_bytes();
-        let mut idx = 0;
-
-        // Attributed markers require at least one SP or HTAB after the name.
-        if !bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            return None;
-        }
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-
-        if !suffix[idx..].starts_with("ignore") {
-            return None;
-        }
-        idx += "ignore".len();
-
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-        if bytes.get(idx) != Some(&b'=') {
-            return None;
-        }
-        idx += 1;
-
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-        if suffix[idx..].starts_with("\"true\"") {
-            idx += "\"true\"".len();
-        } else if suffix[idx..].starts_with("true") {
-            idx += "true".len();
-        } else {
-            return None;
-        }
-
-        while bytes
-            .get(idx)
-            .is_some_and(|byte| Self::is_marker_wsp(*byte))
-        {
-            idx += 1;
-        }
-
-        (bytes.get(idx) == Some(&b'>') && idx + 1 == bytes.len()).then_some(true)
-    }
-
-    fn is_marker_wsp(byte: u8) -> bool {
-        matches!(byte, b' ' | b'\t')
-    }
-
-    /// Parse the guide content into navigation guide lines
+    /// Parse the physical body lines into navigation guide lines
     fn parse_guide_content(
         &self,
-        content: &str,
+        body_lines: &[&str],
         line_offset: usize,
     ) -> Result<Vec<NavigationGuideLine>> {
-        if content.trim().is_empty() {
+        // A body with no line, or only whitespace lines, is empty. Verus
+        // proves this per-line check equal to the whitespace-only test of the
+        // body joined with LF (see `crate::proven::lines::is_blank_body`).
+        if lines::is_blank_body(body_lines) {
             return Err(SyntaxError::EmptyGuideBlock.into());
         }
 
         let mut items = Vec::new();
-        let mut indent_size = None;
-        let mut previous_depth = None;
-        let mut previous_line_can_own_children = false;
-        let lines: Vec<&str> = content.lines().collect();
+        let mut indentation = IndentState::new();
 
-        for (idx, line) in lines.iter().enumerate() {
+        // Every physical body line, an empty last line included, reaches the
+        // layout kernel, so a blank line before the closing marker is
+        // rejected by its blank-line rule.
+        for (idx, line) in body_lines.iter().enumerate() {
             // Calculate the actual line number in the file
             let line_number = idx + 1 + line_offset;
 
-            // Check for blank lines
-            if line.trim().is_empty() {
-                return Err(SyntaxError::BlankLineInGuide { line: line_number }.into());
+            // Blank lines, the list-item shape, space-only indentation, the
+            // indentation unit, the depth bound, and parentage are decided by
+            // the Verus-verified layout kernel (see `crate::proven::layout`).
+            let entry = layout::layout_entry_line(indentation, line)
+                .map_err(|error| layout_syntax_error(error, line_number))?;
+            let indent_level = entry.depth;
+            let content = entry.content;
+
+            // The entry text (placeholder, quoted path, bare path, or choice
+            // list, and its comment) is decided by the Verus-verified entry
+            // kernel (see `crate::proven::entry`).
+            let (parsed_items, line_can_own_children) =
+                Self::parse_entry_items(content, line_number, indent_level == 0)?;
+
+            for item in parsed_items {
+                items.push(NavigationGuideLine {
+                    line_number,
+                    indent_level,
+                    item,
+                });
             }
 
-            // Parse the list item
-            if let Some(captures) = self.list_item_regex.captures(line) {
-                let indent_text = captures.get(1).unwrap().as_str();
-                if !indent_text.bytes().all(|byte| byte == b' ') {
-                    return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
-                }
-                let indent = indent_text.len();
-                let content = captures.get(2).unwrap().as_str();
-                if content.starts_with(' ') || content.starts_with('\t') {
-                    return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
-                }
-
-                // Determine indent size from first indented item
-                if indent > 0 && indent_size.is_none() {
-                    if indent > MAX_INDENT_SIZE {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    indent_size = Some(indent);
-                }
-
-                // Validate indentation
-                let indent_level = if indent == 0 {
-                    0
-                } else if let Some(size) = indent_size {
-                    let depth = indent
-                        .checked_div(size)
-                        .ok_or(SyntaxError::InvalidIndentationLevel { line: line_number })?;
-                    if depth.checked_mul(size) != Some(indent) {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    depth
-                } else {
-                    unreachable!("a positive first indentation always establishes its unit")
-                };
-
-                if indent_level > MAX_LOGICAL_DEPTH {
-                    return Err(SyntaxError::InvalidIndentationLevel { line: line_number }.into());
-                }
-
-                match previous_depth {
-                    None if indent_level != 0 => {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    Some(depth)
-                        if indent_level > depth
-                            && (depth.checked_add(1) != Some(indent_level)
-                                || !previous_line_can_own_children) =>
-                    {
-                        return Err(
-                            SyntaxError::InvalidIndentationLevel { line: line_number }.into()
-                        );
-                    }
-                    _ => {}
-                }
-
-                // Parse path and comment
-                let (expression, comment) = self.parse_path_comment(content, line_number)?;
-                let (parsed_items, line_can_own_children) = match expression {
-                    ParsedPathExpression::Placeholder => (
-                        vec![FilesystemItem::Placeholder {
-                            comment: comment.clone(),
-                        }],
-                        false,
-                    ),
-                    ParsedPathExpression::Quoted { path, directory } => {
-                        let item = if directory {
-                            FilesystemItem::Directory {
-                                path,
-                                comment: comment.clone(),
-                                children: Vec::new(),
-                            }
-                        } else {
-                            FilesystemItem::File {
-                                path,
-                                comment: comment.clone(),
-                            }
-                        };
-                        (vec![item], directory)
-                    }
-                    ParsedPathExpression::Bare(path) => {
-                        let (expanded_paths, is_choice) = Self::expand_wildcard_path_with_kind(
-                            &path,
-                            line_number,
-                            indent_level == 0,
-                        )?;
-                        let line_can_own_children = !is_choice
-                            && expanded_paths.len() == 1
-                            && expanded_paths[0].ends_with('/');
-                        let mut parsed_items = Vec::with_capacity(expanded_paths.len());
-                        for expanded in expanded_paths {
-                            Self::validate_bare_expansion(
-                                &expanded,
-                                line_number,
-                                indent_level == 0,
-                            )?;
-                            if expanded.ends_with('/') {
-                                parsed_items.push(FilesystemItem::Directory {
-                                    path: expanded
-                                        .strip_suffix('/')
-                                        .expect("ends_with established one directory marker")
-                                        .to_string(),
-                                    comment: comment.clone(),
-                                    children: Vec::new(),
-                                });
-                            } else {
-                                parsed_items.push(FilesystemItem::File {
-                                    path: expanded,
-                                    comment: comment.clone(),
-                                });
-                            }
-                        }
-                        (parsed_items, line_can_own_children)
-                    }
-                };
-
-                for item in parsed_items {
-                    items.push(NavigationGuideLine {
-                        line_number,
-                        indent_level,
-                        item,
-                    });
-                }
-
-                previous_depth = Some(indent_level);
-                previous_line_can_own_children = line_can_own_children;
-            } else {
-                return Err(SyntaxError::InvalidListFormat { line: line_number }.into());
-            }
+            indentation = layout::advance(&entry, line_can_own_children);
         }
 
         // Build the hierarchy
@@ -466,704 +292,46 @@ impl Parser {
         Ok(hierarchical_items)
     }
 
-    /// Parse path and optional comment from item content
-    fn parse_path_comment(
-        &self,
+    /// Parse one entry's text into the items it contributes and whether its
+    /// line may own indented children.
+    ///
+    /// The decision is the Verus-verified
+    /// [`crate::proven::entry::parse_entry`] kernel, whose specification
+    /// restates the contract's entry, path-expression, choice-list, and
+    /// placeholder grammar; this glue only builds the items and maps a
+    /// rejection to its diagnostic.
+    fn parse_entry_items(
         content: &str,
-        line_number: usize,
-    ) -> Result<(ParsedPathExpression, Option<String>)> {
-        if content.starts_with('"') {
-            return Self::parse_quoted_path_comment(content, line_number);
-        }
-
-        let (raw_path, raw_comment) = Self::split_path_comment(content);
-        let path = raw_path.trim_end_matches(' ').to_string();
-        let comment = Self::normalize_comment(raw_comment);
-
-        if path.is_empty() {
-            return Err(Self::invalid_path_error(line_number, "").into());
-        }
-
-        if path == "..." {
-            return Ok((ParsedPathExpression::Placeholder, comment));
-        }
-
-        Ok((ParsedPathExpression::Bare(path), comment))
-    }
-
-    fn parse_quoted_path_comment(
-        content: &str,
-        line_number: usize,
-    ) -> Result<(ParsedPathExpression, Option<String>)> {
-        let mut decoded = String::new();
-        let mut chars = content.char_indices();
-        let Some((_, '"')) = chars.next() else {
-            unreachable!("caller established an opening quote");
-        };
-        let mut closing_end = None;
-
-        while let Some((index, ch)) = chars.next() {
-            match ch {
-                '"' => {
-                    closing_end = Some(index + ch.len_utf8());
-                    break;
-                }
-                '\\' => {
-                    let Some((_, escaped)) = chars.next() else {
-                        return Err(Self::invalid_path_error(line_number, content).into());
-                    };
-                    if !matches!(escaped, '"' | '\\') {
-                        return Err(Self::invalid_path_error(line_number, content).into());
-                    }
-                    decoded.push(escaped);
-                }
-                '\r' | '\n' => {
-                    return Err(Self::invalid_path_error(line_number, content).into());
-                }
-                _ => decoded.push(ch),
-            }
-        }
-
-        let Some(closing_end) = closing_end else {
-            return Err(Self::invalid_path_error(line_number, content).into());
-        };
-        if decoded.is_empty() {
-            return Err(Self::invalid_path_error(line_number, "").into());
-        }
-
-        let mut remainder = &content[closing_end..];
-        let directory = remainder.starts_with('/');
-        if directory {
-            remainder = &remainder[1..];
-        }
-        remainder = remainder.trim_start_matches(' ');
-
-        let comment = if remainder.is_empty() {
-            None
-        } else if let Some(comment) = remainder.strip_prefix('#') {
-            Self::normalize_comment(Some(comment))
-        } else {
-            return Err(Self::invalid_path_error(line_number, content).into());
-        };
-
-        Ok((
-            ParsedPathExpression::Quoted {
-                path: decoded,
-                directory,
-            },
-            comment,
-        ))
-    }
-
-    fn normalize_comment(comment: Option<&str>) -> Option<String> {
-        comment.and_then(|value| {
-            let trimmed = value.trim_matches([' ', '\t']);
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
-        })
-    }
-
-    /// Split a bare list item at the first unescaped `#`.
-    ///
-    /// Quotes inside a choice are not whole-path quotes and deliberately do
-    /// not suppress the outer comment delimiter.
-    fn split_path_comment(content: &str) -> (&str, Option<&str>) {
-        let mut escaped = false;
-
-        for (idx, ch) in content.char_indices() {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-
-            if ch == '\\' {
-                escaped = true;
-                continue;
-            }
-
-            if ch == '#' {
-                return (&content[..idx], Some(&content[idx + 1..]));
-            }
-        }
-
-        (content, None)
-    }
-
-    fn invalid_path_error(line: usize, path: &str) -> SyntaxError {
-        SyntaxError::InvalidPathFormat {
-            line,
-            path: render_utf8_component(path),
-        }
-    }
-
-    fn invalid_wildcard_error(line: usize, path: &str, message: impl Into<String>) -> SyntaxError {
-        SyntaxError::InvalidWildcardSyntax {
-            line,
-            path: render_utf8_component(path),
-            message: message.into(),
-        }
-    }
-
-    /// Process escape sequences in a string, converting escaped characters to their literal forms.
-    ///
-    /// Handles the following escape sequences:
-    /// - `\"` → `"`
-    /// - `\,` → `,`
-    /// - `\\` → `\`
-    /// - `\[` → `[`
-    /// - `\]` → `]`
-    /// - `\#` → `#`
-    /// - `\ ` → a literal U+0020 space
-    ///
-    /// # Arguments
-    /// * `s` - The string containing escape sequences
-    ///
-    /// # Returns
-    /// A new string with escape sequences processed
-    fn process_escapes(s: &str) -> String {
-        let mut result = String::new();
-        let mut chars = s.chars().peekable();
-
-        while let Some(ch) = chars.next() {
-            if ch == '\\' {
-                if let Some(&next) = chars.peek() {
-                    // Consume the escaped character
-                    chars.next();
-                    result.push(next);
-                } else {
-                    // Trailing backslash - just include it
-                    result.push(ch);
-                }
-            } else {
-                result.push(ch);
-            }
-        }
-
-        result
-    }
-
-    /// Expand wildcard choices within a path, if present.
-    ///
-    /// This function processes paths containing choice blocks (syntax: `prefix[choice1, choice2]suffix`)
-    /// and expands them into multiple paths. It supports:
-    /// - Multiple choices separated by commas: `Foo[.h, .cpp]` → `["Foo.h", "Foo.cpp"]`
-    /// - Quoted strings to preserve commas and special chars: `Foo["a, b", c]`
-    /// - Escape sequences for literal special characters: `\,`, `\"`, `\\`, `\[`, `\]`
-    /// - Prefix and suffix around the choice block: `src[/main, /lib].rs` → `["src/main.rs", "src/lib.rs"]`
-    ///
-    /// Escape sequences are preserved during parsing and processed at the end,
-    /// ensuring consistent handling across prefix, choices, and suffix.
-    ///
-    /// # Arguments
-    /// * `path` - The path potentially containing a choice block
-    /// * `line_number` - Line number in the source file for error reporting
-    ///
-    /// # Returns
-    /// A vector of expanded paths. Returns a single-element vector if no choice block is present.
-    ///
-    /// # Errors
-    /// Returns `SyntaxError::InvalidWildcardSyntax` if:
-    /// - The choice block is malformed (unterminated, invalid escapes, etc.)
-    /// - Multiple choice blocks are present (only one is allowed per path)
-    /// - The choice block is empty or contains only whitespace
-    ///
-    /// # Examples
-    /// ```text
-    /// // Single expansion (no choice block)
-    /// expand_wildcard_path("foo.rs", 1) → Ok(vec!["foo.rs"])
-    ///
-    /// // Multiple choices
-    /// expand_wildcard_path("File[.h, .cpp]", 1) → Ok(vec!["File.h", "File.cpp"])
-    ///
-    /// // With prefix and suffix
-    /// expand_wildcard_path("src[/main, /lib].rs", 1) → Ok(vec!["src/main.rs", "src/lib.rs"])
-    ///
-    /// // Quoted strings and escapes
-    /// expand_wildcard_path("file[\"a, b\", \\,c]", 1) → Ok(vec!["filea, b", "file,c"])
-    /// ```
-    #[cfg(test)]
-    fn expand_wildcard_path(path: &str, line_number: usize) -> Result<Vec<String>> {
-        let (paths, _) = Self::expand_wildcard_path_with_kind(path, line_number, true)?;
-        Ok(paths)
-    }
-
-    /// Expand a path and report whether it contained a physical choice list.
-    ///
-    /// Hierarchy validation needs the source-level distinction because even a
-    /// valid choice is not exactly one directory entry and therefore cannot
-    /// own an indented child.
-    fn expand_wildcard_path_with_kind(
-        path: &str,
         line_number: usize,
         at_root: bool,
-    ) -> Result<(Vec<String>, bool)> {
-        let mut prefix = String::new();
-        let mut suffix = String::new();
-        let mut block_content = String::new();
-
-        let mut in_block = false;
-        let mut block_found = false;
-        let mut in_quotes = false;
-        let mut iter = path.chars().peekable();
-
-        while let Some(ch) = iter.next() {
-            match ch {
-                '\\' => {
-                    let next = iter.next().ok_or_else(|| {
-                        Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "incomplete escape sequence",
-                        )
-                    })?;
-                    if !in_block && !Self::valid_unquoted_choice_escape(next) {
-                        return Err(Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "invalid escape in bare path",
-                        )
-                        .into());
-                    }
-
-                    // Preserve escape sequences consistently across prefix, block, and suffix
-                    if in_block {
-                        block_content.push('\\');
-                        block_content.push(next);
-                    } else if block_found {
-                        suffix.push('\\');
-                        suffix.push(next);
-                    } else {
-                        prefix.push('\\');
-                        prefix.push(next);
-                    }
-                }
-                '[' if !in_block => {
-                    if block_found {
-                        return Err(Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "multiple wildcard choice blocks are not supported",
-                        )
-                        .into());
-                    }
-                    block_found = true;
-                    in_block = true;
-                    in_quotes = false;
-                }
-                ']' if in_block && !in_quotes => {
-                    in_block = false;
-                    in_quotes = false;
-                }
-                ']' if in_block => {
-                    block_content.push(ch);
-                }
-                ']' => {
-                    return Err(Self::invalid_wildcard_error(
-                        line_number,
-                        path,
-                        "unmatched closing bracket",
-                    )
-                    .into());
-                }
-                '"' if in_block => {
-                    in_quotes = !in_quotes;
-                    block_content.push(ch);
-                }
-                '"' => {
-                    return Err(Self::invalid_wildcard_error(
-                        line_number,
-                        path,
-                        "unescaped quote in bare path",
-                    )
-                    .into());
-                }
-                _ => {
-                    if in_block {
-                        block_content.push(ch);
-                    } else if block_found {
-                        suffix.push(ch);
-                    } else {
-                        prefix.push(ch);
-                    }
-                }
-            }
-        }
-
-        if in_block {
-            return Err(Self::invalid_wildcard_error(
-                line_number,
+    ) -> Result<(Vec<FilesystemItem>, bool)> {
+        let entry = entry::parse_entry(content, at_root)
+            .map_err(|failure| entry_syntax_error(failure, line_number))?;
+        let can_own_children = entry.can_own_children();
+        let ParsedEntry { shape, comment } = entry;
+        let items = match shape {
+            EntryShape::Placeholder => vec![FilesystemItem::Placeholder { comment }],
+            EntryShape::Single {
                 path,
-                "unterminated wildcard choice block",
-            )
-            .into());
-        }
-
-        if !block_found {
-            // No wildcard block - just process escapes in the prefix and return
-            return Ok((vec![Self::process_escapes(&prefix)], false));
-        }
-
-        let choices = Self::parse_choice_block(&block_content, path, line_number)?;
-        let mut results = Vec::with_capacity(choices.len());
-
-        // Process escapes in prefix and suffix once
-        let processed_prefix = Self::process_escapes(&prefix);
-        let processed_suffix = Self::process_escapes(&suffix);
-        let mut unique_results = HashSet::with_capacity(choices.len());
-        let mut expected_parent = None;
-
-        for choice in choices {
-            // Process escapes in each choice and combine with prefix/suffix
-            let processed_choice = Self::process_escapes(&choice);
-            let mut expanded = processed_prefix.clone();
-            expanded.push_str(&processed_choice);
-            expanded.push_str(&processed_suffix);
-
-            if !Self::valid_choice_expansion(&expanded, at_root) {
-                return Err(Self::invalid_wildcard_error(
-                    line_number,
+                directory: true,
+            } => vec![FilesystemItem::Directory {
+                path,
+                comment,
+                children: Vec::new(),
+            }],
+            EntryShape::Single {
+                path,
+                directory: false,
+            } => vec![FilesystemItem::File { path, comment }],
+            EntryShape::Choice(paths) => paths
+                .into_iter()
+                .map(|path| FilesystemItem::File {
                     path,
-                    "choice expansions must be valid regular-file paths",
-                )
-                .into());
-            }
-
-            let parent = expanded
-                .rsplit_once('/')
-                .map_or("", |(parent, _)| parent)
-                .to_string();
-            if expected_parent
-                .as_ref()
-                .is_some_and(|expected: &String| expected != &parent)
-            {
-                return Err(Self::invalid_wildcard_error(
-                    line_number,
-                    path,
-                    "choice expansions must be sibling files",
-                )
-                .into());
-            }
-            expected_parent.get_or_insert(parent);
-
-            if !unique_results.insert(expanded.clone()) {
-                return Err(Self::invalid_wildcard_error(
-                    line_number,
-                    path,
-                    "choice expansions must be unique",
-                )
-                .into());
-            }
-            results.push(expanded);
-        }
-
-        Ok((results, true))
-    }
-
-    fn valid_choice_expansion(path: &str, at_root: bool) -> bool {
-        if path.is_empty()
-            || path == "..."
-            || path.starts_with('/')
-            || (at_root && path.starts_with('\\'))
-            || path.starts_with(' ')
-            || path.ends_with(['/', ' '])
-        {
-            return false;
-        }
-
-        let mut components = path.split('/');
-        let Some(first) = components.next() else {
-            return false;
+                    comment: comment.clone(),
+                })
+                .collect(),
         };
-        if Self::invalid_decoded_component(first) || (at_root && has_windows_drive_prefix(first)) {
-            return false;
-        }
-
-        components.all(|component| !Self::invalid_decoded_component(component))
-    }
-
-    fn invalid_decoded_component(component: &str) -> bool {
-        component.is_empty()
-            || matches!(component, "." | ".." | "...")
-            || component.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}')
-    }
-
-    fn validate_bare_expansion(path: &str, line_number: usize, at_root: bool) -> Result<()> {
-        let decoded = path.strip_suffix('/').unwrap_or(path);
-        if decoded
-            .split('/')
-            .any(|component| matches!(component, "." | ".."))
-        {
-            return Err(SyntaxError::InvalidSpecialDirectory {
-                line: line_number,
-                path: render_utf8_component(decoded),
-            }
-            .into());
-        }
-
-        let mut components = decoded.split('/');
-        let first = components.next().unwrap_or_default();
-        let invalid = decoded.is_empty()
-            || decoded.starts_with('/')
-            || (at_root && decoded.starts_with('\\'))
-            || decoded.starts_with(' ')
-            || decoded.ends_with(' ')
-            || Self::invalid_decoded_component(first)
-            || (at_root && has_windows_drive_prefix(first))
-            || components.any(Self::invalid_decoded_component);
-        if invalid {
-            return Err(Self::invalid_path_error(line_number, decoded).into());
-        }
-        Ok(())
-    }
-
-    /// Parse the contents of a wildcard choice block into individual options.
-    ///
-    /// Takes the content between `[` and `]` and splits it into individual choices.
-    /// This is a helper function for `expand_wildcard_path`.
-    ///
-    /// # Parsing Rules
-    /// - Choices are separated by commas (`,`)
-    /// - Commas inside quoted strings (`"..."`) are not treated as separators
-    /// - Surrounding spaces and tabs outside quotes are ignored
-    /// - Interior unquoted whitespace is preserved
-    /// - Whitespace inside quotes is preserved
-    /// - Escape sequences (`\,`, `\"`, etc.) are preserved for later processing
-    /// - Quote characters (`"`) toggle quote mode but are not included in output
-    ///
-    /// # Arguments
-    /// * `content` - The string content between `[` and `]` (without the brackets)
-    /// * `path` - The full original path for error messages
-    /// * `line_number` - Line number in the source file for error reporting
-    ///
-    /// # Returns
-    /// A vector of choice strings with escape sequences still intact (to be processed by caller).
-    ///
-    /// # Errors
-    /// Returns `SyntaxError::InvalidWildcardSyntax` if:
-    /// - Quote strings are unterminated
-    /// - Escape sequences are incomplete (trailing backslash)
-    /// - The choice block is empty or all choices are empty/whitespace
-    /// - The choice count falls outside 2–256
-    ///
-    /// # Examples
-    /// ```text
-    /// parse_choice_block("a, b, c", "path", 1) → Ok(vec!["a", "b", "c"])
-    /// parse_choice_block("\"a, b\", c", "path", 1) → Ok(vec!["a, b", "c"])
-    /// parse_choice_block("\\,a, b", "path", 1) → Ok(vec!["\\,a", "b"])  // Escape preserved
-    /// parse_choice_block("  a  ,  b  ", "path", 1) → Ok(vec!["a", "b"])  // Trimmed
-    /// ```
-    fn parse_choice_block(content: &str, path: &str, line_number: usize) -> Result<Vec<String>> {
-        let mut choices = Vec::new();
-        let mut current = String::new();
-        let mut pending_layout = String::new();
-        let mut chars = content.chars().peekable();
-        let mut state = ChoiceState::LeadingLayout;
-
-        while let Some(ch) = chars.next() {
-            match state {
-                ChoiceState::LeadingLayout => match ch {
-                    ' ' | '\t' => {}
-                    ',' => Self::push_choice_before_separator(
-                        &mut choices,
-                        String::new(),
-                        path,
-                        line_number,
-                    )?,
-                    '"' => state = ChoiceState::Quoted,
-                    '\\' => {
-                        let next = chars.next().ok_or_else(|| {
-                            Self::invalid_wildcard_error(
-                                line_number,
-                                path,
-                                "incomplete escape sequence",
-                            )
-                        })?;
-                        if !Self::valid_unquoted_choice_escape(next) {
-                            return Err(Self::invalid_wildcard_error(
-                                line_number,
-                                path,
-                                "invalid escape in unquoted choice",
-                            )
-                            .into());
-                        }
-                        current.push('\\');
-                        current.push(next);
-                        state = ChoiceState::Unquoted;
-                    }
-                    '[' | ']' => {
-                        return Err(Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "unescaped bracket in unquoted choice",
-                        )
-                        .into());
-                    }
-                    _ => {
-                        current.push(ch);
-                        state = ChoiceState::Unquoted;
-                    }
-                },
-                ChoiceState::Unquoted => match ch {
-                    ',' => {
-                        pending_layout.clear();
-                        Self::push_choice_before_separator(
-                            &mut choices,
-                            std::mem::take(&mut current),
-                            path,
-                            line_number,
-                        )?;
-                        state = ChoiceState::LeadingLayout;
-                    }
-                    ' ' | '\t' => pending_layout.push(ch),
-                    '\\' => {
-                        let next = chars.next().ok_or_else(|| {
-                            Self::invalid_wildcard_error(
-                                line_number,
-                                path,
-                                "incomplete escape sequence",
-                            )
-                        })?;
-                        if !Self::valid_unquoted_choice_escape(next) {
-                            return Err(Self::invalid_wildcard_error(
-                                line_number,
-                                path,
-                                "invalid escape in unquoted choice",
-                            )
-                            .into());
-                        }
-                        current.push_str(&pending_layout);
-                        pending_layout.clear();
-                        current.push('\\');
-                        current.push(next);
-                    }
-                    '"' => {
-                        return Err(Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "quote must begin a choice alternative",
-                        )
-                        .into());
-                    }
-                    '[' | ']' => {
-                        return Err(Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "unescaped bracket in unquoted choice",
-                        )
-                        .into());
-                    }
-                    _ => {
-                        current.push_str(&pending_layout);
-                        pending_layout.clear();
-                        current.push(ch);
-                    }
-                },
-                ChoiceState::Quoted => match ch {
-                    '"' => state = ChoiceState::QuotedClosed,
-                    '\\' => {
-                        let next = chars.next().ok_or_else(|| {
-                            Self::invalid_wildcard_error(
-                                line_number,
-                                path,
-                                "incomplete escape sequence",
-                            )
-                        })?;
-                        if !matches!(next, '"' | '\\' | '#') {
-                            return Err(Self::invalid_wildcard_error(
-                                line_number,
-                                path,
-                                "invalid escape in quoted choice",
-                            )
-                            .into());
-                        }
-                        current.push('\\');
-                        current.push(next);
-                    }
-                    _ => current.push(ch),
-                },
-                ChoiceState::QuotedClosed => match ch {
-                    ' ' | '\t' => {}
-                    ',' => {
-                        Self::push_choice_before_separator(
-                            &mut choices,
-                            std::mem::take(&mut current),
-                            path,
-                            line_number,
-                        )?;
-                        state = ChoiceState::LeadingLayout;
-                    }
-                    _ => {
-                        return Err(Self::invalid_wildcard_error(
-                            line_number,
-                            path,
-                            "quoted choice must end before the separator",
-                        )
-                        .into());
-                    }
-                },
-            }
-        }
-
-        if matches!(state, ChoiceState::Quoted) {
-            return Err(Self::invalid_wildcard_error(
-                line_number,
-                path,
-                "unterminated quoted string in wildcard choices",
-            )
-            .into());
-        }
-
-        pending_layout.clear();
-        if choices.len() >= MAX_CHOICE_ALTERNATIVES {
-            return Err(Self::choice_count_error(path, line_number).into());
-        }
-        choices.push(current);
-
-        // Validate that the choice block is not empty
-        if choices.is_empty() || choices.iter().all(|c| c.is_empty()) {
-            return Err(Self::invalid_wildcard_error(
-                line_number,
-                path,
-                "choice block cannot be empty",
-            )
-            .into());
-        }
-
-        if !(MIN_CHOICE_ALTERNATIVES..=MAX_CHOICE_ALTERNATIVES).contains(&choices.len()) {
-            return Err(Self::choice_count_error(path, line_number).into());
-        }
-
-        Ok(choices)
-    }
-
-    fn push_choice_before_separator(
-        choices: &mut Vec<String>,
-        choice: String,
-        path: &str,
-        line_number: usize,
-    ) -> Result<()> {
-        // A separator guarantees that one more alternative follows. Reject
-        // before allocating the 256th completed token, which would imply at
-        // least 257 alternatives once the final token is added.
-        if choices.len() >= MAX_CHOICE_ALTERNATIVES - 1 {
-            return Err(Self::choice_count_error(path, line_number).into());
-        }
-        choices.push(choice);
-        Ok(())
-    }
-
-    fn choice_count_error(path: &str, line_number: usize) -> SyntaxError {
-        Self::invalid_wildcard_error(
-            line_number,
-            path,
-            format!(
-                "choice list must contain between {MIN_CHOICE_ALTERNATIVES} and \
-                 {MAX_CHOICE_ALTERNATIVES} alternatives"
-            ),
-        )
-    }
-
-    fn valid_unquoted_choice_escape(ch: char) -> bool {
-        matches!(ch, '#' | '\\' | '[' | ']' | ',' | '"' | ' ')
+        Ok((items, can_own_children))
     }
 
     /// Build a hierarchical structure from flat list items
@@ -1181,23 +349,20 @@ impl Parser {
 
         for item in items {
             observer.observe(HierarchyEvent::VisitItem);
-            let depth = item.indent_level;
-            if depth > MAX_LOGICAL_DEPTH {
+            // The Verus-verified plan rejects a depth above 256 or beyond the
+            // open directories, and otherwise closes exactly the directories
+            // deeper than the item, so it is attached to its preorder parent
+            // (see `crate::proven::hierarchy`).
+            let Some(closes) = hierarchy::plan_item(open_directories.len(), item.indent_level)
+            else {
                 return Err(SyntaxError::InvalidIndentationLevel {
                     line: item.line_number,
                 }
                 .into());
-            }
+            };
 
-            while open_directories.len() > depth {
+            for _ in 0..closes {
                 Self::close_directory(&mut roots, &mut open_directories, observer)?;
-            }
-
-            if open_directories.len() != depth {
-                return Err(SyntaxError::InvalidIndentationLevel {
-                    line: item.line_number,
-                }
-                .into());
             }
 
             if item.is_directory() {
@@ -1261,6 +426,7 @@ impl Default for Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::AppError;
     use std::hint::black_box;
     use std::time::{Duration, Instant};
 
@@ -1538,7 +704,7 @@ mod tests {
 
     #[test]
     fn test_accepts_one_and_sixteen_space_indentation_units() {
-        for indent in [1, MAX_INDENT_SIZE] {
+        for indent in [1, layout::MAX_INDENT_UNIT] {
             let content = format!(
                 "<agentic-navigation-guide>\n- root/\n{}- child.txt\n</agentic-navigation-guide>",
                 " ".repeat(indent)
@@ -1649,6 +815,170 @@ mod tests {
             )
             .is_err());
         assert_eq!(over_limit_metrics.max_stack_depth, MAX_LOGICAL_DEPTH + 1);
+    }
+
+    /// Every observer event, in order.
+    #[derive(Default)]
+    struct HierarchyEventLog(Vec<(u8, usize)>);
+
+    impl HierarchyObserver for HierarchyEventLog {
+        fn observe(&mut self, event: HierarchyEvent) {
+            self.0.push(match event {
+                HierarchyEvent::VisitItem => (0, 0),
+                HierarchyEvent::AppendItem => (1, 0),
+                HierarchyEvent::CloseDirectory => (2, 0),
+                HierarchyEvent::OpenDirectory { stack_depth } => (3, stack_depth),
+            });
+        }
+    }
+
+    /// The hierarchy loop as it was before the verified plan.
+    fn reference_build_hierarchy<O: HierarchyObserver>(
+        items: Vec<NavigationGuideLine>,
+        observer: &mut O,
+    ) -> Result<Vec<NavigationGuideLine>> {
+        let mut roots = Vec::new();
+        let mut open_directories = Vec::with_capacity(MAX_LOGICAL_DEPTH + 1);
+        for item in items {
+            observer.observe(HierarchyEvent::VisitItem);
+            let depth = item.indent_level;
+            if depth > MAX_LOGICAL_DEPTH {
+                return Err(SyntaxError::InvalidIndentationLevel {
+                    line: item.line_number,
+                }
+                .into());
+            }
+            while open_directories.len() > depth {
+                Parser::close_directory(&mut roots, &mut open_directories, observer)?;
+            }
+            if open_directories.len() != depth {
+                return Err(SyntaxError::InvalidIndentationLevel {
+                    line: item.line_number,
+                }
+                .into());
+            }
+            if item.is_directory() {
+                open_directories.push(item);
+                observer.observe(HierarchyEvent::OpenDirectory {
+                    stack_depth: open_directories.len(),
+                });
+            } else {
+                Parser::append_hierarchy_item(&mut roots, &mut open_directories, item, observer)?;
+            }
+        }
+        while !open_directories.is_empty() {
+            Parser::close_directory(&mut roots, &mut open_directories, observer)?;
+        }
+        Ok(roots)
+    }
+
+    /// Items whose path is their index, at the given depths and kinds.
+    fn indexed_items(shape: &[(usize, bool)]) -> Vec<NavigationGuideLine> {
+        shape
+            .iter()
+            .enumerate()
+            .map(|(index, &(depth, directory))| NavigationGuideLine {
+                line_number: index + 2,
+                indent_level: depth,
+                item: if directory {
+                    FilesystemItem::Directory {
+                        path: index.to_string(),
+                        comment: None,
+                        children: Vec::new(),
+                    }
+                } else {
+                    FilesystemItem::File {
+                        path: index.to_string(),
+                        comment: None,
+                    }
+                },
+            })
+            .collect()
+    }
+
+    /// The first item that breaks the contract's depth rules, if any.
+    fn first_depth_rule_violation(shape: &[(usize, bool)]) -> Option<usize> {
+        shape.iter().enumerate().position(|(index, &(depth, _))| {
+            let within_bound = depth <= MAX_LOGICAL_DEPTH;
+            let follows = match index.checked_sub(1).map(|previous| shape[previous]) {
+                None => depth == 0,
+                Some((previous, directory)) => {
+                    depth <= previous || (depth == previous + 1 && directory)
+                }
+            };
+            !(within_bound && follows)
+        })
+    }
+
+    /// Record each node's parent index (`None` for roots), checking that
+    /// children appear in source order.
+    fn record_parents(
+        nodes: &[NavigationGuideLine],
+        parent: Option<usize>,
+        parents: &mut Vec<Option<Option<usize>>>,
+    ) {
+        let mut previous = None;
+        for node in nodes {
+            let index: usize = node.path().parse().unwrap();
+            assert!(previous < Some(index), "children out of source order");
+            previous = Some(index);
+            assert_eq!(parents[index], None, "item {index} placed twice");
+            parents[index] = Some(parent);
+            if let Some(children) = node.children() {
+                record_parents(children, Some(index), parents);
+            }
+        }
+    }
+
+    #[test]
+    fn test_hierarchy_plan_matches_previous_loop_and_preorder_parents() {
+        const DEPTHS: usize = 3;
+        let options: Vec<(usize, bool)> = (0..DEPTHS)
+            .flat_map(|depth| [(depth, false), (depth, true)])
+            .collect();
+        let parser = Parser::new();
+        let mut shape = Vec::new();
+        for len in 0..=7u32 {
+            for mut code in 0..options.len().pow(len) {
+                shape.clear();
+                for _ in 0..len {
+                    shape.push(options[code % options.len()]);
+                    code /= options.len();
+                }
+                let mut log = HierarchyEventLog::default();
+                let result = parser.build_hierarchy_with_observer(indexed_items(&shape), &mut log);
+                let mut reference_log = HierarchyEventLog::default();
+                let reference =
+                    reference_build_hierarchy(indexed_items(&shape), &mut reference_log);
+                assert_eq!(format!("{result:?}"), format!("{reference:?}"), "{shape:?}");
+                assert_eq!(log.0, reference_log.0, "{shape:?}");
+
+                match (result, first_depth_rule_violation(&shape)) {
+                    (
+                        Err(AppError::Syntax(SyntaxError::InvalidIndentationLevel { line })),
+                        Some(index),
+                    ) => {
+                        assert_eq!(line, index + 2, "{shape:?}");
+                    }
+                    (Ok(roots), None) => {
+                        let mut parents = vec![None; shape.len()];
+                        record_parents(&roots, None, &mut parents);
+                        for (index, recorded) in parents.into_iter().enumerate() {
+                            let depth = shape[index].0;
+                            // The preorder parent: the latest earlier item one
+                            // level shallower.
+                            let expected = depth.checked_sub(1).map(|level| {
+                                (0..index).rev().find(|&p| shape[p].0 == level).unwrap()
+                            });
+                            assert_eq!(recorded, Some(expected), "{shape:?} item {index}");
+                        }
+                    }
+                    (other, violation) => {
+                        panic!("{shape:?}: {other:?} but first violation {violation:?}")
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -2032,6 +1362,97 @@ More prose mentions </agentic-navigation-guides>."#;
     }
 
     #[test]
+    fn test_malformed_marker_glue_matches_verified_envelope_step() {
+        // `Parser::classify_marker_line` returns malformed-marker errors before
+        // the verified envelope fold sees the line. This glue must report
+        // exactly what `document::scan_marker_line` reports for that class in
+        // every scan state, so the envelope theorems describe shipped output.
+        let states = [
+            EnvelopeScan::BeforeOpening,
+            EnvelopeScan::InBlock {
+                opening_line: 1,
+                ignore: false,
+            },
+            EnvelopeScan::AfterClosing {
+                opening_line: 1,
+                closing_line: 2,
+                ignore: true,
+            },
+        ];
+        for (line, class) in [
+            (
+                "<agentic-navigation-guide ignore=false>",
+                MarkerClass::MalformedOpening,
+            ),
+            (
+                "  </agentic-navigation-guide >",
+                MarkerClass::MalformedClosing,
+            ),
+            (
+                "\u{feff}<agentic-navigation-guide>",
+                MarkerClass::MalformedOpening,
+            ),
+        ] {
+            assert_eq!(marker::classify_marker_line(line.as_bytes()), class);
+            let glue = Parser::classify_marker_line(line, 7)
+                .err()
+                .expect("malformed marker lines are rejected");
+            for state in states {
+                let kernel = document::scan_marker_line(state, 7, class)
+                    .expect_err("the envelope step rejects malformed markers");
+                assert_eq!(
+                    format!("{glue:?}"),
+                    format!("{:?}", AppError::from(envelope_syntax_error(kernel))),
+                    "{line:?} in {state:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_rejects_blank_body_line_before_closing_marker() {
+        // The contract forbids blank body lines; the last body line used to
+        // be lost when the body was re-split with `str::lines`.
+        for (content, line) in [
+            (
+                "<agentic-navigation-guide>\n- a\n\n</agentic-navigation-guide>\n",
+                3,
+            ),
+            (
+                "<agentic-navigation-guide>\r\n- a\r\n\r\n</agentic-navigation-guide>\r\n",
+                3,
+            ),
+            (
+                "# Title\n<agentic-navigation-guide>\n- a\n- b\n\n</agentic-navigation-guide>",
+                5,
+            ),
+        ] {
+            let error = Parser::new()
+                .parse(content)
+                .expect_err("a trailing blank body line must be rejected");
+            assert!(
+                matches!(
+                    error,
+                    AppError::Syntax(SyntaxError::BlankLineInGuide { line: reported })
+                        if reported == line
+                ),
+                "{content:?} produced {error:?}"
+            );
+        }
+
+        // A whitespace-only body is still the empty-guide error.
+        for content in [
+            "<agentic-navigation-guide>\n\n</agentic-navigation-guide>",
+            "<agentic-navigation-guide>\n  \n\n</agentic-navigation-guide>",
+        ] {
+            assert!(matches!(
+                Parser::new().parse(content),
+                Err(AppError::Syntax(SyntaxError::EmptyGuideBlock))
+            ));
+        }
+    }
+
+    #[test]
     fn test_parse_placeholder() {
         let content = r#"<agentic-navigation-guide>
 - src/
@@ -2236,24 +1657,6 @@ More prose mentions </agentic-navigation-guides>."#;
     }
 
     #[test]
-    fn test_choice_limit_rejects_before_tokenizing_unbounded_alternatives() {
-        let content = format!("{}\\", "a,".repeat(MAX_CHOICE_ALTERNATIVES));
-        let result = Parser::parse_choice_block(&content, "path", 1);
-
-        let Err(crate::errors::AppError::Syntax(SyntaxError::InvalidWildcardSyntax {
-            message,
-            ..
-        })) = result
-        else {
-            panic!("an over-limit choice must fail with a wildcard syntax error")
-        };
-        assert!(
-            message.contains("between 2 and 256"),
-            "the count limit must win before the trailing token is parsed: {message}"
-        );
-    }
-
-    #[test]
     fn test_parse_wildcard_with_empty_choice_and_whitespace() {
         let content = r#"<agentic-navigation-guide>
 - Config[, .local].json
@@ -2318,30 +1721,17 @@ More prose mentions </agentic-navigation-guides>."#;
     }
 
     #[test]
-    fn test_parse_choice_block_with_quotes() {
-        let parsed =
-            Parser::parse_choice_block("\"with , comma\", \\,space, \"literal []\"", "path", 1)
-                .unwrap();
-
-        // Note: parse_choice_block now preserves escape sequences
-        // They are processed later in expand_wildcard_path
-        assert_eq!(parsed, vec!["with , comma", "\\,space", "literal []"]);
-    }
-
-    #[test]
     fn test_expand_wildcard_with_escapes_and_quotes() {
-        let expanded =
-            Parser::expand_wildcard_path("data[\"with , comma\", \\,space, \"literal []\"]", 1)
+        let (items, can_own_children) =
+            Parser::parse_entry_items("data[\"with , comma\", \\,space, \"literal []\"]", 1, true)
                 .unwrap();
 
+        let paths: Vec<&str> = items.iter().map(item_path).collect();
         assert_eq!(
-            expanded,
-            vec![
-                "datawith , comma".to_string(),
-                "data,space".to_string(),
-                "dataliteral []".to_string(),
-            ]
+            paths,
+            vec!["datawith , comma", "data,space", "dataliteral []"]
         );
+        assert!(!can_own_children);
     }
 
     #[test]
@@ -2426,13 +1816,423 @@ More prose mentions </agentic-navigation-guides>."#;
 
     #[test]
     fn test_split_path_comment_ignores_escaped_hashes() {
+        let (items, _) =
+            Parser::parse_entry_items(r#"docs/issue\#123.md#ticket"#, 1, true).unwrap();
         assert_eq!(
-            Parser::split_path_comment(r#"docs/issue\#123.md#ticket"#),
-            (r#"docs/issue\#123.md"#, Some("ticket"))
+            items,
+            vec![FilesystemItem::File {
+                path: "docs/issue#123.md".to_string(),
+                comment: Some("ticket".to_string()),
+            }]
+        );
+
+        let (items, _) = Parser::parse_entry_items(r#"docs/issue\#123.md"#, 1, true).unwrap();
+        assert_eq!(
+            items,
+            vec![FilesystemItem::File {
+                path: "docs/issue#123.md".to_string(),
+                comment: None,
+            }]
+        );
+    }
+
+    fn item_path(item: &FilesystemItem) -> &str {
+        match item {
+            FilesystemItem::File { path, .. } | FilesystemItem::Directory { path, .. } => path,
+            FilesystemItem::Placeholder { .. } => "...",
+        }
+    }
+
+    #[test]
+    fn test_entry_diagnostics_render_the_text_each_error_names() {
+        fn error(content: &str) -> SyntaxError {
+            match Parser::parse_entry_items(content, 7, true) {
+                Err(crate::errors::AppError::Syntax(error)) => error,
+                other => panic!("{content:?} must be rejected: {other:?}"),
+            }
+        }
+
+        // A malformed quoted path renders its text through the first
+        // offending scalar: never the comment after it.
+        assert_eq!(
+            error(r#""a\q" # private note"#),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: render_utf8_component(r#""a\q"#),
+            }
         );
         assert_eq!(
-            Parser::split_path_comment(r#"docs/issue\#123.md"#),
-            (r#"docs/issue\#123.md"#, None)
+            error("\"a\"x # private note"),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: render_utf8_component("\"a\"x"),
+            }
         );
+        // Raw-text excerpts are cut to 256 scalars, marked after the
+        // reversible form.
+        let long = format!("\"{}", "a".repeat(400));
+        assert_eq!(
+            error(&long),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: format!("{}…", render_utf8_component(&long[..256])),
+            }
+        );
+        let choice = format!("x[{}, a, a]", "b".repeat(300));
+        assert_eq!(
+            error(&choice),
+            SyntaxError::InvalidWildcardSyntax {
+                line: 7,
+                path: format!("{}…", render_utf8_component(&choice[..256])),
+                message: "choice expansions must be unique".to_string(),
+            }
+        );
+        // An empty path renders empty text.
+        assert_eq!(
+            error(r#""""#),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: render_utf8_component(""),
+            }
+        );
+        // Bare-path rules render the decoded path without its marker.
+        assert_eq!(
+            error(r"a/../b\ c/"),
+            SyntaxError::InvalidSpecialDirectory {
+                line: 7,
+                path: render_utf8_component("a/../b c"),
+            }
+        );
+        assert_eq!(
+            error("C:/x"),
+            SyntaxError::InvalidPathFormat {
+                line: 7,
+                path: render_utf8_component("C:/x"),
+            }
+        );
+        // Choice errors render the comment-stripped, right-trimmed expression.
+        assert_eq!(
+            error("x[a, a]  # c"),
+            SyntaxError::InvalidWildcardSyntax {
+                line: 7,
+                path: render_utf8_component("x[a, a]"),
+                message: "choice expansions must be unique".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_every_choice_error_has_its_message() {
+        for (content, message) in [
+            (r"a\", "incomplete escape sequence"),
+            (r"a\q", "invalid escape in bare path"),
+            (
+                "a[b, c][d, e]",
+                "multiple wildcard choice blocks are not supported",
+            ),
+            ("a]", "unmatched closing bracket"),
+            ("a\"b", "unescaped quote in bare path"),
+            ("a[b, c", "unterminated wildcard choice block"),
+            (r"a[b\q, c]", "invalid escape in unquoted choice"),
+            (
+                "a[\"b\"[, c]",
+                "quoted choice must end before the separator",
+            ),
+            ("a[b\"c\", d]", "quote must begin a choice alternative"),
+            ("a[\"[\", b[]", "unescaped bracket in unquoted choice"),
+            (r#"a["\q", b]"#, "invalid escape in quoted choice"),
+            ("a[, ]", "choice block cannot be empty"),
+            (
+                "a[b]",
+                "choice list must contain between 2 and 256 alternatives",
+            ),
+            (
+                "a[b, c/]",
+                "choice expansions must be valid regular-file paths",
+            ),
+            ("a[/b, c]", "choice expansions must be sibling files"),
+            ("a[b, b]", "choice expansions must be unique"),
+        ] {
+            match Parser::parse_entry_items(content, 1, true) {
+                Err(crate::errors::AppError::Syntax(SyntaxError::InvalidWildcardSyntax {
+                    message: actual,
+                    ..
+                })) => assert_eq!(actual, message, "{content:?}"),
+                other => panic!("{content:?} must report {message:?}: {other:?}"),
+            }
+        }
+    }
+
+    /// Deterministic xorshift generator for the differential corpus.
+    struct Corpus(u64);
+
+    impl Corpus {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn below(&mut self, bound: usize) -> usize {
+            (self.next() % bound as u64) as usize
+        }
+
+        fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
+            items[self.below(items.len())]
+        }
+    }
+
+    /// Outcome classes seen by a differential run, so a corpus that stops
+    /// reaching some behavior fails loudly.
+    #[derive(Default)]
+    struct Tally {
+        outcomes: std::collections::BTreeSet<String>,
+    }
+
+    fn assert_matches_legacy(content: &str, tally: &mut Tally) {
+        for at_root in [true, false] {
+            let expected =
+                crate::proven::entry::legacy_oracle::legacy_entry_items(content, 3, at_root);
+            let actual = match Parser::parse_entry_items(content, 3, at_root) {
+                Ok(result) => Ok(result),
+                Err(crate::errors::AppError::Syntax(error)) => Err(error),
+                Err(other) => panic!("unexpected non-syntax error {other:?}"),
+            };
+            assert_eq!(actual, expected, "entry {content:?} at_root={at_root}");
+            tally.outcomes.insert(match actual {
+                Ok((items, owns)) => {
+                    let kind = match items.first() {
+                        Some(FilesystemItem::Placeholder { .. }) => "placeholder",
+                        Some(FilesystemItem::Directory { .. }) => "directory",
+                        _ if items.len() > 1 => "choice",
+                        _ => "file",
+                    };
+                    let comment = match items.first() {
+                        Some(
+                            FilesystemItem::File { comment, .. }
+                            | FilesystemItem::Directory { comment, .. }
+                            | FilesystemItem::Placeholder { comment },
+                        ) => comment.is_some(),
+                        None => false,
+                    };
+                    format!("ok {kind} owns={owns} comment={comment}")
+                }
+                Err(SyntaxError::InvalidWildcardSyntax { message, .. }) => {
+                    format!("wildcard {message}")
+                }
+                Err(SyntaxError::InvalidPathFormat { path, .. }) => {
+                    format!("path empty={}", path == "\"\"")
+                }
+                Err(SyntaxError::InvalidSpecialDirectory { .. }) => "special".to_string(),
+                Err(other) => format!("other {other:?}"),
+            });
+        }
+    }
+
+    #[test]
+    fn test_entry_kernel_matches_the_previous_parser_exhaustively() {
+        // Every entry text of up to four scalars over the syntax-relevant
+        // alphabet, including controls, a drive letter, and non-ASCII.
+        const ALPHABET: [char; 15] = [
+            'a', '.', '/', '\\', '#', '[', ']', ',', '"', ' ', '\t', ':', '\u{1}', 'é', '\r',
+        ];
+        let mut current: Vec<char> = Vec::new();
+        fn visit(current: &mut Vec<char>, depth: usize, tally: &mut Tally) {
+            let text: String = current.iter().collect();
+            assert_matches_legacy(&text, tally);
+            if depth == 0 {
+                return;
+            }
+            for ch in ALPHABET {
+                current.push(ch);
+                visit(current, depth - 1, tally);
+                current.pop();
+            }
+        }
+        let mut tally = Tally::default();
+        visit(&mut current, 4, &mut tally);
+        for outcome in [
+            "ok placeholder owns=false comment=false",
+            "ok directory owns=true comment=false",
+            "ok file owns=false comment=true",
+            "path empty=true",
+            "path empty=false",
+            "special",
+            "wildcard incomplete escape sequence",
+            "wildcard unmatched closing bracket",
+        ] {
+            assert!(tally.outcomes.contains(outcome), "unreached {outcome}");
+        }
+    }
+
+    #[test]
+    fn test_entry_kernel_matches_the_previous_parser_on_a_generated_corpus() {
+        const PIECES: [&str; 40] = [
+            "a",
+            "b",
+            "src",
+            "main.rs",
+            ".",
+            "..",
+            "...",
+            "/",
+            "//",
+            "\\",
+            "\\\\",
+            "\\#",
+            "\\[",
+            "\\]",
+            "\\,",
+            "\\\"",
+            "\\ ",
+            "\\q",
+            "#",
+            " # note ",
+            "[",
+            "]",
+            ",",
+            ", ",
+            "\"",
+            " ",
+            "  ",
+            "\t",
+            "C:",
+            "x:",
+            "\u{7f}",
+            "\u{0}",
+            "\n",
+            "\r",
+            "é",
+            "…",
+            "-",
+            "\u{1F600}",
+            "a b",
+            "\\\t",
+        ];
+        const ALTERNATIVES: [&str; 25] = [
+            "",
+            " ",
+            "a",
+            "b",
+            ".h",
+            ".cpp",
+            "/main",
+            "/lib",
+            "\"a, b\"",
+            "\" x \"",
+            "\"\"",
+            "\\,c",
+            "\\ ",
+            "\"q\\\"\"",
+            "\"#\\#\"",
+            "a/b",
+            "c/d",
+            "..",
+            "...",
+            "\t\tz\t",
+            "\"[]\"",
+            "é",
+            "\"\\q\"",
+            "b\"c\"",
+            "\"a\"b",
+        ];
+        let mut corpus = Corpus(0x9E37_79B9_7F4A_7C15);
+        let mut tally = Tally::default();
+        for _ in 0..40_000 {
+            let mut text = String::new();
+            let pieces = corpus.below(7);
+            for _ in 0..pieces {
+                text.push_str(corpus.pick(&PIECES));
+            }
+            assert_matches_legacy(&text, &mut tally);
+        }
+        for _ in 0..40_000 {
+            // Structured choice lists: prefix, alternatives, suffix, and an
+            // optional directory marker, padding, and comment.
+            let mut text = String::new();
+            if corpus.below(4) == 0 {
+                text.push('"');
+            }
+            for _ in 0..corpus.below(3) {
+                text.push_str(corpus.pick(&PIECES[..10]));
+            }
+            text.push('[');
+            let count = 1 + corpus.below(4);
+            for index in 0..count {
+                if index > 0 {
+                    text.push_str(corpus.pick(&[",", ", ", " ,", ",\t"]));
+                }
+                text.push_str(corpus.pick(&ALTERNATIVES));
+            }
+            if corpus.below(8) != 0 {
+                text.push(']');
+            }
+            for _ in 0..corpus.below(3) {
+                text.push_str(corpus.pick(&PIECES[..10]));
+            }
+            text.push_str(corpus.pick(&["", "/", " ", "  # c", " #", "# x #y", "\\"]));
+            assert_matches_legacy(&text, &mut tally);
+        }
+        for _ in 0..20_000 {
+            // Quoted paths with tails.
+            let mut text = String::from("\"");
+            for _ in 0..corpus.below(5) {
+                text.push_str(corpus.pick(&PIECES));
+            }
+            text.push_str(
+                corpus.pick(&["\"", "\"/", "\" ", "\"/ # c ", "\"x", "\"//", "", "\"\t#"]),
+            );
+            if corpus.below(3) == 0 {
+                text.push_str(corpus.pick(&PIECES));
+            }
+            assert_matches_legacy(&text, &mut tally);
+        }
+        let reached: Vec<&String> = tally.outcomes.iter().collect();
+        for outcome in [
+            "ok choice owns=false comment=true",
+            "ok choice owns=false comment=false",
+            "ok directory owns=true comment=true",
+            "special",
+            "wildcard choice block cannot be empty",
+            "wildcard choice expansions must be sibling files",
+            "wildcard choice expansions must be unique",
+            "wildcard choice expansions must be valid regular-file paths",
+            "wildcard choice list must contain between 2 and 256 alternatives",
+            "wildcard incomplete escape sequence",
+            "wildcard invalid escape in bare path",
+            "wildcard invalid escape in quoted choice",
+            "wildcard invalid escape in unquoted choice",
+            "wildcard multiple wildcard choice blocks are not supported",
+            "wildcard quote must begin a choice alternative",
+            "wildcard quoted choice must end before the separator",
+            "wildcard unescaped bracket in unquoted choice",
+            "wildcard unescaped quote in bare path",
+            "wildcard unmatched closing bracket",
+            "wildcard unterminated wildcard choice block",
+        ] {
+            assert!(
+                tally.outcomes.contains(outcome),
+                "unreached {outcome}; reached {reached:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_entry_kernel_matches_the_previous_parser_at_the_choice_bound() {
+        let mut tally = Tally::default();
+        for count in [254, 255, 256, 257, 258] {
+            let alternatives: Vec<String> = (0..count).map(|index| format!("v{index}")).collect();
+            assert_matches_legacy(&format!("x[{}].rs", alternatives.join(", ")), &mut tally);
+            assert_matches_legacy(&format!("x[{}]", ",".repeat(count)), &mut tally);
+            assert_matches_legacy(&format!("x[{}\\]", "a,".repeat(count)), &mut tally);
+            assert_matches_legacy(&format!("x[{}]", "a,".repeat(count)), &mut tally);
+        }
+        assert!(tally
+            .outcomes
+            .contains("ok choice owns=false comment=false"));
+        assert!(tally
+            .outcomes
+            .contains("wildcard choice list must contain between 2 and 256 alternatives"));
     }
 }

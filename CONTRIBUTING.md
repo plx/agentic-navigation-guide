@@ -178,6 +178,16 @@ just test-quality-gates
 just test-contributor-templates
 ```
 
+When a change touches `src/proven/`, `src/path_codec.rs`,
+`src/entry_type.rs`, or any function that carries a `verus_spec` attribute,
+re-run the Verus proofs with the pinned Verus that
+[proofs/README.md](proofs/README.md) describes. Ordinary `cargo test` already
+runs `tests/verus_kernel_discipline.rs`, which needs no Verus.
+
+```sh
+just verify-proofs /path/to/verus
+```
+
 For maintained Markdown or GitHub workflow changes, install the exact pinned
 tools listed above and run the same commands as CI:
 
