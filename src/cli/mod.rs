@@ -9,8 +9,12 @@ pub(crate) mod output;
 pub(crate) mod verify;
 
 use crate::errors::{AppError, Result};
+use crate::proven::outcome::{self, IgnoredPolicyDecision, StatusMode};
+use crate::proven::settings::{self, CliSelections, CommandKind, LogChoice, ModeChoice};
 use crate::types::{Config, ExecutionMode, LogLevel};
 use clap::{error::ErrorKind, CommandFactory, Parser, Subcommand};
+
+pub(crate) use crate::proven::outcome::CommandOutcome;
 
 const ENVIRONMENT_HELP: &str = "\
 Environment defaults (precedence: CLI > environment > built-in):
@@ -31,12 +35,6 @@ Only a relevant, unshadowed environment value is parsed and applied. Empty
 path/root defaults and invalid name/mode defaults fail without printing their
 contents.";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CommandOutcome {
-    Completed,
-    Ignored { count: usize },
-}
-
 pub(crate) fn denied_ignored_message(ignored_count: usize) -> String {
     let noun = if ignored_count == 1 {
         "navigation guide was"
@@ -46,24 +44,20 @@ pub(crate) fn denied_ignored_message(ignored_count: usize) -> String {
     format!("--deny-ignored rejected the run because {ignored_count} ignored {noun} discovered")
 }
 
+/// Apply the ignored-guide policy (verified in `proven::outcome`) to a run
+/// that finished its work, reporting a `--deny-ignored` rejection.
 pub(crate) fn finish_ignored_policy(
     ignored_count: usize,
     deny_ignored: bool,
 ) -> Result<CommandOutcome> {
-    if ignored_count == 0 {
-        return Ok(CommandOutcome::Completed);
+    match outcome::decide_ignored_policy(ignored_count, deny_ignored) {
+        IgnoredPolicyDecision::Accept(accepted) => Ok(accepted),
+        IgnoredPolicyDecision::Deny => {
+            let message = denied_ignored_message(ignored_count);
+            output::stderr_line(&message)?;
+            Err(AppError::Other(message).reported())
+        }
     }
-
-    let outcome = CommandOutcome::Ignored {
-        count: ignored_count,
-    };
-    if !deny_ignored {
-        return Ok(outcome);
-    }
-
-    let message = denied_ignored_message(ignored_count);
-    output::stderr_line(&message)?;
-    Err(AppError::Other(message).reported())
 }
 
 /// CLI arguments structure
@@ -132,52 +126,49 @@ impl Cli {
             .map_err(|error| Self::command().error(ErrorKind::InvalidValue, error.to_string()))
     }
 
+    /// Apply the environment defaults that the verified
+    /// `proven::settings::environment_plan` selects: exactly the relevant
+    /// variables that no higher-precedence selection shadows, parsed in the
+    /// fixed order log mode, execution mode, root, path, name, so the first
+    /// invalid selected value is reported.
     fn resolve_environment(
         &mut self,
         defaults: &environment::EnvironmentDefaults,
     ) -> std::result::Result<(), environment::EnvironmentError> {
-        if !self.verbose && !self.quiet && self.log_level.is_none() {
+        let plan = settings::environment_plan(self.cli_selections(), defaults.has_guide_path());
+
+        if plan.log_mode {
             self.log_level = defaults.log_mode()?;
         }
 
-        if self.execution_mode.is_none() && !self.command.has_execution_mode_flag() {
+        if plan.execution_mode {
             self.execution_mode = defaults.execution_mode()?;
         }
 
         match &mut self.command {
-            Command::Dump(args) => {
-                if args.root.is_none() {
-                    args.root = defaults.guide_root()?;
-                }
-            }
-            Command::Init(args) => {
-                if args.root.is_none() {
-                    args.root = defaults.guide_root()?;
+            Command::Dump(dump::DumpArgs { root, .. })
+            | Command::Init(init::InitArgs { root, .. }) => {
+                if plan.guide_root {
+                    *root = defaults.guide_root()?;
                 }
             }
             Command::Check(args) => {
-                if args.guide.is_none() {
+                if plan.guide_path {
                     args.guide = defaults.guide_path()?;
                 }
-                if args.guide.is_none() {
+                if plan.guide_name {
                     args.implicit_guide_name = Some(defaults.guide_name()?);
                 }
             }
             Command::Verify(args) => {
-                if args.root.is_none() {
+                if plan.guide_root {
                     args.root = defaults.guide_root()?;
                 }
-                if args.recursive {
-                    if args.guide_name.is_none() {
-                        args.implicit_guide_name = Some(defaults.guide_name()?);
-                    }
-                } else {
-                    if args.guide.is_none() {
-                        args.guide = defaults.guide_path()?;
-                    }
-                    if args.guide.is_none() {
-                        args.implicit_guide_name = Some(defaults.guide_name()?);
-                    }
+                if plan.guide_path {
+                    args.guide = defaults.guide_path()?;
+                }
+                if plan.guide_name {
+                    args.implicit_guide_name = Some(defaults.guide_name()?);
                 }
             }
         }
@@ -185,36 +176,60 @@ impl Cli {
         Ok(())
     }
 
-    /// Resolve already-parsed CLI arguments into a Config.
+    /// The higher-precedence CLI selections clap parsed, as the verified
+    /// precedence kernel sees them.
+    fn cli_selections(&self) -> CliSelections {
+        let (command, root_option, guide_option, guide_name_option) = match &self.command {
+            Command::Dump(args) => (CommandKind::Dump, args.root.is_some(), false, false),
+            Command::Init(args) => (CommandKind::Init, args.root.is_some(), false, false),
+            Command::Check(args) => (CommandKind::Check, false, args.guide.is_some(), false),
+            Command::Verify(args) => (
+                if args.recursive {
+                    CommandKind::RecursiveVerify
+                } else {
+                    CommandKind::Verify
+                },
+                args.root.is_some(),
+                args.guide.is_some(),
+                args.guide_name.is_some(),
+            ),
+        };
+        CliSelections {
+            command,
+            log_option: self.verbose || self.quiet || self.log_level.is_some(),
+            mode_option: self.execution_mode.is_some() || self.command.has_execution_mode_flag(),
+            root_option,
+            guide_option,
+            guide_name_option,
+        }
+    }
+
+    /// Resolve already-parsed CLI arguments into a Config. The verified
+    /// `proven::settings` kernels accept exactly the listed spellings and
+    /// rank `--verbose`, then `--quiet`, then the selected value, then the
+    /// built-in default.
     pub(crate) fn build_config(&self) -> Config {
-        let log_level = if self.verbose {
-            LogLevel::Verbose
-        } else if self.quiet {
-            LogLevel::Quiet
-        } else {
-            self.log_level
-                .as_ref()
-                .and_then(|level| match level.as_str() {
-                    "quiet" => Some(LogLevel::Quiet),
-                    "verbose" => Some(LogLevel::Verbose),
-                    "default" => Some(LogLevel::Default),
-                    _ => None,
-                })
-                .unwrap_or(LogLevel::Default)
+        let selected_level = self
+            .log_level
+            .as_deref()
+            .and_then(|level| settings::log_choice(level.as_bytes()));
+        let log_level = match settings::resolve_log_level(self.verbose, self.quiet, selected_level)
+        {
+            LogChoice::Quiet => LogLevel::Quiet,
+            LogChoice::Default => LogLevel::Default,
+            LogChoice::Verbose => LogLevel::Verbose,
         };
 
-        // Resolve execution mode from the direct parameter
-        let execution_mode = self
+        let selected_mode = self
             .execution_mode
-            .as_ref()
-            .and_then(|mode| match mode.as_str() {
-                "post-tool-use" => Some(ExecutionMode::PostToolUse),
-                "pre-commit-hook" => Some(ExecutionMode::PreCommitHook),
-                "github-actions" => Some(ExecutionMode::GitHubActions),
-                "default" => Some(ExecutionMode::Default),
-                _ => None,
-            })
-            .unwrap_or_default();
+            .as_deref()
+            .and_then(|mode| settings::mode_choice(mode.as_bytes()));
+        let execution_mode = match settings::resolve_execution_mode(selected_mode) {
+            ModeChoice::Default => ExecutionMode::Default,
+            ModeChoice::PostToolUse => ExecutionMode::PostToolUse,
+            ModeChoice::PreCommitHook => ExecutionMode::PreCommitHook,
+            ModeChoice::GitHubActions => ExecutionMode::GitHubActions,
+        };
 
         Config {
             execution_mode,
@@ -258,14 +273,76 @@ pub(crate) fn init_logging(config: &Config) {
         .init();
 }
 
-/// Get the appropriate exit code based on execution mode
+/// Get the appropriate exit code based on execution mode.
+///
+/// `main` routes every outcome, success included, through this function, and
+/// the status is decided by the verified `proven::outcome::exit_status` from
+/// the execution mode alone; the log level is not an input.
 pub(crate) fn get_exit_code(config: &Config, is_error: bool) -> i32 {
-    if is_error {
-        match config.execution_mode {
-            ExecutionMode::PostToolUse => 2,
-            _ => 1,
+    outcome::exit_status(status_mode(config.execution_mode), is_error)
+}
+
+/// The exit-status policy's view of an execution mode.
+fn status_mode(mode: ExecutionMode) -> StatusMode {
+    match mode {
+        ExecutionMode::Default => StatusMode::Default,
+        ExecutionMode::PostToolUse => StatusMode::PostToolUse,
+        ExecutionMode::PreCommitHook => StatusMode::PreCommitHook,
+        ExecutionMode::GitHubActions => StatusMode::GitHubActions,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(execution_mode: ExecutionMode, log_level: LogLevel) -> Config {
+        Config {
+            execution_mode,
+            log_level,
+            root_path: None,
+            guide_path: None,
+            original_guide_path: None,
+            original_root_path: None,
         }
-    } else {
-        0
+    }
+
+    #[test]
+    fn exit_codes_depend_only_on_execution_mode() {
+        let modes = [
+            (ExecutionMode::Default, 1),
+            (ExecutionMode::PostToolUse, 2),
+            (ExecutionMode::PreCommitHook, 1),
+            (ExecutionMode::GitHubActions, 1),
+        ];
+        for (mode, failure) in modes {
+            for level in [LogLevel::Quiet, LogLevel::Default, LogLevel::Verbose] {
+                let config = config(mode, level);
+                assert_eq!(get_exit_code(&config, false), 0, "{mode:?} {level:?}");
+                assert_eq!(get_exit_code(&config, true), failure, "{mode:?} {level:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn ignored_policy_completes_allows_or_rejects() {
+        assert_eq!(
+            finish_ignored_policy(0, false).expect("no ignored guide"),
+            CommandOutcome::Completed
+        );
+        assert_eq!(
+            finish_ignored_policy(0, true).expect("no ignored guide"),
+            CommandOutcome::Completed
+        );
+        assert_eq!(
+            finish_ignored_policy(2, false).expect("allowed ignored guides"),
+            CommandOutcome::Ignored { count: 2 }
+        );
+        let error = finish_ignored_policy(1, true).expect_err("denied ignored guide");
+        assert!(error.is_reported());
+        assert_eq!(
+            error.root_cause().to_string(),
+            AppError::Other(denied_ignored_message(1)).to_string()
+        );
     }
 }

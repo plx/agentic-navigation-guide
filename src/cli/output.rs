@@ -6,6 +6,13 @@
 //! without accepting raw guide source.
 
 use crate::errors::{AppError, ErrorFormatter, Result as AppResult};
+use crate::proven::anchor::{
+    parent_reduction_outcome, parent_reduction_plan, ComponentKind, ParentOutcome, ReductionStep,
+};
+use crate::proven::authority::{
+    classify_entry, directory_entry_verdict, EntryClass, EntryFacts, WalkVerdict,
+};
+use crate::proven::output_path::{is_plain_descent, output_route, OutputRoute, OutputSpelling};
 use crate::types::{Config, ExecutionMode};
 use std::env;
 use std::fmt;
@@ -375,23 +382,38 @@ impl PreparedOutput {
             }
         };
 
-        let creation_parent =
-            match lexical_output
-                .strip_prefix(&lexical_root)
-                .ok()
-                .filter(|relative| {
-                    let mut components = relative.components();
-                    components.clone().next().is_some()
-                        && components.all(|component| matches!(component, Component::Normal(_)))
-                }) {
-                Some(relative) => Self::prepare_in_root_parent(
-                    &lexical_root,
-                    relative,
-                    requested_path,
-                    &final_name,
-                )?,
-                None => Self::prepare_external_parent(&lexical_output, requested_path)?,
-            };
+        // The verified `proven::output_path::output_route` selects the route
+        // from whether the spelling starts with the complete root spelling
+        // (a component-wise `Path::strip_prefix`) and from the tail's
+        // component kinds: a plain descent walks in-root, every other tail
+        // below the root spelling is reduced in order before a route is
+        // chosen, and only a spelling outside the root spelling (or naming
+        // the root itself) takes the external route directly.
+        let tail = lexical_output.strip_prefix(&lexical_root).ok();
+        let tail_kinds = tail.map(component_kinds).unwrap_or_default();
+        let creation_parent = match (output_route(tail.is_some(), &tail_kinds), tail) {
+            (OutputRoute::InRoot, Some(relative)) => {
+                Self::prepare_in_root_parent(&lexical_root, relative, requested_path, &final_name)?
+            }
+            (OutputRoute::ReduceParents, Some(relative)) => Self::prepare_parent_containing(
+                &lexical_root,
+                relative,
+                requested_path,
+                &final_name,
+            )?,
+            (OutputRoute::External, _) => {
+                Self::prepare_external_parent(&lexical_output, requested_path)?
+            }
+            // `theorem_output_route`: a spelling that does not start with the
+            // root spelling is always external, so this arm cannot run; it
+            // fails closed rather than choosing a route without a tail.
+            (OutputRoute::InRoot | OutputRoute::ReduceParents, None) => {
+                return Err(OutputError::Unsafe {
+                    path: requested_path.to_path_buf(),
+                    reason: "the output route could not be established".to_string(),
+                });
+            }
+        };
         ensure_writable_parent(&creation_parent, requested_path)?;
 
         let creation_path = creation_parent.join(&final_name);
@@ -420,10 +442,7 @@ impl PreparedOutput {
         final_name: &std::ffi::OsStr,
     ) -> Result<PathBuf, OutputError> {
         let components: Vec<_> = relative_output.components().collect();
-        if components.is_empty()
-            || !components
-                .iter()
-                .all(|component| matches!(component, Component::Normal(_)))
+        if !is_plain_descent(&component_kinds(relative_output))
             || !matches!(
                 components.last(),
                 Some(Component::Normal(name)) if *name == final_name
@@ -437,26 +456,22 @@ impl PreparedOutput {
             });
         }
 
-        let canonical_root = fs::canonicalize(lexical_root).map_err(|source| OutputError::Io {
-            path: requested_path.to_path_buf(),
-            operation: "resolve the selected generation-root alias",
-            source,
-        })?;
-        let root_metadata = fs::metadata(&canonical_root).map_err(|source| OutputError::Io {
-            path: requested_path.to_path_buf(),
-            operation: "inspect the selected generation root",
-            source,
-        })?;
-        if !root_metadata.is_dir() {
-            return Err(OutputError::ParentNotDirectory {
-                path: requested_path.to_path_buf(),
-            });
-        }
+        let canonical_root = canonical_generation_root(lexical_root, requested_path)?;
+        Self::walk_in_root_parent(&canonical_root, &components, requested_path)
+    }
 
-        let mut cursor = canonical_root.clone();
+    /// Walk a validated plain-descent tail from the canonical generation
+    /// root: every ancestor below the root must be a real directory, and the
+    /// canonical parent must remain within the root.
+    fn walk_in_root_parent(
+        canonical_root: &Path,
+        components: &[Component<'_>],
+        requested_path: &Path,
+    ) -> Result<PathBuf, OutputError> {
+        let mut cursor = canonical_root.to_path_buf();
         for component in &components[..components.len() - 1] {
             let Component::Normal(name) = component else {
-                unreachable!("relative components were validated above");
+                unreachable!("both callers validate a plain descent first");
             };
             cursor.push(name);
             let metadata = match fs::symlink_metadata(&cursor) {
@@ -474,18 +489,21 @@ impl PreparedOutput {
                     });
                 }
             };
-            if is_link_like(&metadata) {
-                return Err(OutputError::Unsafe {
-                    path: requested_path.to_path_buf(),
-                    reason:
-                        "an ancestor below the selected generation root is a link or reparse point"
-                            .to_string(),
-                });
-            }
-            if !metadata.is_dir() {
-                return Err(OutputError::ParentNotDirectory {
-                    path: requested_path.to_path_buf(),
-                });
+            match directory_entry_verdict(entry_facts(&metadata)) {
+                WalkVerdict::Continue => {}
+                WalkVerdict::LinkLike => {
+                    return Err(OutputError::Unsafe {
+                        path: requested_path.to_path_buf(),
+                        reason:
+                            "an ancestor below the selected generation root is a link or reparse point"
+                                .to_string(),
+                    });
+                }
+                WalkVerdict::NotDirectory => {
+                    return Err(OutputError::ParentNotDirectory {
+                        path: requested_path.to_path_buf(),
+                    });
+                }
             }
         }
 
@@ -494,7 +512,7 @@ impl PreparedOutput {
             operation: "resolve the validated output parent",
             source,
         })?;
-        if !canonical_parent.starts_with(&canonical_root) {
+        if !canonical_parent.starts_with(canonical_root) {
             return Err(OutputError::Unsafe {
                 path: requested_path.to_path_buf(),
                 reason: "the canonical parent leaves the selected generation root".to_string(),
@@ -502,6 +520,84 @@ impl PreparedOutput {
         }
 
         Ok(canonical_parent)
+    }
+
+    /// Reduce a parent-containing tail below the lexical generation root
+    /// from the canonical generation root.
+    ///
+    /// The verified `proven::anchor::parent_reduction_plan` decides one step
+    /// per component; this glue performs exactly the I/O each step names, in
+    /// plan order. While a component remains uncancelled, `current` names the
+    /// most recent one, so a `..` that erases it inspects exactly that
+    /// component, without following it, first. The verified
+    /// `proven::anchor::parent_reduction_outcome` then classifies the reduced
+    /// path: one that never left the root receives the ordinary in-root walk
+    /// of its remaining components, one that left and returns fails closed,
+    /// and only one proven to remain outside receives the explicit external
+    /// authority, for the reduced path rather than a lexical or host
+    /// re-reading of the configured spelling.
+    fn prepare_parent_containing(
+        lexical_root: &Path,
+        relative_output: &Path,
+        requested_path: &Path,
+        final_name: &std::ffi::OsStr,
+    ) -> Result<PathBuf, OutputError> {
+        let canonical_root = canonical_generation_root(lexical_root, requested_path)?;
+        let components: Vec<Component<'_>> = relative_output.components().collect();
+        let plan = parent_reduction_plan(&kinds_of(&components));
+        let mut current = canonical_root.clone();
+
+        for (step, component) in plan.steps.iter().zip(&components) {
+            match step {
+                ReductionStep::Descend => current.push(component.as_os_str()),
+                ReductionStep::Stay => {}
+                ReductionStep::InspectThenAscend => {
+                    inspect_component_before_parent(&current, requested_path)?;
+                    current.pop();
+                }
+                ReductionStep::AscendAboveAnchor => {
+                    current.pop();
+                }
+                ReductionStep::RejectRootOrPrefix => {
+                    return Err(OutputError::Unsafe {
+                        path: requested_path.to_path_buf(),
+                        reason: "a parent-containing output path has an ambiguous root or prefix"
+                            .to_string(),
+                    });
+                }
+            }
+        }
+
+        match parent_reduction_outcome(current.starts_with(&canonical_root), plan.left_anchor) {
+            ParentOutcome::LeavesAndReturns => Err(OutputError::Unsafe {
+                path: requested_path.to_path_buf(),
+                reason: "a parent-containing output path leaves and then returns to the selected generation root"
+                    .to_string(),
+            }),
+            ParentOutcome::InAnchor => {
+                let reduced: Vec<Component<'_>> = current
+                    .strip_prefix(&canonical_root)
+                    .map(|tail| tail.components().collect())
+                    .unwrap_or_default();
+                // `theorem_never_left_is_in_anchor`: the remaining components
+                // are the uncancelled ordinary names, and the last one is the
+                // requested final name. Check both before any further I/O.
+                if !is_plain_descent(&kinds_of(&reduced))
+                    || !matches!(
+                        reduced.last(),
+                        Some(Component::Normal(name)) if *name == final_name
+                    )
+                {
+                    return Err(OutputError::Unsafe {
+                        path: requested_path.to_path_buf(),
+                        reason: "a parent-containing output path could not be proven beneath the selected generation root"
+                            .to_string(),
+                    });
+                }
+                Self::walk_in_root_parent(&canonical_root, &reduced, requested_path)
+            }
+            ParentOutcome::External => Self::prepare_external_parent(&current, requested_path),
+        }
     }
 
     fn prepare_external_parent(
@@ -753,8 +849,9 @@ fn ensure_writable_parent(parent: &Path, requested_path: &Path) -> Result<(), Ou
         // Treat a directory with no declared write or search permission as
         // contractually read-only even if a privileged identity could bypass
         // discretionary access control. `access` below separately checks the
-        // current identity and ACLs when the mode admits creation.
-        if mode & 0o222 == 0 || mode & 0o111 == 0 {
+        // current identity and ACLs when the mode admits creation. The
+        // verified `proven::output_path::mode_admits_creation` decides.
+        if !crate::proven::output_path::mode_admits_creation(mode) {
             return Err(OutputError::ParentNotWritable {
                 path: requested_path.to_path_buf(),
             });
@@ -814,21 +911,107 @@ fn ensure_writable_parent(parent: &Path, requested_path: &Path) -> Result<(), Ou
 }
 
 fn existing_entry_error(requested_path: &Path, metadata: &Metadata) -> OutputError {
-    if is_link_like(metadata) {
-        return OutputError::Unsafe {
-            path: requested_path.to_path_buf(),
-            reason: "the final destination is a link or reparse point".to_string(),
-        };
-    }
+    // The verified `proven::authority::classify_entry` classifies the
+    // existing entry, a link before its type.
+    let kind = match classify_entry(entry_facts(metadata)) {
+        EntryClass::LinkLike => {
+            return OutputError::Unsafe {
+                path: requested_path.to_path_buf(),
+                reason: "the final destination is a link or reparse point".to_string(),
+            };
+        }
+        EntryClass::RegularFile => ExistingKind::RegularFile,
+        EntryClass::Directory => ExistingKind::Directory,
+        EntryClass::Other => ExistingKind::SpecialEntry,
+    };
     OutputError::Existing {
         path: requested_path.to_path_buf(),
-        kind: if metadata.is_file() {
-            ExistingKind::RegularFile
-        } else if metadata.is_dir() {
-            ExistingKind::Directory
-        } else {
-            ExistingKind::SpecialEntry
-        },
+        kind,
+    }
+}
+
+/// The no-follow facts the verified entry checks decide from.
+fn entry_facts(metadata: &Metadata) -> EntryFacts {
+    EntryFacts {
+        link_like: is_link_like(metadata),
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+    }
+}
+
+/// The kind of each host path component, as the verified kernels see it.
+fn component_kinds(path: &Path) -> Vec<ComponentKind> {
+    kinds_of(&path.components().collect::<Vec<_>>())
+}
+
+/// The kind of each already-split host path component.
+fn kinds_of(components: &[Component<'_>]) -> Vec<ComponentKind> {
+    components
+        .iter()
+        .map(|component| match component {
+            Component::Prefix(_) => ComponentKind::Prefix,
+            Component::RootDir => ComponentKind::RootDir,
+            Component::CurDir => ComponentKind::CurDir,
+            Component::ParentDir => ComponentKind::ParentDir,
+            Component::Normal(_) => ComponentKind::Normal,
+        })
+        .collect()
+}
+
+/// Resolve the selected generation root, which may itself be a
+/// caller-selected alias, to the canonical directory that anchors both input
+/// traversal and in-root destinations.
+fn canonical_generation_root(
+    lexical_root: &Path,
+    requested_path: &Path,
+) -> Result<PathBuf, OutputError> {
+    let canonical_root = fs::canonicalize(lexical_root).map_err(|source| OutputError::Io {
+        path: requested_path.to_path_buf(),
+        operation: "resolve the selected generation-root alias",
+        source,
+    })?;
+    let root_metadata = fs::metadata(&canonical_root).map_err(|source| OutputError::Io {
+        path: requested_path.to_path_buf(),
+        operation: "inspect the selected generation root",
+        source,
+    })?;
+    if !root_metadata.is_dir() {
+        return Err(OutputError::ParentNotDirectory {
+            path: requested_path.to_path_buf(),
+        });
+    }
+    Ok(canonical_root)
+}
+
+/// Inspect, without following it, the component a `..` is about to erase.
+/// It must be a real directory: a link or reparse point would make the host
+/// resolve `..` relative to its target rather than to its lexical parent.
+fn inspect_component_before_parent(path: &Path, requested_path: &Path) -> Result<(), OutputError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(OutputError::MissingParent {
+                path: requested_path.to_path_buf(),
+            });
+        }
+        Err(source) => {
+            return Err(OutputError::Io {
+                path: requested_path.to_path_buf(),
+                operation: "inspect an output-path component before '..' without following it",
+                source,
+            });
+        }
+    };
+    match directory_entry_verdict(entry_facts(&metadata)) {
+        WalkVerdict::Continue => Ok(()),
+        WalkVerdict::LinkLike => Err(OutputError::Unsafe {
+            path: requested_path.to_path_buf(),
+            reason: "an output-path component before '..' is a link or reparse point".to_string(),
+        }),
+        WalkVerdict::NotDirectory => Err(OutputError::Unsafe {
+            path: requested_path.to_path_buf(),
+            reason: "an output-path component before '..' is not a directory".to_string(),
+        }),
     }
 }
 
@@ -1121,35 +1304,30 @@ fn is_no_follow_error(_error: &io::Error) -> bool {
 #[cfg(not(any(unix, windows)))]
 compile_error!("exclusive output identity validation is implemented only for Unix and Windows");
 
+/// The diagnostic of a rejected output spelling.
+fn spelling_reason(verdict: OutputSpelling) -> Option<&'static str> {
+    match verdict {
+        OutputSpelling::Ordinary => None,
+        OutputSpelling::Empty => Some("the path is empty"),
+        OutputSpelling::TrailingSeparator => Some("the path ends with a directory separator"),
+        OutputSpelling::DotSegment => Some("the path must end in an ordinary file name"),
+    }
+}
+
+/// Validate a Unix output spelling. The verified
+/// `proven::output_path::unix_output_spelling` decides from the raw bytes.
 #[cfg(unix)]
 fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
     use std::os::unix::ffi::OsStrExt;
 
-    if path.as_os_str().is_empty() {
-        return Err(OutputError::InvalidPath {
+    let verdict = crate::proven::output_path::unix_output_spelling(path.as_os_str().as_bytes());
+    match spelling_reason(verdict) {
+        None => Ok(()),
+        Some(reason) => Err(OutputError::InvalidPath {
             path: path.to_path_buf(),
-            reason: "the path is empty".to_string(),
-        });
+            reason: reason.to_string(),
+        }),
     }
-    if path.as_os_str().as_bytes().ends_with(b"/") {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path ends with a directory separator".to_string(),
-        });
-    }
-    if path
-        .as_os_str()
-        .as_bytes()
-        .rsplit(|unit| *unit == b'/')
-        .next()
-        .is_some_and(|component| component == b"." || component == b"..")
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path must end in an ordinary file name".to_string(),
-        });
-    }
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -1158,33 +1336,16 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
     use std::path::Prefix;
 
     let raw: Vec<u16> = path.as_os_str().encode_wide().collect();
-    if raw.is_empty() {
+    // The verified `proven::output_path::windows_output_spelling` decides
+    // from the raw code units, before the namespace and component checks.
+    let verdict = crate::proven::output_path::windows_output_spelling(&raw);
+    if let Some(reason) = spelling_reason(verdict) {
         return Err(OutputError::InvalidPath {
             path: path.to_path_buf(),
-            reason: "the path is empty".to_string(),
+            reason: reason.to_string(),
         });
     }
-    if raw
-        .last()
-        .is_some_and(|unit| *unit == u16::from(b'\\') || *unit == u16::from(b'/'))
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path ends with a directory separator".to_string(),
-        });
-    }
-    let final_component = raw
-        .rsplit(|unit| *unit == u16::from(b'\\') || *unit == u16::from(b'/'))
-        .next()
-        .unwrap_or_default();
-    if final_component == [u16::from(b'.')] || final_component == [u16::from(b'.'), u16::from(b'.')]
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path must end in an ordinary file name".to_string(),
-        });
-    }
-    if has_windows_namespace_prefix(&raw) {
+    if crate::proven::windows_names::has_namespace_prefix(&raw) {
         return Err(OutputError::InvalidPath {
             path: path.to_path_buf(),
             reason: "device, named-pipe, and verbatim namespaces are not supported".to_string(),
@@ -1196,10 +1357,9 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
             Component::Prefix(prefix) => match prefix.kind() {
                 Prefix::Disk(_) => {}
                 Prefix::UNC(server, share) => {
-                    if windows_name_eq_ascii(share, "pipe")
-                        || windows_name_eq_ascii(share, "mailslot")
-                        || windows_name_eq_ascii(share, "IPC$")
-                    {
+                    if crate::proven::windows_names::is_non_filesystem_share(
+                        share.to_string_lossy().as_bytes(),
+                    ) {
                         return Err(OutputError::InvalidPath {
                             path: path.to_path_buf(),
                             reason: "named-pipe and mailslot namespaces are not filesystem shares"
@@ -1226,101 +1386,37 @@ fn validate_output_spelling(path: &Path) -> Result<(), OutputError> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn has_windows_namespace_prefix(raw: &[u16]) -> bool {
-    let separator = |unit| unit == u16::from(b'\\') || unit == u16::from(b'/');
-    (raw.len() >= 4
-        && separator(raw[0])
-        && separator(raw[1])
-        && matches!(raw[2], 46 | 63)
-        && separator(raw[3]))
-        || (raw.len() >= 4
-            && separator(raw[0])
-            && raw[1] == u16::from(b'?')
-            && raw[2] == u16::from(b'?')
-            && separator(raw[3]))
-        || (raw.len() >= 5
-            && separator(raw[0])
-            && separator(raw[1])
-            && raw[2] == u16::from(b'?')
-            && raw[3] == u16::from(b'?')
-            && separator(raw[4]))
-}
-
+/// Validate one Windows output-path component. The verified
+/// `proven::windows_names::windows_component_verdict` decides the spelling
+/// rules in their precedence (shared with guide-path input); this glue
+/// supplies the component's UTF-16 code units and the host's Unicode
+/// uppercase form of its text, and maps the verdict to the output diagnostic.
 #[cfg(windows)]
 fn validate_windows_component(path: &Path, component: &std::ffi::OsStr) -> Result<(), OutputError> {
+    use crate::proven::windows_names::{windows_component_verdict, WindowsComponentVerdict};
     use std::os::windows::ffi::OsStrExt;
 
     let units: Vec<u16> = component.encode_wide().collect();
-    if units.contains(&u16::from(b':')) {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "alternate data stream syntax is not allowed".to_string(),
-        });
-    }
-    if units.iter().any(|unit| {
-        *unit < 32
-            || matches!(
-                *unit,
-                value
-                    if value == u16::from(b'<')
-                        || value == u16::from(b'>')
-                        || value == u16::from(b'"')
-                        || value == u16::from(b'|')
-                        || value == u16::from(b'?')
-                        || value == u16::from(b'*')
-            )
-    }) {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "the path contains a character Windows does not allow in filesystem names"
-                .to_string(),
-        });
-    }
-    if units
-        .last()
-        .is_some_and(|unit| *unit == u16::from(b' ') || *unit == u16::from(b'.'))
-    {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "Windows path components may not end in a space or dot".to_string(),
-        });
-    }
-
     let uppercase = component.to_string_lossy().to_uppercase();
-    let base = uppercase
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(' ');
-    let reserved = matches!(
-        base,
-        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
-    ) || reserved_numbered_alias(base, "COM")
-        || reserved_numbered_alias(base, "LPT");
-    if reserved {
-        return Err(OutputError::InvalidPath {
-            path: path.to_path_buf(),
-            reason: "a reserved DOS device alias is not an ordinary filesystem name".to_string(),
-        });
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn windows_name_eq_ascii(name: &std::ffi::OsStr, expected: &str) -> bool {
-    name.to_string_lossy().eq_ignore_ascii_case(expected)
-}
-
-#[cfg(windows)]
-fn reserved_numbered_alias(name: &str, prefix: &str) -> bool {
-    let Some(suffix) = name.strip_prefix(prefix) else {
-        return false;
+    let reason = match windows_component_verdict(&units, &uppercase) {
+        WindowsComponentVerdict::Ordinary => return Ok(()),
+        WindowsComponentVerdict::AlternateDataStream => {
+            "alternate data stream syntax is not allowed"
+        }
+        WindowsComponentVerdict::ForbiddenCharacter => {
+            "the path contains a character Windows does not allow in filesystem names"
+        }
+        WindowsComponentVerdict::TrailingSpaceOrDot => {
+            "Windows path components may not end in a space or dot"
+        }
+        WindowsComponentVerdict::ReservedDevice => {
+            "a reserved DOS device alias is not an ordinary filesystem name"
+        }
     };
-    matches!(
-        suffix,
-        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-    )
+    Err(OutputError::InvalidPath {
+        path: path.to_path_buf(),
+        reason: reason.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -1727,6 +1823,183 @@ mod tests {
     fn created_handle_validation_rejects_device_handle() {
         let null = File::open("NUL").unwrap();
         assert!(validate_regular_handle(&null).is_err());
+    }
+
+    /// The Windows output-name rules exactly as this module stated them
+    /// before it delegated to `proven::windows_names`, over UTF-8 text.
+    fn previous_output_component_reason(component: &str) -> Option<&'static str> {
+        let units: Vec<u16> = component.encode_utf16().collect();
+        if units.contains(&u16::from(b':')) {
+            return Some("alternate data stream syntax is not allowed");
+        }
+        if units
+            .iter()
+            .any(|unit| *unit < 32 || b"<>\"|?*".iter().any(|byte| *unit == u16::from(*byte)))
+        {
+            return Some(
+                "the path contains a character Windows does not allow in filesystem names",
+            );
+        }
+        if units
+            .last()
+            .is_some_and(|unit| *unit == u16::from(b' ') || *unit == u16::from(b'.'))
+        {
+            return Some("Windows path components may not end in a space or dot");
+        }
+        let uppercase = component.to_uppercase();
+        let base = uppercase
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(' ');
+        let numbered = |prefix: &str| {
+            base.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        };
+        if matches!(
+            base,
+            "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
+        ) || numbered("COM")
+            || numbered("LPT")
+        {
+            return Some("a reserved DOS device alias is not an ordinary filesystem name");
+        }
+        None
+    }
+
+    fn delegated_output_component_reason(component: &str) -> Option<&'static str> {
+        use crate::proven::windows_names::{windows_component_verdict, WindowsComponentVerdict};
+
+        let units: Vec<u16> = component.encode_utf16().collect();
+        match windows_component_verdict(&units, &component.to_uppercase()) {
+            WindowsComponentVerdict::Ordinary => None,
+            WindowsComponentVerdict::AlternateDataStream => {
+                Some("alternate data stream syntax is not allowed")
+            }
+            WindowsComponentVerdict::ForbiddenCharacter => {
+                Some("the path contains a character Windows does not allow in filesystem names")
+            }
+            WindowsComponentVerdict::TrailingSpaceOrDot => {
+                Some("Windows path components may not end in a space or dot")
+            }
+            WindowsComponentVerdict::ReservedDevice => {
+                Some("a reserved DOS device alias is not an ordinary filesystem name")
+            }
+        }
+    }
+
+    #[test]
+    fn windows_output_rules_match_the_previous_output_implementation() {
+        let alphabet = ['C', 'o', 'N', '1', '¹', ':', '.', ' ', '?', '\u{1}', 'ı'];
+        let mut components = vec![String::new()];
+        let mut frontier = vec![String::new()];
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for ch in alphabet {
+                    let mut component = prefix.clone();
+                    component.push(ch);
+                    next.push(component);
+                }
+            }
+            components.extend(next.iter().cloned());
+            frontier = next;
+        }
+        components.extend(
+            [
+                "CON.txt",
+                "con .md",
+                "NUL",
+                "aux",
+                "PRN.log",
+                "CLOCK$",
+                "conin$",
+                "CONOUT$",
+                "COM1",
+                "com9.txt",
+                "LPT³",
+                "lpt²",
+                "COM0",
+                "COM10",
+                "LPT",
+                "conın$",
+                "x<y",
+                "a|b",
+                "a*b",
+                "a\"b",
+                "a>b",
+                "ordinary-output.md",
+                "name.",
+                "name ",
+            ]
+            .map(str::to_string),
+        );
+        for component in &components {
+            assert_eq!(
+                delegated_output_component_reason(component),
+                previous_output_component_reason(component),
+                "{component:?}"
+            );
+        }
+
+        let separator = |unit: u16| unit == u16::from(b'\\') || unit == u16::from(b'/');
+        let previous_namespace = |raw: &[u16]| {
+            (raw.len() >= 4
+                && separator(raw[0])
+                && separator(raw[1])
+                && matches!(raw[2], 46 | 63)
+                && separator(raw[3]))
+                || (raw.len() >= 4
+                    && separator(raw[0])
+                    && raw[1] == u16::from(b'?')
+                    && raw[2] == u16::from(b'?')
+                    && separator(raw[3]))
+                || (raw.len() >= 5
+                    && separator(raw[0])
+                    && separator(raw[1])
+                    && raw[2] == u16::from(b'?')
+                    && raw[3] == u16::from(b'?')
+                    && separator(raw[4]))
+        };
+        let units = b"\\/?.a".map(u16::from);
+        let mut spellings: Vec<Vec<u16>> = vec![Vec::new()];
+        let mut frontier: Vec<Vec<u16>> = vec![Vec::new()];
+        for _ in 0..5 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for unit in units {
+                    let mut spelling = prefix.clone();
+                    spelling.push(unit);
+                    next.push(spelling);
+                }
+            }
+            spellings.extend(next.iter().cloned());
+            frontier = next;
+        }
+        for spelling in &spellings {
+            assert_eq!(
+                crate::proven::windows_names::has_namespace_prefix(spelling),
+                previous_namespace(spelling),
+                "{spelling:?}"
+            );
+        }
+
+        for share in [
+            "pipe", "PIPE", "MailSlot", "ipc$", "IPC$", "share", "pipes", "ıpc$", "",
+        ] {
+            let previous = ["pipe", "mailslot", "IPC$"]
+                .iter()
+                .any(|expected| share.eq_ignore_ascii_case(expected));
+            assert_eq!(
+                crate::proven::windows_names::is_non_filesystem_share(share.as_bytes()),
+                previous,
+                "{share:?}"
+            );
+        }
     }
 
     #[test]
@@ -2202,5 +2475,262 @@ mod tests {
                 })
             })
             .collect()
+    }
+}
+
+/// Parent-containing destinations below the generation root receive the same
+/// ordered reduction as explicit guide paths: every component a `..` erases
+/// is inspected without following it, and only a path proven to remain
+/// outside the root receives explicit external authority.
+#[cfg(test)]
+mod parent_output_tests {
+    use super::{OutputError, PreparedOutput};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use tempfile::TempDir;
+
+    #[cfg(unix)]
+    fn create_directory_link(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("create directory symlink");
+    }
+
+    #[cfg(windows)]
+    fn create_directory_link(target: &Path, link: &Path) {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .expect("execute mklink /J");
+        assert!(
+            output.status.success(),
+            "real Windows junction capability is required for parent-containing output paths:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// A generation root with real directories `padding` and `real`, a
+    /// regular file, and an in-root directory link `linked` whose target
+    /// `outside-target` is a sibling of the root.
+    struct Fixture {
+        temp: TempDir,
+        root: PathBuf,
+        outside: PathBuf,
+    }
+
+    fn fixture() -> Fixture {
+        let temp = TempDir::new().expect("temporary fixture");
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside-target");
+        fs::create_dir_all(root.join("padding")).expect("padding directory");
+        fs::create_dir_all(root.join("real")).expect("real directory");
+        fs::write(root.join("input.txt"), b"input").expect("regular file");
+        fs::create_dir(&outside).expect("outside target");
+        create_directory_link(&outside, &root.join("linked"));
+        Fixture {
+            temp,
+            root,
+            outside,
+        }
+    }
+
+    fn deliver(root: &Path, spelling: &Path) -> Result<(), OutputError> {
+        PreparedOutput::prepare(root, spelling)?.deliver(b"generated")
+    }
+
+    fn assert_unsafe(root: &Path, spelling: &Path, reason: &str, resolved: &Path) {
+        let error = deliver(root, spelling).expect_err("parent-containing output was accepted");
+        assert!(
+            matches!(&error, OutputError::Unsafe { reason: actual, .. } if actual.contains(reason)),
+            "{spelling:?}: expected an unsafe destination ({reason}), got {error:?}"
+        );
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains(&format!("{spelling:?}")),
+            "{diagnostic}"
+        );
+        assert!(
+            !diagnostic.contains(&resolved.display().to_string()),
+            "the diagnostic disclosed a resolved target: {diagnostic}"
+        );
+    }
+
+    fn files_below(path: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        let mut pending = vec![path.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in fs::read_dir(&directory).expect("read fixture directory") {
+                let entry = entry.expect("fixture entry");
+                let file_type = entry.file_type().expect("fixture entry type");
+                if file_type.is_dir() {
+                    pending.push(entry.path());
+                } else if file_type.is_file() {
+                    files.push(entry.path());
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+
+    #[test]
+    fn link_before_parent_is_rejected_instead_of_followed() {
+        let fixture = fixture();
+        let before = files_below(fixture.temp.path());
+        // Unix would resolve `linked/..` to the link target's parent (the
+        // fixture directory); Windows would erase `linked\..` lexically and
+        // name `root/real`. Both decoys exist, and neither may be written.
+        fs::create_dir(fixture.temp.path().join("real")).expect("resolved-parent decoy");
+        for tail in [
+            "linked/../escaped.md",
+            "linked/../real/escaped.md",
+            "padding/../linked/../escaped.md",
+        ] {
+            assert_unsafe(
+                &fixture.root,
+                &fixture.root.join(tail),
+                "an output-path component before '..' is a link or reparse point",
+                &fixture.outside,
+            );
+        }
+        assert_eq!(files_below(fixture.temp.path()), before);
+    }
+
+    #[test]
+    fn link_remaining_after_reduction_is_rejected() {
+        let fixture = fixture();
+        let in_root_target = fixture.root.join("real");
+        create_directory_link(&in_root_target, &fixture.root.join("linked-in-root"));
+        let before = files_below(fixture.temp.path());
+        for (tail, resolved) in [
+            ("padding/../linked/out.md", &fixture.outside),
+            ("padding/../linked-in-root/out.md", &in_root_target),
+        ] {
+            assert_unsafe(
+                &fixture.root,
+                &fixture.root.join(tail),
+                "an ancestor below the selected generation root is a link or reparse point",
+                resolved,
+            );
+        }
+        assert_eq!(files_below(fixture.temp.path()), before);
+    }
+
+    #[test]
+    fn leaving_and_lexically_returning_fails_closed() {
+        let fixture = fixture();
+        let before = files_below(fixture.temp.path());
+        for tail in ["../root/out.md", "padding/../../root/real/out.md"] {
+            assert_unsafe(
+                &fixture.root,
+                &fixture.root.join(tail),
+                "leaves and then returns to the selected generation root",
+                &fixture.outside,
+            );
+        }
+        assert_eq!(files_below(fixture.temp.path()), before);
+    }
+
+    #[test]
+    fn erased_component_must_be_an_existing_directory() {
+        let fixture = fixture();
+        assert!(matches!(
+            deliver(&fixture.root, &fixture.root.join("missing/../out.md")),
+            Err(OutputError::MissingParent { .. })
+        ));
+        assert_unsafe(
+            &fixture.root,
+            &fixture.root.join("input.txt/../out.md"),
+            "an output-path component before '..' is not a directory",
+            &fixture.outside,
+        );
+        assert!(!fixture.root.join("out.md").exists());
+    }
+
+    #[test]
+    fn reduction_through_real_directories_stays_in_root() {
+        let fixture = fixture();
+        deliver(&fixture.root, &fixture.root.join("padding/../in-root.md"))
+            .expect("real parent reduction");
+        deliver(
+            &fixture.root,
+            &fixture.root.join("real/../padding/./nested.md"),
+        )
+        .expect("nested real parent reduction");
+        assert_eq!(
+            fs::read(fixture.root.join("in-root.md")).unwrap(),
+            b"generated"
+        );
+        assert_eq!(
+            fs::read(fixture.root.join("padding/nested.md")).unwrap(),
+            b"generated"
+        );
+        assert!(files_below(&fixture.outside).is_empty());
+    }
+
+    #[test]
+    fn proven_external_reduction_keeps_explicit_authority() {
+        let fixture = fixture();
+        let external = fixture.temp.path().join("external");
+        fs::create_dir(&external).expect("external directory");
+        let external_alias = fixture.temp.path().join("external-alias");
+        create_directory_link(&external, &external_alias);
+
+        deliver(&fixture.root, &fixture.root.join("../external/direct.md"))
+            .expect("parent-containing external destination");
+        deliver(
+            &fixture.root,
+            &fixture.root.join("padding/../../external/reduced.md"),
+        )
+        .expect("reduced external destination");
+        // A stable external ancestor that no `..` erases remains part of the
+        // caller-granted external authority.
+        deliver(
+            &fixture.root,
+            &fixture.root.join("../external-alias/aliased.md"),
+        )
+        .expect("stable external link ancestor");
+        assert_eq!(
+            files_below(&external),
+            [
+                external.join("aliased.md"),
+                external.join("direct.md"),
+                external.join("reduced.md")
+            ]
+        );
+
+        // A link erased by `..` is rejected wherever it is, as for guides.
+        assert_unsafe(
+            &fixture.root,
+            &fixture.root.join("../external-alias/../external/erased.md"),
+            "an output-path component before '..' is a link or reparse point",
+            &external,
+        );
+        assert!(!external.join("erased.md").exists());
+    }
+
+    #[test]
+    fn root_alias_keeps_parent_checks() {
+        let fixture = fixture();
+        let alias = fixture.temp.path().join("root-alias");
+        create_directory_link(&fixture.root, &alias);
+        let before = files_below(fixture.temp.path());
+        assert_unsafe(
+            &alias,
+            &alias.join("padding/../linked/out.md"),
+            "an ancestor below the selected generation root is a link or reparse point",
+            &fixture.outside,
+        );
+        assert_unsafe(
+            &alias,
+            &alias.join("linked/../out.md"),
+            "an output-path component before '..' is a link or reparse point",
+            &fixture.outside,
+        );
+        assert_eq!(files_below(fixture.temp.path()), before);
+
+        deliver(&alias, &alias.join("padding/../through-alias.md"))
+            .expect("real parent reduction below a root alias");
+        assert!(fixture.root.join("through-alias.md").is_file());
     }
 }

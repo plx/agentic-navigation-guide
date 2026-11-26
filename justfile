@@ -39,3 +39,7 @@ test-quality-gates:
 performance-baseline:
     cargo build --release --locked
     python3 scripts/run_performance_baseline.py --reference benchmarks/issue-59-baseline.json
+
+# Check the Verus kernel proofs with a locally built, pinned Verus (see proofs/README.md).
+verify-proofs verus="verus":
+    proofs/run.sh {{ verus }}

@@ -219,9 +219,18 @@ operating system, current user, and dependencies are trusted. The CLI provides
 a stable-filesystem containment and consistency guarantee. The CLI is not a sandbox against hostile concurrent replacement. It is also not a malware
 scanner or access-control boundary.
 
-An unresolved `..` in a path that starts beneath the anchor does not automatically grant external authority. Parent components are classified in order,
-and only a spelling proven to remain outside the anchor receives the external
-authority explicitly granted by its configured guide path.
+An unresolved `..` in a path that starts beneath the anchor does not automatically grant external authority. Parent components are classified in order for explicit guide and `--output` paths: a link or reparse
+component that `..` would erase is rejected rather than followed, a spelling
+that leaves and then returns to the anchor fails closed, and only a spelling
+proven to remain outside the anchor receives the external authority explicitly
+granted by its configured path.
+
+The guide-language, generation, and filesystem decisions behind these rules
+run through kernels that are formally verified with Verus against the
+contract, including the dump-to-parse round trip. The
+[formal verification notes](proofs/README.md) list what is proven and what is
+trusted; the proofs complement the test suite and do not extend the
+stable-filesystem guarantee above.
 
 Use these maintained references rather than copying detailed rules from this
 README:
@@ -288,6 +297,11 @@ migration details.
   anchors once, rejects links below the anchor, and detects observed identity
   changes because it promises stable-tree consistency rather than a sandbox
   against hostile concurrent replacement.
+- **2026-11-25 — Parent-containing `--output` paths are reduced in order.**
+  `dump --output` and `init --output` reject a spelling below the generation
+  root whose `..` would erase a link, reparse entry, or non-directory, or that
+  leaves and then returns to the root, so an untrusted checkout cannot
+  redirect a new file through a link it controls.
 
 ## Documentation history
 

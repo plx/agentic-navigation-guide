@@ -1,4 +1,5 @@
 use crate::guide_input;
+use crate::proven::settings::{self, PathDefault};
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
@@ -35,6 +36,13 @@ impl EnvironmentDefaults {
         selected_path(self.guide_path.as_ref(), GUIDE_PATH)
     }
 
+    /// Whether `AGENTIC_NAVIGATION_GUIDE_PATH` is set at all; when it is
+    /// relevant, a set value either selects an explicit path or is rejected,
+    /// and either way the implicit name is not resolved.
+    pub(super) fn has_guide_path(&self) -> bool {
+        self.guide_path.is_some()
+    }
+
     pub(super) fn guide_root(&self) -> Result<Option<PathBuf>, EnvironmentError> {
         selected_path(self.guide_root.as_ref(), GUIDE_ROOT)
     }
@@ -58,55 +66,52 @@ impl EnvironmentDefaults {
         Ok(name.to_string())
     }
 
+    /// Accept exactly `quiet`, `default`, or `verbose`
+    /// (`proven::settings::log_choice`).
     pub(super) fn log_mode(&self) -> Result<Option<String>, EnvironmentError> {
-        selected_choice(
-            self.log_mode.as_ref(),
-            LOG_MODE,
-            &["quiet", "default", "verbose"],
-        )
+        selected_choice(self.log_mode.as_ref(), LOG_MODE, |value| {
+            settings::log_choice(value).is_some()
+        })
     }
 
+    /// Accept exactly `default`, `post-tool-use`, `pre-commit-hook`, or
+    /// `github-actions` (`proven::settings::mode_choice`).
     pub(super) fn execution_mode(&self) -> Result<Option<String>, EnvironmentError> {
-        selected_choice(
-            self.execution_mode.as_ref(),
-            EXECUTION_MODE,
-            &[
-                "default",
-                "post-tool-use",
-                "pre-commit-hook",
-                "github-actions",
-            ],
-        )
+        selected_choice(self.execution_mode.as_ref(), EXECUTION_MODE, |value| {
+            settings::mode_choice(value).is_some()
+        })
     }
 }
 
+/// Select a path or root default. The verified
+/// `proven::settings::path_default` rejects exactly an empty value; a
+/// nonempty one stays an operating-system path without lossy conversion.
 fn selected_path(
     raw: Option<&OsString>,
     variable: &'static str,
 ) -> Result<Option<PathBuf>, EnvironmentError> {
-    let Some(raw) = raw else {
-        return Ok(None);
-    };
-    if raw.is_empty() {
-        return Err(EnvironmentError::new(
+    match settings::path_default(raw.map(|raw| raw.is_empty())) {
+        PathDefault::Unset => Ok(None),
+        PathDefault::Empty => Err(EnvironmentError::new(
             variable,
             "expected a nonempty filesystem path",
-        ));
+        )),
+        PathDefault::Selected => Ok(raw.map(PathBuf::from)),
     }
-    Ok(Some(PathBuf::from(raw)))
 }
 
+/// Select a mode default whose UTF-8 bytes the verified kernel `accepts`.
 fn selected_choice(
     raw: Option<&OsString>,
     variable: &'static str,
-    allowed: &'static [&'static str],
+    accepts: fn(&[u8]) -> bool,
 ) -> Result<Option<String>, EnvironmentError> {
     let Some(raw) = raw else {
         return Ok(None);
     };
     let value = raw
         .to_str()
-        .filter(|value| allowed.contains(value))
+        .filter(|value| accepts(value.as_bytes()))
         .ok_or_else(|| {
             EnvironmentError::new(
                 variable,

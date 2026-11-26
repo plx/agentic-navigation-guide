@@ -160,7 +160,8 @@ complete and the final candidate is revalidated.
   be empty, but its envelope is still validated.
 - An active body is nonempty and contains only entry lines. The list delimiter
   is exactly `- `; a tab or a second unescaped space after the dash is
-  invalid. Blank lines and other Markdown inside the active body are invalid.
+  invalid. Blank lines and other Markdown inside the active body are invalid,
+  including a blank last body line immediately before the closing marker.
 - Indentation is space-only. The first entry is at depth zero; the first
   indented entry establishes a 1–16-space unit; later indentation is an exact
   multiple of that unit; depth may increase by one only beneath the
@@ -227,6 +228,14 @@ complete and the final candidate is revalidated.
   erased by `..` are checked in order, in-anchor results retain every
   link/reparse-ancestor rejection, and real-directory reductions plus paths
   proven genuinely external remain supported.
+- Parent-containing `--output` destinations no longer gain external authority
+  merely because their tail below the generation root contains `..`.
+  `dump --output` and `init --output` reduce such a spelling in order from the
+  canonical generation root: a link, reparse entry, missing entry, or
+  non-directory erased by `..` is rejected instead of followed, a spelling that
+  leaves and then returns to the root fails closed, an in-root result retains
+  every link/reparse-ancestor rejection, and a result proven to remain outside
+  the root is created beneath the reduced path's resolved parent.
 - On Windows, guide reads reject alternate streams, named-pipe/device
   namespaces, reserved DOS aliases, and unsupported verbatim forms. Output
   destinations reject the corresponding stream/device forms and validate a
@@ -250,6 +259,20 @@ complete and the final candidate is revalidated.
   and correctness-critical line floor, an 80% overall branch floor, a reviewed
   original-blocker mutation sentinel set, exact audit-regression traceability,
   and fixed release timing/RSS baselines through 100,000 flat entries.
+- The guide-language decisions (line endings, physical lines, markers, the
+  guide envelope, list items and indentation, entry text, choice lists, the
+  name codec, path validation, duplicate full paths, placeholder siblings,
+  and hierarchy assembly), generation limits, line formatting, and output
+  destinations, entry-type classification, placeholder accounting,
+  recursive discovery, guide-path authority, guide- and output-path
+  parent reduction, Windows name
+  rules, exclusion pattern compilation and matching, configuration
+  precedence, and exit-status policy now run through kernels that Verus
+  proves against the contract, including the dump-to-parse round trip. Specifications compile only for Verus, so
+  the product gains no dependency. An advisory `Verus Proofs` workflow
+  re-checks the proofs, and ordinary `cargo test` rejects gated executable
+  code, proof escapes, and unchecked specifications. See
+  `proofs/README.md`.
 
 ### Packaging, documentation, and licensing
 

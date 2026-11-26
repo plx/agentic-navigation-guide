@@ -11,6 +11,28 @@
   - errors.rs # Error handling
   - guide_input.rs # shared private guide-path validation and safe opening
   - parser.rs # logic for parsing guide from markdown
+  - path_codec.rs # Verus-verified name serialization and diagnostic rendering
+  - proven/ # Verus-verified decision kernels (see proofs/README.md)
+    - mod.rs
+    - anchor.rs # guide-path parent-reduction plan
+    - authority.rs # guide-path route by authority and per-entry walk checks
+    - choice.rs # choice-list tokenizing and expansion
+    - discovery.rs # recursive-discovery per-entry decision
+    - document.rs # lone-CR scan and guide-envelope fold
+    - entry.rs # entry text: comments, quoted and bare paths, placeholders
+    - generation.rs # dump/init limits, line formatting, integer parsing
+    - glob.rs # exclusion pattern compiler and matcher
+    - hierarchy.rs # parent assignment while assembling the parsed tree
+    - layout.rs # list-item splitting and indentation rules
+    - lines.rs # physical line splitting equal to str::lines
+    - marker.rs # marker-line grammar
+    - outcome.rs # ignored-guide policy, exit status, recursive outcomes
+    - output_path.rs # --output spelling, in-root route, destination mode rule
+    - path_rules.rs # validator path rules and containment theorems
+    - placeholder.rs # placeholder accounting and item resolution
+    - settings.rs # environment-variable scope, value acceptance, precedence
+    - tree_rules.rs # unique full paths and placeholder sibling rules
+    - windows_names.rs # Windows namespace and component rules
   - validator.rs # logic for validating syntax of guide
   - verifier.rs # logic for verifying guide against file system
   - dumper.rs # file-system-hierarchy "dumping" logic
@@ -78,6 +100,11 @@
   - history/ # Clearly non-normative retained design records
     - README.md # Historical-document status and authority index
     - Specification.md # Original specification (docs/history/Specification.md), retained as non-normative evidence
+- proofs/ # Verus harness over the product sources (not packaged)
+  - README.md # what is proven, trusted base, pinned toolchain
+  - round_trip.rs # proof-only dump-to-parse round-trip theorems
+  - run.sh # run Verus on the verification root
+  - verus_root.rs # Verus crate root that includes the product modules
 - release/
   - identity.toml # Machine-readable prepared version and pinned baseline evidence
   - maintainer-continuity.toml # Machine-readable public owner, missing-control, and exception-expiry record
@@ -111,6 +138,7 @@
     - site-check.yml # Pull-request site validation
     - site-publish.yml # GitHub Pages publication
     - verify-guide.yml # Navigation-guide consistency check
+    - verus-proofs.yml # Advisory pinned-Verus proof check
 - THIRD_PARTY_LICENSES.md # generated bundled-dependency attributions (CI-gated)
 - NOTICE # Apache-2.0 section 4(d) notice for downstream distributors
 - LICENSE-MIT
@@ -147,8 +175,10 @@
   - issue_55_platform_conformance.rs # Three-platform full-suite, capability, skip, and release-dependency policy
   - issue_47_output_contract.rs # Fixed CLI stream, quiet-mode, and recursive-diagnostic matrix
   - issue_101_parent_explicit_guide.rs # Parent-containing explicit-guide authority and cross-platform ancestor regressions
+  - parent_output_destination.rs # Parent-containing --output reduction, link rejection, and documentation alignment
   - issue_66_readme_examples.rs # Cross-platform README, package lifecycle, and immutable-CI smoke contract
   - issue_58_test_hermeticity.rs # Subprocess isolation, transient owner, and empty-facade acceptance contract
+  - verus_kernel_discipline.rs # Ghost-gating, proof-escape, and proof-reachability guards
   - test_check_coverage.py # Coverage report floor and missing-instrumentation regressions
   - test_check_mutation_report.py # Mutation report completeness and survivor regressions
   - test_check_release_identity.py # Release-identity checker mutation regressions

@@ -28,6 +28,7 @@ mod exclusion;
 mod guide_input;
 mod parser;
 mod path_codec;
+mod proven;
 mod recursive;
 mod types;
 mod validator;
@@ -70,12 +71,14 @@ fn main() {
         Command::Verify(args) => args.execute(&mut config),
     };
 
-    // Handle the result and exit with appropriate code
+    // Handle the result and exit with appropriate code. Every status from
+    // here on, success included, comes from the verified exit-status table;
+    // argument and environment errors above exit through clap.
     match result {
-        Ok(CommandOutcome::Completed) => std::process::exit(0),
+        Ok(CommandOutcome::Completed) => std::process::exit(cli::get_exit_code(&config, false)),
         Ok(CommandOutcome::Ignored { count }) => {
             debug_assert_ne!(count, 0);
-            std::process::exit(0);
+            std::process::exit(cli::get_exit_code(&config, false));
         }
         Err(e) => {
             if !e.is_reported() {

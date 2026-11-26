@@ -5,6 +5,7 @@ use crate::errors::{AppError, Result};
 use crate::exclusion::ExclusionMatcher;
 use crate::guide_input::{self, GuideAnchor, GuideAuthority, GuideInputError};
 use crate::parser::Parser;
+use crate::proven::discovery::{self, DiscoveryAction};
 use crate::types::{Config, ExecutionMode, LogLevel};
 use crate::validator::Validator;
 use crate::verifier::Verifier;
@@ -150,42 +151,44 @@ where
 
             // Match the child name before metadata access or opening the child
             // as a directory. Excluded directories therefore never reach
-            // `read_dir`.
-            if exclude_matcher.is_match(&relative_path)? {
+            // `read_dir`. The per-entry decision is the verified
+            // `proven::discovery` kernel.
+            if discovery::prunes_before_inspection(exclude_matcher.is_match(&relative_path)?) {
                 continue;
             }
 
             let matches_guide_name = name == OsStr::new(guide_name);
             let metadata = fs::symlink_metadata(&path)
                 .map_err(|error| discovery_entry_error(&relative_path, error.kind()))?;
-            if guide_input::is_link_like(&metadata) {
-                if matches_guide_name {
+            match discovery::inspected_entry_action(
+                matches_guide_name,
+                guide_input::is_link_like(&metadata),
+                metadata.is_dir(),
+            ) {
+                DiscoveryAction::ValidateLink => {
+                    // Validation rejects a link or reparse entry with the
+                    // guide name; it is never traversed or accepted.
                     anchor
                         .validate_implicit(&path, &relative_path)
                         .map_err(map_guide_input_error)?;
                 }
-                continue;
-            }
+                DiscoveryAction::AcceptGuide => {
+                    anchor
+                        .validate_implicit(&path, &relative_path)
+                        .map_err(map_guide_input_error)?;
 
-            if matches_guide_name {
-                anchor
-                    .validate_implicit(&path, &relative_path)
-                    .map_err(map_guide_input_error)?;
-
-                // Preserve the caller-facing spelling for diagnostics and
-                // root-alias behavior. GuideAnchor and Verifier canonicalize
-                // this already validated real containing directory internally.
-                let root_path = path.parent().unwrap_or(root).to_path_buf();
-                guides.push(GuideLocation {
-                    guide_path: path,
-                    root_path,
-                    logical_path: relative_path,
-                });
-                continue;
-            }
-
-            if metadata.is_dir() {
-                pending_directories.push(relative_path);
+                    // Preserve the caller-facing spelling for diagnostics and
+                    // root-alias behavior. GuideAnchor and Verifier canonicalize
+                    // this already validated real containing directory internally.
+                    let root_path = path.parent().unwrap_or(root).to_path_buf();
+                    guides.push(GuideLocation {
+                        guide_path: path,
+                        root_path,
+                        logical_path: relative_path,
+                    });
+                }
+                DiscoveryAction::Descend => pending_directories.push(relative_path),
+                DiscoveryAction::SkipLink | DiscoveryAction::Skip => {}
             }
         }
     }

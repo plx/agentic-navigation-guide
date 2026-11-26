@@ -122,8 +122,12 @@ reparse entry, dangling link, or special entry, and there is no force mode. The
 parent directory must already exist and be writable.
 
 An output beneath the selected generation root cannot traverse a link or
-reparse ancestor. An explicitly selected external output may use a stable
-resolved link ancestor. The full guide is generated before one exclusive
+reparse ancestor. An output path that starts beneath the generation root and
+contains `..` is reduced in order first: a link, reparse entry, or
+non-directory that `..` would erase is rejected rather than followed, a path
+that leaves and then returns to the root fails, and only a path proven to stay
+outside the root is treated as external. An explicitly selected external
+output may use a stable resolved link ancestor. The full guide is generated before one exclusive
 create; writes, flush, and data synchronization complete before success.
 Identity-safe cleanup removes a failed command's own artifact without deleting
 an entry whose observed identity differs from the one it created.

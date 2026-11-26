@@ -103,6 +103,16 @@ cargo run -- verify --recursive --allow-empty
 cargo run -- init --output AGENTIC_NAVIGATION_GUIDE.md
 ```
 
+### Formal Verification (Verus)
+
+```bash
+# Check every Verus proof with a locally built, pinned Verus (see proofs/README.md)
+just verify-proofs /path/to/verus
+
+# Guard that runs in ordinary cargo test, without Verus
+cargo test --test verus_kernel_discipline
+```
+
 ## Architecture
 
 This is a CLI tool for verifying hand-written navigation guides against filesystem structure. The architecture follows these principles:
@@ -130,6 +140,30 @@ This is a CLI tool for verifying hand-written navigation guides against filesyst
    batch verification for monorepos with nested navigation guides. It performs
    bounded directory enumeration and verifies each guide relative to its parent
    directory.
+
+7. **Proven kernels** (`src/proven/`, plus `src/path_codec.rs` and
+   `classify_observation` in `src/entry_type.rs`, verified in place): pure
+   decisions that the modules above delegate to and that
+   [Verus](https://github.com/verus-lang/verus) proves against
+   `docs/v0.2-contract.md`. `proofs/verus_root.rs` is the Verus crate root;
+   `proofs/README.md` lists what each kernel proves and what is trusted.
+
+### Verified-Kernel Rules
+
+- Specifications, proof blocks, and lemmas compile only under
+  `cfg(verus_keep_ghost)`; ordinary builds see plain Rust and the product
+  takes no Verus dependency. `#[cfg(verus_keep_ghost)]` may gate only
+  `proof!`, `proof_decl!`, `verus!`, and spec imports; never gate executable
+  code. `tests/verus_kernel_discipline.rs` enforces this, forbids proof
+  escapes (`assume`, `admit`, `external_body`, `assume_specification`), and
+  requires every specified file to be reachable from `proofs/verus_root.rs`.
+- Keep production glue thin: glue maps kernel verdicts to `SyntaxError`/
+  `AppError` values and messages; the decision itself stays in the kernel.
+  Kernel entry points called from unverified code take no `requires` beyond
+  what Rust types guarantee.
+- After changing a verified function or its spec, run
+  `just verify-proofs /path/to/verus` and mutation-test the change; the
+  `Verus Proofs` workflow runs the same check.
 
 ### Data Flow
 
